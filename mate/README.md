@@ -1,0 +1,2263 @@
+# Mate 🧉
+
+Mate es un lenguaje de programación chico, con palabras en castellano. Sirve para armar
+**agentes**: partes del programa que reciben mensajes, consultan a una IA y contestan. Vos
+escribís las reglas (qué precios puede nombrar, qué no puede prometer, cuánto puede gastar por
+día) y Mate revisa cada respuesta de la IA antes de que salga.
+
+Versión 0.5. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
+Se escribe con el Bloc de notas y se corre desde PowerShell.
+
+```
+mensaje Consulta { pregunta: texto }
+
+agente Mostrador {
+    frenos {
+        precios: [3500, 1250, 950]
+        prohibido: ["descuento", "fiado"]
+        reserva: "Eso te lo confirma una persona. Ya te paso."
+    }
+    al recibir Consulta como c {
+        responder consultar_ia("Atendés un almacén. La yerba sale $ 3.500.", c.pregunta,
+                               "La yerba sale $ 3.500.")
+    }
+}
+
+mostrar(preguntar Consulta { pregunta: "¿Cuánto sale la yerba?" } a Mostrador)
+```
+
+## Instalarlo
+
+En Windows 10 u 11, sin permisos de administrador. Son tres pasos y se hacen una sola vez.
+
+**1. Instalá Python.** Bajalo de `python.org/downloads` y abrí el instalador. En la primera
+pantalla, abajo, marcá la casilla **"Add python.exe to PATH"** antes de tocar "Install Now".
+
+**2. Bajá Mate.** Entrá a `github.com/mayoristafirestars-cloud/mate`, apretá el botón verde
+"Code" y después "Download ZIP". Hacé clic derecho sobre el archivo y elegí "Extraer todo" (no
+alcanza con abrirlo: hay que sacarlo afuera). Adentro está la carpeta `mate`.
+
+**3. Doble clic en `instalar.bat`**, el que está **dentro de la carpeta `mate`**. Deja la orden
+`mate` lista para usar desde cualquier carpeta, y dice en pantalla qué hizo y cómo deshacerlo.
+Si Windows muestra un cartel azul ("Windows protegió su PC"), elegí "Más información" y
+después "Ejecutar de todas formas". Para comprobarlo, abrí PowerShell y escribí:
+
+```
+mate --version
+mate curso
+```
+
+Lo que hay que saber del instalador:
+
+- **Escribe un solo archivo**: un "lanzador" de cinco renglones, `mate.cmd`, en una carpeta de
+  tu usuario que Windows ya revisa cuando escribís una orden
+  (`AppData\Local\Microsoft\WindowsApps`). No toca el PATH ni el registro de Windows, no copia
+  Mate a otro lado y no baja nada de internet.
+- **Mate sigue viviendo en su carpeta.** Si la movés o le cambiás el nombre, la orden deja de
+  andar: corré `instalar.bat` de nuevo desde el lugar nuevo.
+- **Para deshacerlo**: `.\mate\instalar.bat quitar` en PowerShell, o borrá ese `mate.cmd` a
+  mano. No queda nada más.
+- **Si falta Python**, o es anterior al 3.10, lo avisa y no instala nada. (Si en la
+  computadora hay dos, uno viejo que contesta a `python` y uno nuevo que contesta a `py`,
+  tanto el instalador como `mate.bat` eligen el nuevo. Y si Mate llega a correr con un
+  Python anterior al 3.10, lo dice en castellano en vez de fallar con un error raro.) Lo mismo si no puede
+  escribir el lanzador o si, después de escribirlo, la orden `mate` no anda: en ese caso lo
+  borra y te dice por qué.
+- **Todavía no se probó en una Windows de verdad.** Se escribió y se revisó con cuidado
+  (carpetas con espacios, con paréntesis, usuarios con tildes), pero desde una computadora
+  con Linux. Si hace algo raro, Mate anda igual sin instalar, con la orden larga de abajo.
+
+**Sin instalar** (y en Linux o Mac) se usa con la orden larga, parado en la carpeta que
+contiene a la carpeta `mate`. Todo este README está escrito con esa forma, que anda siempre:
+
+```
+python mate\mate.py curso
+```
+
+Con la orden instalada es lo mismo, más corto: donde dice `python mate\mate.py` se escribe
+`mate`. Los comandos que Mate te sugiere en pantalla ya salen con la forma que te toca.
+
+**Si aparece un error en inglés que dice `can't open file ... mate\mate\mate.py`** (o
+`No such file or directory`), no es Mate: es Python avisando que no encuentra `mate.py`,
+porque PowerShell está parado en otra carpeta (casi siempre, *adentro* de la carpeta `mate`
+en vez de al lado). Escribí `cd ..` para salir un nivel y probá de nuevo; con `dir` tenés que
+ver `mate` en la lista, como una carpeta más.
+
+**Para pasárselo a otra persona.** Pasale la dirección `github.com/mayoristafirestars-cloud/mate`
+o la página `docs\index.html`, que explica los pasos.
+
+## Por dónde empezar
+
+| Si querés... | Hacé esto |
+|---|---|
+| Aprender desde cero, sin saber programar | El **curso**: `python mate\mate.py curso`. Son 12 clases cortas, de "hola" a un mostrador con IA, lista de precios, frenos y lecciones. Están en `mate\curso` (ver [El curso](#el-curso)) |
+| Ver programas terminados | `mate\ejemplos`: once programas comentados renglón por renglón (la tabla está en [Primeros pasos en Windows](#primeros-pasos-en-windows)) |
+| Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
+| Que una IA te escriba un programa en Mate | `python mate\mate.py guia` imprime una página para pegarle antes de pedírselo |
+| Contarle a otra persona qué es Mate | La página `docs\index.html` (está fuera de la carpeta `mate`): un solo archivo que se ve bien en el celular |
+| Saber qué cambió en esta versión | [Qué cambió en la 0.5](#qué-cambió-en-la-05) |
+
+**Para qué no sirve todavía:** no atiende por WhatsApp ni por una página web (la charla es por
+teclado, en PowerShell); es un proyecto nuevo, de una sola persona, sin comunidad; y es lento
+y chico al lado de Python. El detalle está en [Límites de la versión 0.5](#límites-de-la-versión-05).
+
+## El curso
+
+En `mate\curso` hay doce clases. Cada una es un texto para leer (`clase_01_hola.md`, se abre
+con el Bloc de notas) y un programa para correr (`clase_01_hola.mate`), y trae siempre lo
+mismo: qué vas a lograr, el programa completo, el comando de PowerShell, lo que tiene que
+salir, el error más común con su arreglo, y un ejercicio con la solución
+(`clase_01_solucion.mate`). Ninguna necesita clave ni internet: desde la clase 9 la IA se
+ensaya con `--ia-simulada`.
+
+```
+python mate\mate.py curso
+python mate\mate.py curso 1
+notepad mate\curso\clase_01_hola.md
+python mate\mate.py correr mate\curso\clase_01_hola.mate
+```
+
+`curso` muestra la lista de clases y cómo abrir cada una; `curso 1` muestra la clase 1 en la
+misma ventana. `mate\curso\README.md` cuenta cómo hacer el curso. Los textos de las clases
+están escritos con la orden larga y parado al lado de la carpeta `mate`; si usás la orden
+instalada (`mate curso 1`) o estás en otra carpeta, `curso 1` te muestra la clase con los
+comandos ya reescritos para donde estás, listos para copiar.
+
+| Clase | Tema |
+|---|---|
+| 1 | Hola, tu primer programa |
+| 2 | Guardar valores con nombre (`sea`, `var`, `pesos`) |
+| 3 | Que el programa decida (`si`, `sino`) |
+| 4 | Listas y bucles (`para`) |
+| 5 | Funciones y pruebas (`funcion`, `prueba`, `asegurar`) |
+| 6 | Que el programa te pregunte (`leer`, `mientras`, `intentar`) |
+| 7 | Tu lista de precios de Excel (`leer_tabla`) |
+| 8 | El primer agente (`mensaje`, `agente`, `preguntar`) |
+| 9 | Un agente que consulta a una IA (`consultar_ia`, `--ia-simulada`) |
+| 10 | Frenos, para poder confiar en la IA (`frenos`) |
+| 11 | Un agente que recuerda y aprende (`estado recordado`, `corregir`, `propuestas`) |
+| 12 | El mostrador completo |
+
+## Qué busca Mate
+
+Un lenguaje chico, con palabras en español, pensado para tres cosas:
+
+1. **Escribir código más práctico y con menos sorpresas.**
+2. **Que los agentes se hablen entre ellos** con mensajes que tienen contrato.
+3. **Aprender de sus errores.** Un agente recuerda de una corrida a la otra, anota solo lo
+   que le salió mal y no repite un error que le corregiste (ver [Mate aprende](#mate-aprende)).
+
+Y una cuarta, que es lo que más lo separa de "hacerlo en Python": **que puedas confiarle la
+atención a un agente con IA.** El agente declara sus `frenos` en castellano y Mate revisa
+cada respuesta de la IA antes de que salga: que no invente precios, que no prometa lo que no
+puede, que no gaste más de lo que le dijiste (ver [Frenos](#frenos)).
+
+```bash
+python3 mate/mate.py correr mate/ejemplos/negociacion.mate
+```
+
+```bash
+python3 mate/mate.py correr mate/ejemplos/equipo.mate --traza
+```
+
+```bash
+python3 mate/mate.py probar mate/ejemplos/negociacion.mate
+```
+
+```bash
+python3 mate/mate.py verificar mate/ejemplos/negociacion.mate
+```
+
+En Windows (PowerShell) es lo mismo con `python` y barras al revés:
+
+```
+python mate\mate.py correr mate\ejemplos\hola.mate
+```
+
+## Primeros pasos en Windows
+
+No hace falta saber programar ni instalar nada más que Python.
+
+**1. Instalar Python (una sola vez).** Bajalo de `python.org/downloads` y abrí el instalador.
+En la primera pantalla, abajo, marcá la casilla **"Add python.exe to PATH"** antes de tocar
+"Install Now". Sin esa casilla, Windows después no encuentra a Python.
+
+**2. Abrir PowerShell en la carpeta de trabajo.** En el Explorador de archivos entrá a la
+carpeta donde está la carpeta `mate` (tenés que ver `mate` como una carpeta más, no estar
+adentro). Hacé clic en la barra de arriba donde figura la dirección, escribí `powershell` y
+apretá Enter. Se abre una ventana azul o negra: ahí se escriben las órdenes. Para comprobar
+que Python quedó bien instalado:
+
+```
+python --version
+```
+
+Tiene que contestar algo como `Python 3.12.4`. Si dice que `python` "no se reconoce", cerrá
+PowerShell, volvé a correr el instalador marcando la casilla del paso 1 y abrí PowerShell de nuevo.
+
+**3. Escribir el programa en el Bloc de notas.** En esa misma ventana escribí:
+
+```
+notepad hola.mate
+```
+
+El Bloc de notas pregunta si querés crear el archivo: decile que sí. Escribí este renglón y
+guardá con `Ctrl+S`:
+
+```
+mostrar("Hola desde Mate")
+```
+
+Si en cambio creás el archivo desde el Bloc de notas con "Guardar como", elegí
+**Tipo: Todos los archivos** y **Codificación: UTF-8**; si no, queda como `hola.mate.txt`
+(Mate igual te avisa cuando pasa).
+
+**4. Correrlo.** De vuelta en PowerShell:
+
+```
+python mate\mate.py correr hola.mate
+```
+
+Tiene que aparecer `Hola desde Mate`. Con la flecha para arriba vuelve la última orden, así no
+hay que tipearla de nuevo cada vez que cambiás el programa.
+
+**5. Para escribir menos: `mate.bat`.** Al lado de `mate.py` hay un `mate.bat` que hace lo mismo
+con una orden más corta:
+
+```
+.\mate\mate correr hola.mate
+```
+
+También podés arrastrar un archivo `.mate` con el mouse y soltarlo encima de `mate.bat`: lo
+corre y deja la ventana abierta hasta que apretás una tecla. (El `mate.bat` se escribió con
+cuidado pero todavía no se probó en una Windows de verdad: si hace algo raro, la orden larga
+del paso 4 anda siempre.) Y para no escribir ni el `.\mate\`, está `instalar.bat`: deja la
+orden `mate` lista desde cualquier carpeta (ver [Instalarlo](#instalarlo)).
+
+**6. Si algo sale mal.** Mate te dice el archivo, el número de renglón y qué pasó, en
+castellano. En el Bloc de notas, `Ctrl+G` te lleva a ese renglón. Y si no te acordás cómo se
+usa una palabra, preguntale a Mate: `python mate\mate.py ayuda si` (o `ayuda para`,
+`ayuda largo`...) muestra una explicación corta con un ejemplo para copiar.
+
+**7. Seguir aprendiendo.** Lo mejor para arrancar es [el curso](#el-curso)
+(`python mate\mate.py curso`). Además, en `mate\ejemplos` hay once programas cortos, explicados renglón por
+renglón, para leer y correr en orden:
+
+| Archivo | Qué enseña |
+|---|---|
+| `01_hola.mate` | mostrar algo en pantalla |
+| `02_variables.mate` | guardar valores con `sea` y `var`, plata y textos |
+| `03_decisiones.mate` | `si`, `sino si`, `sino` |
+| `04_listas_y_bucles.mate` | listas, mapas, `para`, `mientras`, `romper` y `continuar` |
+| `05_funciones_y_pruebas.mate` | funciones, errores atajados y pruebas |
+| `06_primer_agente.mate` | el primer agente con sus mensajes |
+| `07_agente_con_ia.mate` | un agente que le consulta a una IA de verdad (se prueba sin clave) |
+| `08_agente_que_aprende.mate` | un agente con memoria, lecciones y bitácora de errores (se prueba sin clave) |
+| `09_con_python.mate` | sumar lo que Mate no trae con funciones escritas en Python (usa `ayudas.py`, que está al lado) |
+| `10_mostrador_mayorista.mate` | un mostrador que lee tu lista de precios de Excel (usa `precios.csv`, que está al lado), charla por teclado y contesta con la IA (se prueba sin clave) |
+| `11_mostrador_con_frenos.mate` | un mostrador con frenos: Mate revisa cada respuesta de la IA (precios, palabras prohibidas, largo), le pone tope al gasto del día y propone lecciones (se prueba sin clave) |
+
+```
+python mate\mate.py correr mate\ejemplos\01_hola.mate
+```
+
+**8. Pedirle un programa a una IA.** Esta orden imprime una página con todo Mate:
+
+```
+python mate\mate.py guia
+```
+
+Copiá lo que muestra y pegalo al empezar un chat con un asistente (Claude, por ejemplo) antes
+de pedirle el programa: así escribe Mate de verdad y no inventa palabras. Para guardarla en un
+archivo y abrirla con el Bloc de notas:
+
+```
+python mate\mate.py guia --guardar=guia.txt
+notepad guia.txt
+```
+
+(No uses `> guia.txt`: en PowerShell el archivo queda con las tildes y las eñes rotas.
+`--guardar` lo escribe Mate, y el Bloc de notas lo lee bien.)
+
+## La línea de comandos
+
+| Qué escribís | Qué hace |
+|---|---|
+| `correr archivo.mate` | corre el programa (también alcanza con poner solo `archivo.mate`) |
+| `probar archivo.mate` | corre las pruebas que el programa trae adentro |
+| `probar mate\ejemplos` | corre las pruebas de todos los `.mate` de esa carpeta (o de varios archivos) y da un total |
+| `verificar archivo.mate` | revisa el programa sin correrlo (contratos, nombres que no existen...) |
+| `guia` | imprime una página con todo Mate, para pegarle a una IA (`python mate\mate.py guia`) |
+| `ayuda` | muestra las órdenes y un ejemplo listo para copiar |
+| `ayuda si` | explica una palabra de Mate o una función incluida (`ayuda largo`), con un ejemplo |
+| `consola` | abre la consola, para probar renglones sueltos sin crear un archivo |
+| `curso` | lista las clases del curso y dice cómo abrir cada una; `curso 3` muestra la clase 3 (ver [El curso](#el-curso)) |
+| `corregir archivo.mate Mostrador "..."` | le anota una lección a ese agente, sin tocar el programa (ver [Mate aprende](#mate-aprende)) |
+| `lecciones archivo.mate` | muestra las lecciones de cada agente; con `Mostrador --borrar=2` le borra la 2 |
+| `bitacora archivo.mate` | resume las fallas que fueron anotando los agentes de ese programa, los frenos que saltaron y cuánto consultó a la IA cada agente por día |
+| `propuestas archivo.mate` | muestra las lecciones propuestas, que ningún agente usa hasta que las aprobás (ver [Lecciones propuestas](#lecciones-propuestas)) |
+| `propuestas archivo.mate aprobar 1` | aprueba la propuesta 1 (pasa a ser una lección); con `descartar 1` la saca |
+| `proponer archivo.mate Mostrador "..."` | le contás qué estuvo mal y Mate redacta la lección y la deja propuesta |
+| `informe` | resume los errores de uso que Mate fue anotando en esta computadora (ver [El lenguaje también aprende](#el-lenguaje-también-aprende-el-registro-de-errores-de-uso)) |
+| `informe --para-mejorar` | arma un texto listo para pegarle a un asistente o a un equipo de agentes y pedirle mejoras para Mate |
+| `informe --borrar` | borra el registro de errores de uso |
+| `--traza` | muestra la conversación entre agentes, mensaje por mensaje, numerada y con lo que falló |
+| `--traza=conversacion.txt` | guarda esa conversación en un archivo, con un resumen al final |
+| `--guardar=guia.txt` | con `guia` o con `informe`: deja el texto en ese archivo en vez de mostrarlo, con las tildes bien para el Bloc de notas |
+| `--sin-limite` | no corta los programas que dan muchísimos pasos |
+| `--ia-simulada` | `consultar_ia` no sale a la red ni gasta: da su respuesta preparada |
+| `--ia-simulada=respuestas.txt` | lo mismo, con las respuestas escritas en ese archivo |
+| `--olvidar` | con `correr`: los agentes arrancan de cero, sin lo que recordaban de otras corridas |
+| `--sin-registro` | esta vez Mate no anota nada en el registro de errores de uso |
+| `--depurar` | si Mate falla por dentro, muestra el detalle técnico |
+| `--version` | dice qué versión de Mate es |
+
+Si te equivocás al tipear, Mate te lo dice en vez de seguir de largo: `corer` sugiere `correr`,
+`--trasa` sugiere `--traza`, y si el archivo no está te muestra los `.mate` que sí hay en esa
+carpeta. Si el Bloc de notas lo guardó como `hola.mate.txt`, también te avisa (y si le pasás
+ese nombre completo, lo corre igual con un aviso). La orden va siempre primero: si escribís
+`hola.mate probar`, Mate te dice que es `probar hola.mate`.
+
+**Si el comando se pega dos veces.** En PowerShell es fácil pegar el mismo comando dos veces
+en un renglón, y queda algo como `python mate\mate.py correr mio.matepython mate\mate.py
+correr mio.mate`. Mate se da cuenta y te muestra el comando bien escrito:
+
+```
+parece que el comando se pegó dos veces en el mismo renglón. Escribilo una sola vez:
+  python mate\mate.py correr mio.mate
+```
+
+Lo mismo en la consola de Mate con un renglón pegado dos veces (`sea x = 1sea x = 1`). Y si
+lo que se pegó fue el comando (o la pantalla de PowerShell, `PS C:\...>`) **adentro del
+archivo** `.mate`, el error dice eso mismo y qué renglón borrar.
+
+### Ayuda de una palabra
+
+```
+python mate\mate.py ayuda mientras
+```
+
+contesta qué hace `mientras` y muestra un ejemplo corto que se puede copiar tal cual. Vale para
+todas las palabras de Mate (`si`, `para`, `agente`, `enviar`, `prueba`, y también
+`ayuda al fallar`) y para todas las funciones incluidas (`ayuda largo`, `ayuda pesos`). En las
+funciones el ejemplo es la forma de llamarla (`pesos(1234.5)`): así suelto anda en la consola;
+en un programa va adentro de otra cosa, `mostrar(pesos(1234.5))` o `sea t = pesos(1234.5)`. Si escribís una palabra de otro lenguaje
+(`ayuda print`) te dice cuál es la de Mate, y si le errás por una letra (`ayuda mostar`)
+sugiere la parecida.
+
+### La consola
+
+Para probar algo cortito sin crear un archivo:
+
+```
+python mate\mate.py consola
+```
+
+Aparece `  1>` y Mate espera un renglón. Lo que escribís corre al apretar Enter:
+
+```
+  1> sea precio = 3500
+  2> precio * 2
+7000
+  3> funcion con_iva(p) {
+  4.     devolver p * 1.21
+  5. }
+  6> pesos(con_iva(precio))
+"$ 4.235,00"
+  7> salir
+```
+
+- Un valor suelto (`precio * 2`) se muestra solo, sin escribir `mostrar`. Los textos salen
+  entre comillas, para distinguir `"5"` de `5`.
+- Si queda una llave, un paréntesis o un corchete sin cerrar, o el renglón termina en un
+  operador o una coma (`1 +`), la consola sigue en el renglón de abajo (el número termina en
+  `.` en vez de `>`). Un renglón vacío corta ahí.
+- Si la entrada llega redirigida desde un archivo y trae una letra que no se puede leer, la
+  consola pone un signo en su lugar y sigue: nunca se cierra por eso.
+- Lo que declarás (variables, funciones, mensajes, agentes) queda para los renglones
+  siguientes. Solo acá se puede volver a escribir `sea precio = 4000` o la misma `funcion`
+  para corregirla: reemplaza a la anterior. En un archivo eso sigue siendo un error.
+- Los renglones se numeran de corrido, así que si un error dice `línea 4` es el renglón 4 de
+  lo que escribiste. Un error no cierra la consola.
+- `ayuda si` explica una palabra ahí mismo. Las pruebas no corren en la consola: van en un
+  archivo, con `probar`.
+- `consultar_ia` desde la consola sale a la IA de verdad (y se paga), igual que con `correr`.
+  Para probar sin gastar: `python mate\mate.py consola --ia-simulada` (o
+  `--ia-simulada=respuestas.txt`), y cada consulta da su respuesta preparada.
+- Para terminar: `salir` (o `Ctrl+Z` y Enter en Windows).
+
+## Cuando algo sale mal
+
+Mate nunca debería mostrarte un error de Python en inglés:
+
+- **Archivos del Bloc de notas**: se leen guardados como UTF-8, "Unicode" o ANSI, con o sin `ñ`.
+- **Cosas pegadas desde Word o WhatsApp**: las comillas curvas `“así”` y los espacios raros o
+  invisibles se aceptan como los comunes. Si queda algún otro carácter que no se ve, el error
+  dice después de qué está, para borrarlo y escribirlo de nuevo.
+- **Costumbres de otros lenguajes**: para `;`, `&&`, `||`, `!`, `//`, comillas simples o un texto
+  sin cerrar, el error explica cómo se escribe en Mate.
+- **Programas que nunca terminan**: después de 10.000.000 de pasos Mate corta y dice en qué
+  renglón estaba (un `mientras` cuya condición nunca cambia, casi siempre). Con `--sin-limite`
+  se desactiva, para los programas que son largos de verdad.
+- **Topes de seguridad**: además de ese freno, Mate corta una función que se llama a sí misma
+  sin parar (`demasiada recursión`: hay lugar para 3.000 llamadas una adentro de la otra, y el
+  error nombra la función) y los programas que se quedan sin memoria. Ninguno de esos cortes
+  se puede atajar con `intentar`. (Con un Python anterior al 3.12 el lugar es menor: unas 180
+  llamadas.)
+- **Cosas demasiado grandes**: un texto o una lista de más de 10.000.000 de elementos
+  (`rango(100000000000)`, un texto que se duplica sin parar, `unir`, `texto`, `a_json` o
+  `"{...}"` con una lista enorme) o un número entero de más de unas 4.000 cifras son un error
+  común, con su renglón, en vez de colgar la consola.
+- **Ctrl+C** corta el programa y dice en qué renglón iba.
+- **Números imposibles**: una cuenta que da un número demasiado grande es un error con su
+  renglón, y `numero("inf")` o `numero("nan")` no se aceptan.
+- **Consolas viejas de Windows**: si no pueden mostrar `✓`, `✗` o `→`, Mate escribe `OK`,
+  `FALLA` y `->`.
+- **Llaves, paréntesis y corchetes sin cerrar**: en vez de quejarse del final del archivo, el
+  error dice dónde se abrió: `la llave que se abrió en la línea 4 (al recibir Ping) nunca se
+  cierra`.
+- **Un renglón que no hace nada**: `i + 1` suelto, `mostrar "hola"` sin paréntesis o
+  `agregar(lista, 4)` sin guardar el resultado antes pasaban en silencio. Ahora son un error
+  que dice qué faltó (`este renglón calcula un valor y no hace nada con él`, `a 'mostrar' le
+  faltan los paréntesis`, `agregar() no cambia la lista: devuelve una nueva`). Una cuenta
+  suelta se avisa antes de correr, esté donde esté. Y estos errores no se atajan con
+  `intentar`: para validar un dato se guarda el resultado,
+  `intentar { sea n = numero(dato) ... } si falla e { ... }`.
+- **Porcentajes**: `sea iva = 21%` no existe en Mate (`%` es el resto de una división). El
+  error lo dice en ese renglón: se escribe `21 / 100` o `0.21`.
+- **`si no` separado**: se escribe `sino`, todo junto, y el error lo explica.
+- **Dónde termina un renglón**: una sentencia termina donde termina su renglón. Sigue en el
+  de abajo solo si quedó abierto un `(`, un `[` o una `{`, o si el renglón termina en un
+  operador (`+`, `-`, `y`, `==`, `=`...) o en una coma. Un renglón no puede empezar con `+`,
+  `*`, `/`, `==`, `y` u `o`; y un `-1` al principio de un renglón ya no se pega a la cuenta
+  de arriba. `responder`, `fallar`, `enviar` y `asegurar` llevan lo suyo en el mismo renglón.
+- **Un `sea` de más**: dentro de un `si`, `para`, `mientras` o `intentar`, escribir
+  `sea cuenta = i` cuando ya hay una `cuenta` afuera no cambiaba nada y no avisaba. Ahora el
+  error dice `'cuenta' ya existe afuera de este bloque` y que hay que sacar el `sea`. Lo
+  mismo con un `estado` del agente. Una función o una prueba sí pueden usar adentro un
+  nombre que también existe en el programa, con una excepción: desde un `si`, `para`,
+  `mientras` o `intentar` de adentro de la función (o de la prueba, o de un `al recibir`) no
+  se puede repetir el nombre de una variable `var` del programa, que es el caso en el que
+  casi seguro se la quiso cambiar.
+- **Comparar un texto con un número**: `"18" == 18` daba `falso` sin avisar. Ahora es un
+  error que sugiere `numero("18")`. Comparar con `nada` sigue valiendo.
+- **El renglón del error**: debajo del mensaje Mate muestra el renglón señalado, por ejemplo
+  `    2 | mostrar(totl)`. Para ir a ese renglón en el Bloc de notas: `Ctrl+G` y el número.
+- **Nombres mal tipeados**: si escribís `totl` y existe `total`, o `mostar` en vez de
+  `mostrar`, el error termina con `¿Quisiste decir 'total'?`. Vale también para campos,
+  claves de mapas, mensajes y agentes.
+- **Nombres que no existen, antes de correr**: un nombre mal escrito en una parte del
+  programa que casi nunca se usa (adentro de un `si`, de una función, de un agente, de una
+  prueba) antes saltaba recién el día que el programa pasaba por ahí. Ahora Mate lo avisa
+  antes de empezar, con el mismo texto (`no existe 'totl'. ¿Quisiste decir 'total'?`), y
+  también una llamada con valores de más o de menos (`largo(lista, 2)`, o `doble(1, 2)` si
+  `doble` lleva uno solo). Mate avisa solo cuando está seguro; ante la duda deja correr:
+  - lo declarado afuera de todo (`sea`, `var`, `funcion`, `agente`) vale aunque esté más
+    abajo en el archivo, o en un archivo traído con `usar`;
+  - adentro de `intentar { ... }` y de `asegurar falla { ... }` no revisa, porque ahí la
+    falla se ataja o es justo lo que se está probando;
+  - si el mismo nombre falta en varios renglones, lo dice una sola vez (el primero);
+  - en la consola no avisa de nombres, porque lo que falta se puede escribir en el renglón
+    siguiente.
+- **Todos los errores se escriben igual**: `archivo:renglón: error: lo que pasó`, y debajo
+  el renglón señalado. Vale para los errores comunes y para los de un agente
+  (`mercado.mate:12: error: Vendedor al recibir Pedido: no vendo café`), con `correr` y
+  también debajo de cada prueba con `probar`.
+- **Palabras de otros lenguajes, con tilde o con mayúscula**: `print`, `if`, `else`, `true`,
+  `función`, `número` o `Si` no se aceptan, pero el error dice cómo se escribe en Mate
+  (`mostrar`, `si`, `sino`, `verdadero`, `funcion`, `numero`, `si`). Si vos le pusiste uno de
+  esos nombres a algo tuyo (`sea def = 5`, `mensaje Return`), Mate lo respeta.
+- **Condiciones mal escritas**: `si x = 5`, `si 1 < x < 10`, `si x > 3 y < 10` y
+  `si x > 3 entonces` explican cómo va cada una (`==`, `1 < x y x < 10`, repetir la variable,
+  y la llave `{` directamente). También `=>`, `=<`, `===` y `<>` (van `>=`, `<=`, `==` y `!=`).
+- **Nombres que no se pueden usar**: `sea y = 1` avisa que `y` es una palabra propia de Mate, y
+  `sea texto = "hola"` que `texto` es una función incluida; en los dos casos hay que elegir otro
+  nombre. Como nombre de *campo* sí valen las palabras propias de Mate:
+  `mensaje Envio { estado: texto, para: texto }` y después `e.estado`.
+- **"No se puede cambiar"**: el error dice por qué: es un `sea`, un parámetro, la variable del
+  `para`, el mensaje recibido, una función o un agente.
+- **Números escritos a la argentina**: en el código el punto es el de los decimales, así que
+  `1.500` vale uno y medio. Como casi siempre se quiso decir mil quinientos, Mate frena y lo
+  explica (`1.500 vale 1.5, no 1500`); lo mismo con `1.500.000`. Los miles se escriben todos
+  juntos o con guion bajo: `1500` o `1_500`. Y `3,5` suelto dice `los decimales van con punto,
+  no con coma: 3.5`. (El aviso salta con tres decimales terminados en cero, como `1.500` o
+  `12.250`; `2.125` se toma como el decimal que es.)
+- **Errores con `nada`**: "no se puede hacer nada + numero" se leía como otra frase. Ahora dice
+  `no se puede sumar el valor nada con un número` y agrega la causa más común: a la función le
+  falta un `devolver`, o es un campo opcional que vino vacío.
+- **Posiciones de una lista**: `lista[3]` en una lista de tres dice `la lista tiene 3
+  elementos, así que las posiciones van de 0 a 2`, y recuerda `ultimo(lista)`. Si la posición
+  salió de una cuenta con decimales (`lista[largo(lista) / 2]`), sugiere `redondear()`.
+- **Más controles antes de correr**: `yo` o `remitente` fuera de un agente, una clave repetida
+  en un mapa (`{ a: 1, a: 2 }`), un parámetro o un estado repetido, y `nada` en un campo
+  obligatorio de un mensaje se avisan antes de empezar, no cuando el programa llega ahí.
+- **Un `asegurar` que falla muestra los valores**: `asegurar a + 1 == 4` dice
+  `no se cumplió lo asegurado: dio 3 y se esperaba 4`. Si los dos lados se ven iguales pero no
+  lo son (`0.1 + 0.2 == 0.3`), muestra el número completo y recuerda redondear antes de comparar.
+- **Por dónde se llegó al error**: si el error pasó adentro de una función, o en un agente al
+  que otro le preguntó, debajo del renglón señalado aparece el recorrido:
+  `cómo se llegó: en dividir(), llamada desde precio() (línea 5), llamada desde la línea 9`,
+  o `... se lo preguntó Comprador a Vendedor (línea 16)`. El texto del error no cambia.
+- **Condiciones que nunca pueden ser verdadero o falso**: `si 1 { }`, `mientras "a" { }`,
+  `verdadero y 1` o `si x + 1 { }` se avisan antes de correr, estén donde estén en el
+  programa (antes saltaban recién cuando el programa pasaba por ahí).
+- **Nombres con mayúscula**: quedan para los mensajes y los agentes. `sea Listo = verdadero`
+  dice que va `listo`. Y si te olvidás las llaves de un mensaje sin campos
+  (`preguntar Ping a Agente`), el error dice `Escribí Ping {}`.
+- **La llave en el renglón de abajo**: `mensaje Pedido`, `agente Vendedor` y `crear Vendedor`
+  aceptan que la `{` venga en el renglón siguiente. (Antes, en un mensaje, eso declaraba un
+  mensaje vacío sin avisar.)
+- **`tiene` y `quitar`**: `tiene("hola", 1)` dice que dentro de un texto se busca otro texto, y
+  `quitar("hola", "h")` que `quitar` es para listas y mapas (para un texto va `reemplazar`).
+- Si igual aparece "error interno de Mate", no es culpa tuya: corré de nuevo con `--depurar`
+  y guardá lo que muestra.
+
+## Un ejemplo
+
+```
+mensaje Pedido { producto: texto, cantidad: numero }
+mensaje Cotizacion { producto: texto, total: numero }
+
+agente Vendedor {
+    estado precios = { yerba: 3500, azucar: 1200 }
+
+    al recibir Pedido como p {
+        si no tiene(precios, p.producto) {
+            fallar "no vendo {p.producto}"
+        }
+        responder Cotizacion { producto: p.producto, total: precios[p.producto] * p.cantidad }
+    }
+}
+
+sea c = preguntar Pedido { producto: "yerba", cantidad: 3 } a Vendedor
+mostrar("Total: {c.total}")
+
+prueba "cotiza precio por cantidad" {
+    sea c = preguntar Pedido { producto: "azucar", cantidad: 2 } a Vendedor
+    asegurar c.total == 2400
+}
+```
+
+## Qué lo hace más práctico
+
+| Idea | Cómo se ve |
+|---|---|
+| Los valores son fijos salvo que digas lo contrario | `sea iva = 0.21` no cambia; `var total = 0` sí |
+| Nada se convierte a escondidas | `"precio: " + 100` es un error; se escribe `"precio: {100}"` |
+| Las condiciones son `verdadero` o `falso`, nunca "algo parecido" | `si 1 { }` es un error |
+| Modificar una copia no toca el original | `var b = a` y después `b.n[0] = 99` deja `a` intacto |
+| Los errores dicen la línea y se pueden atajar | `intentar { ... } si falla e { ... }` |
+| Las pruebas viven al lado del código | `prueba "nombre" { asegurar ... }` y `mate probar` |
+| Un renglón que no sirve para nada se avisa | `agregar(lista, 4)` sin guardar el resultado es un error |
+| Atajos solo donde ahorran de verdad | `total += precio` y `total -= 1` (no hay `*=` ni `/=`) |
+
+## Cómo hablan los agentes
+
+- `mensaje Nombre { campo: tipo }` declara el **contrato** de un mensaje. Tipos: `numero`,
+  `texto`, `logico`, `lista`, `mapa`, `agente`, `cualquiera` u otro mensaje. `tipo?` lo hace opcional.
+- Una lista puede decir de qué es: `items: lista de Pedido`, `vendedores: lista de agente`,
+  `precios: lista de numero`. Así no pasa una lista con cosas mezcladas: el error dice en qué
+  posición está lo que sobra (`recibió una lista que en la posición 1 tiene un número`).
+- Un campo también puede decir **qué valores acepta**, después del tipo:
+
+  ```
+  mensaje Pedido {
+      producto: texto,
+      cantidad: numero desde 1 hasta 100,
+      prioridad: texto en ["baja", "media", "alta"] = "media",
+      descuento: numero hasta 0.5 = 0
+  }
+  ```
+
+  `desde` y `hasta` ponen un rango a un `numero` (vale uno solo de los dos); `en [...]` deja
+  elegir entre opciones fijas (de `texto` o de `numero`); y `= valor` es el **valor por
+  defecto**: ese campo puede faltar, y si falta (o viene `nada`) toma ese valor, así que
+  `Pedido { producto: "yerba", cantidad: 2 }` sale con `prioridad: "media"` y `descuento: 0`.
+  Van en ese orden y con valores escritos a mano (no una cuenta ni una variable). Mate lo
+  controla **siempre que se arma el mensaje** (también al cambiarle un campo o al leerlo con
+  `de_json`) y, si el valor está escrito a mano en el programa, **antes de correr**. El error
+  dice el campo, el valor y la regla:
+  `Pedido.cantidad no puede valer 500: el mensaje dice 'desde 1 hasta 100', así que tiene que estar entre 1 y 100`
+  o `Pedido.prioridad no puede valer "alto": el mensaje dice que tiene que ser una de estas opciones: "baja", "media", "alta". ¿Quisiste decir "alta"?`.
+  Una regla que no cierra (`desde 5 hasta 1`, un valor por defecto que no cumple su propia
+  regla, `desde` en un campo de texto) se avisa en la declaración del mensaje.
+  Para **probar que el contrato rechaza un valor** alcanza con
+  `asegurar falla { Pedido { producto: "yerba", cantidad: 500 } }`: adentro de
+  `asegurar falla { }` y de `intentar { }` ese valor escrito a mano no frena el programa antes
+  de correr, porque ahí la falla es justo lo que se espera. Si el valor sale de una cuenta con
+  decimales (`0.1 + 0.2` guarda 0.30000000000000004 aunque se muestre 0.3) y por ese resto
+  queda afuera de la regla, el error muestra el valor de verdad y avisa que hay que pasarlo
+  por `redondear()` antes de ponerlo en el mensaje.
+- El contrato también puede decir **qué se contesta**:
+  `mensaje Pedido { producto: texto } responde Cotizacion`. Si un agente le responde otra cosa
+  a un `Pedido`, la falla es de ese agente (no del que preguntó) y el error señala su
+  `responder`. Sin `responde`, se puede contestar cualquier valor, como siempre.
+- `agente Nombre { ... }` tiene su `estado` privado y un `al recibir Tipo como x { }` por cada
+  mensaje que entiende. Ningún agente puede tocar el estado de otro ni las variables de afuera
+  (tampoco llamando a una función de afuera que las cambie).
+- Los mensajes y las respuestas llevan **datos**: números, textos, listas, mapas, otros mensajes
+  o agentes. Una función no puede viajar adentro de un mensaje.
+- `enviar Mensaje { ... } a Agente` lo deja en la cola y sigue (asíncrono). Si ese agente no
+  tiene un `al recibir` para ese mensaje, el error sale ahí mismo, en el renglón del `enviar`.
+- `enviar Aviso { ... } a [norte, sur]` le manda el mismo mensaje a cada agente de la lista
+  (también vale una variable que guarda una lista de agentes). Si alguno de la lista no sabe
+  recibirlo, el error sale ahí mismo y no se le manda a ninguno. `preguntar` sigue siendo de a
+  uno: para preguntarle a varios se recorre la lista con `para`.
+- `preguntar Mensaje { ... } a Agente` espera y devuelve la respuesta. Si el otro agente falla
+  (con `fallar`, con un `asegurar` que no se cumple o con cualquier otro error), el error le
+  llega al que preguntó, que lo puede atajar con `intentar`.
+- Lo que el programa ya envió se entrega antes de su siguiente `preguntar` (y, en una prueba,
+  antes de cada `asegurar`): así la respuesta ya cuenta lo enviado.
+- Si un agente falla mientras atiende un mensaje, vuelve a como estaba antes de recibirlo: su
+  estado no cambia y lo que había dejado para `enviar` no sale. Lo que ya mostró en pantalla y
+  lo que otros agentes hicieron al contestarle no se deshace. También cuenta como falla suya no
+  responder a un `preguntar`, o responderle a un `enviar` con algo que no es un mensaje o que
+  el otro no sabe recibir.
+- **`al fallar`**: un `enviar` no espera, así que el que envía no se entera si el otro falló.
+  Si quiere enterarse, el agente declara (una sola vez) un `al fallar`:
+
+  ```
+  agente Comprador {
+      estado sin_atender = 0
+      al recibir Encargar como e { enviar Pedido { producto: e.producto } a Vendedor }
+      al fallar como f {
+          sin_atender += 1
+          mostrar("{f.destino} no pudo con {f.mensaje.producto}: {f.motivo}")
+      }
+  }
+  ```
+
+  `f.motivo` es el texto del error, `f.mensaje` el mensaje que había mandado y `f.destino` el
+  agente que falló. Con `al fallar`, esa falla queda en manos del agente y ya no se anota como
+  error del programa; sin `al fallar`, todo sigue como antes. Adentro no va `responder` (es un
+  aviso, no una pregunta), pero sí `enviar`. Vale para lo que el agente mandó con `enviar`: lo
+  que manda con `preguntar` ya le llega como error y se ataja con `intentar`.
+- Si el programa se corta por un error y antes había fallado algún agente, Mate muestra primero
+  el error del agente (suele ser la causa) y después el que cortó.
+- Si el programa se corta por un error y quedaban mensajes en la cola, Mate dice cuáles no
+  llegaron (`quedaron 2 mensaje(s) sin entregar:`).
+- `responder valor` contesta al `remitente` y termina de atender ese mensaje. Solo va dentro de
+  `al recibir` (o de una función del agente); `devolver` va dentro de una función, o dentro de
+  `al recibir` para terminar sin contestar. Fuera de lugar, Mate lo avisa antes de correr.
+- `yo` es el agente que está atendiendo; sirve para mandarse a sí mismo dentro de un mensaje.
+- Si los agentes se preguntan en ronda, el error muestra la cadena completa:
+  `ciclo de preguntas: A → B → C → A. A le preguntó a B (línea 4), B le preguntó a C (línea 5)...`
+- `--traza` muestra la conversación entera, mensaje por mensaje:
+
+  ```
+    ·  1. (programa) → Comprador: Comprar { producto: "azucar", cantidad: 4 }   (conversación 1)
+    ·  2.    Comprador pregunta a Vendedor Norte: Pedido { producto: "azucar", cantidad: 4 }
+    ·  2.    Vendedor Norte responde a Comprador: Cotizacion { total: 4560 }
+    ·  3.    Comprador pregunta a Vendedor Sur: Pedido { producto: "azucar", cantidad: 4 }
+    ·  3.    Vendedor Sur falló: no vendo azucar
+    ·  1. la respuesta de Comprador se descartó (para recibirla, usá 'preguntar' en vez de 'enviar'): Cotizacion { total: 4560 }
+  ```
+
+  Cada mensaje lleva su número, en el orden en que se entregó, y lo que pasa con ese
+  mensaje repite el número: `responde` (lo que contestó), `falló` (con el motivo) o
+  `sin respuesta` (le preguntaron y terminó sin llegar a un `responder`). Lo que un agente
+  pregunta mientras atiende va con sangría, debajo del mensaje que está atendiendo. Si un
+  agente le responde a un `enviar` del programa, esa respuesta no le llega a nadie: la
+  traza lo dice (`la respuesta ... se descartó`) y sugiere `preguntar`. Sin `--traza` no se
+  muestra nada de esto.
+- Cada entrega lleva su **"sobre"**: el número del mensaje, quién lo manda, a quién, el
+  **número de conversación** y, si es la respuesta a un `enviar`, a qué mensaje contesta. Una
+  conversación empieza cada vez que el programa (o una prueba) manda algo; todo lo que los
+  agentes mandan mientras atienden eso, y sus respuestas, sigue en la misma. En la traza va al
+  final de los renglones sin sangría (los de más adentro son de la conversación del renglón
+  que los contiene), y sirve para no perderse cuando dos conversaciones se mezclan en la cola:
+
+  ```
+    ·  3. Coordinador → Investigador: Investigar { tema: "ventas" }   (conversación 1)
+    ·  4. Coordinador → Investigador: Investigar { tema: "stock" }   (conversación 2)
+    ·  5. Investigador → Coordinador: Hallazgos { tema: "ventas" }   (conversación 1, en respuesta al 3)
+  ```
+
+  No hay nada que escribir en el programa para tenerlo, y sin `--traza` no cambia nada. En
+  las pruebas el mismo sobre se puede consultar con `mensajes_enviados()` (ver "Las pruebas"),
+  y con `probar --traza` la traza de cada prueba usa esos mismos números: dentro de cada
+  prueba los mensajes y las conversaciones se cuentan desde 1.
+  Es la base para, más adelante, conectar programas entre sí.
+- Con `--traza=conversacion.txt` la conversación no se muestra: se guarda en ese archivo (se
+  abre con el Bloc de notas), con los mismos renglones, y al final anota cuántos mensajes
+  hubo y cuántos fallaron. El archivo queda en la
+  carpeta donde estás parado; Mate no acepta un nombre terminado en `.mate` o `.py`, para no
+  pisar un programa. Con `probar` sobre varios archivos o una carpeta, el archivo junta la
+  conversación de todos, una sección por archivo.
+- `a_json(mensaje)` y `de_json(texto)` pasan los mensajes a JSON y de vuelta, validando el contrato.
+  También viajan los agentes, incluidas las copias hechas con `crear`. Para eso Mate usa dos
+  formas reservadas: `{"tipo": "Pedido", "campos": {...}}` es un mensaje y
+  `{"agente": "Vendedor"}` es un agente. Ojo: un mapa tuyo que tenga justo esas claves (y
+  nombre un mensaje o un agente que existe) vuelve de `de_json` convertido en eso; si no
+  querés eso, usá otras claves.
+- `de_json(texto, "Pedido")` además exige que lo que llegó sea un `Pedido` (o un `"numero"`,
+  una `"lista de Pedido"`...): sirve para los datos que vienen de afuera. Si el texto trae un
+  mapa suelto con los campos (`{"producto": "yerba", "cantidad": 2}`), arma el `Pedido` con
+  ellos, también cuando está adentro de una lista (`"lista de Pedido"`) o de otro mensaje
+  (un `Pedido` con `items: lista de Item`); si no cumple el contrato, el error lo dice.
+
+### Varias copias de un agente
+
+Declarar un `agente` ya crea uno con ese nombre. Con `crear` nacen más, cada uno con su estado:
+
+```
+sea norte = crear Vendedor llamado "Norte" { descuento: 0.05 }
+sea sur = crear Vendedor llamado "Sur" { precios: { yerba: 3300 } }
+sea otro = crear Vendedor
+```
+
+Entre llaves va el estado inicial que querés distinto; el resto arranca como en la declaración.
+Tiene que ser del mismo tipo que el declarado: si `precios` arranca como mapa y le das un número,
+Mate avisa (`Vendedor.precios arranca como mapa y le diste numero`). `nada` vale siempre
+("sin tope", "sin cliente todavía"). Lo que le das reemplaza a lo declarado: esa parte de la
+declaración ni se calcula.
+`llamado` le pone nombre para la traza (`Vendedor Norte`); sin eso se llama `Vendedor#2`.
+El nombre puede ser cualquier texto (`llamado "Sucursal " + ciudad`), pero tiene que ser un
+texto (con un número o con `nada` es un error, y `llamado Sur` sin comillas también) y
+no se repite: crear dos `Vendedor` llamados `"Norte"` es un error, porque no se los podría
+distinguir.
+Si un agente crea una copia mientras atiende un mensaje y después falla, esa copia se deshace
+junto con su estado, y el nombre queda libre.
+Las copias se guardan en variables y se pueden mandar dentro de un mensaje (tipo `agente` o `lista`).
+
+### Varios archivos
+
+```
+usar "catalogo.mate"
+```
+
+Trae los mensajes, agentes, funciones y variables (`sea` y `var`) del otro archivo (se busca al
+lado del que lo usa). Un nombre que ya vino de ahí no se puede declarar de nuevo: el error dice
+de qué archivo viene. Lo que ese archivo ejecuta y sus pruebas no se traen, así que un mismo archivo sirve como
+programa y como biblioteca. Usarlo dos veces no molesta. Ver `ejemplos/mercado.mate`.
+Si el nombre va sin `.mate` (`usar "catalogo"`), Mate lo prueba también con `.mate`. Si el
+archivo no aparece, el error sugiere el nombre parecido, avisa si el Bloc de notas lo guardó
+como `.mate.txt` o muestra los `.mate` que hay en esa carpeta (con o sin `.mate` en el nombre); y si el error está adentro del archivo traído, dice quién lo trajo:
+`(este archivo, catalogo.mate, se trajo con 'usar' desde mercado.mate, línea 5)`.
+
+**Antes de correr**, Mate revisa los nombres (que todo lo que se nombra exista, y que las
+funciones reciban la cantidad de valores que llevan: ver "Cuando algo sale mal") y los
+contratos: avisa si a un mensaje le falta o le sobra un
+campo, si un valor literal es del tipo equivocado, si le mandás a un agente (o a una copia
+guardada con `sea`) algo que no sabe recibir, o si le preguntás a un agente que para ese mensaje
+nunca llega a un `responder` (un `fallar` adentro de un `si` no cuenta como respuesta; un
+`al recibir` que termina en `fallar` sí vale: falla siempre, a propósito). Lo que no se puede
+saber de antemano se valida al construir el mensaje.
+
+### Funciones escritas en Python: `usar python`
+
+Mate es chico a propósito: hay cosas que no trae (una raíz cuadrada, contar los días entre dos
+fechas, leer una planilla). Para eso no hace falta tocar Mate: esa función se escribe en un
+archivo de Python que va **al lado del programa**, y el programa la llama.
+
+El archivo de Python, `ayudas.py` (se escribe con el Bloc de notas, igual que un `.mate`):
+
+```python
+import math
+
+def raiz(numero):
+    return math.sqrt(numero)
+```
+
+Y el programa de Mate:
+
+```
+usar python "ayudas.py"
+
+mostrar(ayudas.raiz(144))      # 12
+```
+
+`usar python` trae las funciones de ese archivo, y cada una se llama con el nombre del archivo
+adelante: `ayudas.raiz(...)`. El ejemplo completo es `ejemplos\09_con_python.mate`, y
+`python mate\mate.py ayuda python` lo resume.
+
+**Las reglas, que son pocas:**
+
+- **El archivo va en la carpeta del programa** (o en una carpeta de adentro:
+  `usar python "extras/ayudas.py"`). No puede estar afuera: ni `..`, ni una ruta completa.
+- **El nombre del archivo es el que se escribe en el programa**, así que va en minúsculas, sin
+  espacios ni guiones, y no puede ser una palabra de Mate: `ayudas.py`, `mis_cuentas.py`.
+- **Se ven las funciones escritas ahí con `def`.** Las que empiezan con guion bajo (`_asi`) no
+  se ven: en Python así se marcan las de uso interno.
+- **Solo cruzan valores simples**: números, textos, `verdadero`/`falso` (en Python, `True` y
+  `False`), `nada` (`None`), listas y mapas (en Python, diccionarios con claves de texto). Un
+  mensaje se pasa como mapa, con `a_mapa(pedido)`. Van y vuelven **copiados**: si el Python le
+  agrega algo a una lista que recibió, la lista del programa no cambia.
+- **Un error dentro del Python es un error de Mate**: sale con el renglón del `.mate` que hizo
+  la llamada, dice en qué renglón del `.py` pasó y qué dijo Python, y se ataja con `intentar`
+  (`detalle_de(e).clase` es `"python"`).
+- **Una función de Python puede ir sola en un renglón** (`ayudas.guardar(datos)`): Mate no
+  sabe si devuelve algo o si hace algo, así que no lo toma como un renglón sin uso.
+
+**Antes de correr**, `verificar` (y también `correr` y `probar`) avisa si el archivo no está
+(con el nombre parecido, o el aviso de que el Bloc de notas lo guardó como `ayudas.py.txt`), si
+Python no lo puede leer porque está mal escrito, y si el programa llama a una función que el
+archivo no tiene: `ayudas.py no tiene una función 'rais'. ¿Quisiste decir 'raiz'?`. Para eso
+Mate **lee** el `.py`, pero no lo ejecuta: `verificar` nunca corre código de Python.
+
+El archivo `.py` tiene que estar **en la carpeta del programa que se corre** (o en una de
+adentro). Eso vale también cuando el `usar python` está escrito en otro `.mate` que el
+programa trae con `usar`: si ese archivo está en otra carpeta y pide un `.py` de allá, Mate
+no lo carga y lo explica.
+
+**⚠ Ese Python corre con todos los permisos de la computadora.** Lo que está en un `.mate`
+tiene los cuidados de Mate (no toca archivos fuera de su carpeta, no sale a internet salvo
+`consultar_ia`, tiene freno). Lo que está en el `.py` **no tiene ninguno**: puede leer, cambiar
+y borrar cualquier archivo, y salir a internet. Y corre igual con `correr` que con `probar`
+(también con `probar`: es código de tu computadora, y Mate no lo puede frenar). Por eso:
+
+- Usá solo archivos `.py` **tuyos o de alguien de confianza**. Si te lo escribió una IA, leelo
+  antes (o pedile a otra que te explique qué hace) y fijate que no toque archivos ni internet
+  si no hace falta.
+- Lo que el `.py` guarde en sus propias variables no vuelve atrás entre una prueba y la otra
+  (lo de Mate sí). Conviene que sus funciones solo calculen: reciben valores y devuelven otro.
+- El freno de pasos de Mate no cuenta lo que pasa adentro del Python: un bucle que no termina
+  ahí adentro se corta con `Ctrl+C`.
+- Desde el `.py` se puede usar con `import` todo lo que trae Python (`math`, `datetime`,
+  `csv`...) y lo que tengas instalado. Mate no deja nada al lado del programa (tampoco la
+  carpeta `__pycache__` que Python suele armar).
+
+### Un agente que consulta a una IA de verdad
+
+`consultar_ia(instrucciones, pregunta)` le manda la pregunta a una IA de verdad (Claude, de la
+empresa Anthropic) y devuelve lo que contesta, como texto. Las instrucciones le dicen quién es
+y cómo tiene que contestar. El agente sigue siendo un agente común: recibe su mensaje con
+contrato, consulta, y responde con su mensaje de siempre.
+
+```
+mensaje Consulta { pregunta: texto }
+mensaje Atencion { respuesta: texto }
+
+agente Mostrador {
+    al recibir Consulta como c {
+        sea dicho = consultar_ia("Atendés un almacén. Contestá corto y amable.", c.pregunta,
+                                 "¡Hola! Ya te lo averiguo.")
+        responder Atencion { respuesta: dicho }
+    }
+}
+```
+
+El tercer valor es opcional: es lo que contesta cuando **no** se habla con la IA de verdad (en
+las pruebas y con `--ia-simulada`), igual que el segundo valor de `leer`. El ejemplo completo,
+con sus pruebas, es `ejemplos/07_agente_con_ia.mate`.
+
+**Para probar sin clave, sin internet y sin gastar:**
+
+```
+python mate\mate.py probar mate\ejemplos\07_agente_con_ia.mate
+python mate\mate.py correr mate\ejemplos\07_agente_con_ia.mate --ia-simulada
+```
+
+- Con `probar` Mate **nunca** sale a la red. Dentro de una prueba, `simular_ia("Sale $ 100")`
+  fija qué contesta la IA de ahí en más; con una lista da una respuesta por consulta, en orden:
+  `simular_ia(["Hola", "Chau"])`. Si una prueba llega a la IA y no hay ni `simular_ia` ni
+  tercer valor, es un error que lo dice.
+- `--ia-simulada` hace lo mismo al correr: cada `consultar_ia` da su tercer valor. Con
+  `--ia-simulada=respuestas.txt` las respuestas salen de un archivo escrito con el Bloc de
+  notas, un renglón por respuesta: a la izquierda lo que tiene que traer la pregunta (sin
+  importar mayúsculas ni tildes) y a la derecha lo que se contesta. El `*` contesta a todo lo
+  demás, y los renglones que empiezan con `#` no cuentan:
+
+  ```
+  # respuestas.txt
+  yerba => Sí, tenemos de medio kilo y de un kilo.
+  horario => Abrimos de 8 a 20.
+  * => Eso te lo averiguo y te aviso.
+  ```
+
+**Para correrlo de verdad en Windows** (es **pago**: Anthropic cobra cada consulta):
+
+1. Entrá a `platform.claude.com`, creá una cuenta, cargá crédito y sacá una clave (*API key*).
+2. En PowerShell, en la misma ventana donde vas a correr, guardá la clave (con la tuya):
+
+   ```
+   $env:ANTHROPIC_API_KEY = "tu-clave"
+   ```
+
+3. Corré el programa como siempre:
+
+   ```
+   python mate\mate.py correr mate\ejemplos\07_agente_con_ia.mate
+   ```
+
+- **La clave nunca va en el programa** `.mate` ni en ningún archivo de la carpeta: vive en esa
+  ventana de PowerShell y se va al cerrarla (hay que ponerla de nuevo cada vez). Mate no la
+  muestra nunca, ni en los errores ni en la traza. No se la pases a nadie.
+- El modelo es `claude-opus-5-5`. Para usar otro (por ejemplo uno más barato):
+  `$env:MATE_MODELO = "claude-haiku-5-5"`. Para volver al de siempre: `Remove-Item Env:MATE_MODELO`.
+- Si falta la clave, no hay internet, la clave no sirve, no hay crédito, se pasó el límite de
+  uso o la respuesta llegó cortada, es un error en castellano que dice qué hacer, y se ataja
+  con `intentar` (su clase en `detalle_de` es `"ia"`). Si la IA está saturada o se corta la
+  red, Mate prueba hasta dos veces más antes de avisar; y espera como mucho 3 minutos.
+- Mate corta el programa a las 50 consultas de verdad, por si dos agentes se quedan hablando en
+  bucle y la cuenta crece sola. `--sin-limite` saca ese freno.
+- Con `--traza` se ve cada consulta y lo que contestó la IA (recortado a un renglón).
+- Un detalle para quien sepa del tema: si un filtro de seguridad de Anthropic no deja contestar
+  al modelo, se le pide a Anthropic que pruebe con otro modelo en el mismo pedido (su opción
+  `fallbacks`). Mate usa el proxy que tenga configurado Windows.
+- Esta conexión se probó con respuestas armadas, no contra el servicio real: no había una
+  clave a mano al programarla. Si la primera consulta de verdad da un error raro, es el primer
+  lugar donde mirar.
+
+### Las pruebas
+
+Cada `prueba` empieza limpia: los agentes declarados arrancan con el mismo estado inicial que
+tuvieron al correr el programa, y las variables de afuera (también las que guarda una función
+hecha por otra función) y las copias hechas con `crear` vuelven a como las dejó el programa.
+Lo que una prueba cambia no le llega a la siguiente. Además:
+
+- Dentro de una prueba, `intentar` no ataja un `asegurar` de la prueba que no se cumple: la
+  prueba falla. (Al correr el programa con `correr`, un `asegurar` que no se cumple es un error
+  como cualquier otro y sí se puede atajar; y el de otro agente siempre le llega como error al
+  que le preguntó.)
+- Si varios agentes fallan durante una prueba, se muestran todos los errores, no solo el
+  primero, también cuando la prueba además falla por un `asegurar`.
+- Los errores de una prueba se escriben igual que con `correr`, sean de la prueba o de un
+  agente: `archivo:renglón: error: lo que pasó`, y debajo el renglón señalado. Si el renglón
+  es de un archivo traído con `usar`, el que se nombra es ese archivo: `catalogo.mate:7: error: ...`.
+- Si un agente falló al correr el programa, antes de las pruebas, `probar` lo muestra arriba de
+  los resultados y termina con error aunque las pruebas pasen.
+- Lo que una prueba muestra con `mostrar` aparece debajo de su nombre, con una barra adelante
+  (`      | Compro 10 de yerba`), y no mezclado con los resultados.
+- Si el archivo no tiene ninguna prueba, `probar` lo dice (y muestra cómo se escribe una). Dos
+  pruebas no pueden tener el mismo nombre: se avisa antes de correr.
+- `probar` también acepta una carpeta o varios archivos: `python mate\mate.py probar mate\ejemplos`
+  corre las pruebas de cada `.mate` de esa carpeta, uno por uno, y termina con el total
+  (`En total: 30 de 30 pruebas pasaron, en 15 archivos`) y la lista de los que tuvieron problemas.
+- `asegurar falla { ... }` es la forma corta de comprobar que algo **tiene que fallar**:
+
+  ```
+  prueba "no se puede dividir por cero" {
+      asegurar falla { dividir(1, 0) }
+  }
+  ```
+
+  Se cumple si lo de adentro falla; si no falla, la prueba dice `se esperaba que esto fallara,
+  y no falló` (o el texto que le pongas después de una coma). Sirve para lo que falla en el
+  momento: una cuenta (`asegurar falla { 10 / 0 }`), una función, un `preguntar`. Un nombre
+  mal escrito ahí adentro (`dividr(1, 0)`) no cuenta como la falla esperada: la prueba falla y
+  dice cuál es el nombre que no existe.
+- `simular` reemplaza, **solo dentro de esa prueba**, lo que un agente contesta a un mensaje:
+
+  ```
+  prueba "el comprador suma lo que le cotizan" {
+      simular Vendedor al recibir Pedido como p {
+          responder Cotizacion { total: p.cantidad * 10 }
+      }
+      asegurar preguntar Comprar { cantidad: 2 } a Comprador == 20
+  }
+  ```
+
+  Así se prueba al `Comprador` sin depender del `Vendedor` de verdad (el día de mañana, un
+  agente de IA). Lo simulado ve las variables de la prueba pero no las puede cambiar, no ve el
+  estado del agente, tiene que cumplir el contrato (`responde`) y se termina con la prueba: la
+  siguiente ya habla con el agente real. También vale para una copia: `simular norte al recibir ...`.
+
+- `mensajes_enviados()` deja comprobar **qué mensajes se mandaron** en la prueba (quién, a
+  quién y cuál), y no solo el resultado final:
+
+  ```
+  prueba "el comprador le pide al vendedor" {
+      enviar Encargar { producto: "yerba" } a Comprador
+      sea enviados = mensajes_enviados()
+      asegurar largo(enviados) == 2
+      asegurar enviados[1].de == "Comprador"
+      asegurar enviados[1].a == "Vendedor"
+      asegurar enviados[1].mensaje.producto == "yerba"
+      asegurar largo(mensajes_enviados("Pedido")) == 1
+  }
+  ```
+
+  Devuelve una lista, en el orden en que se entregaron, con un mapa por mensaje:
+
+  | Dato | Qué trae |
+  |---|---|
+  | `numero` | el número del mensaje dentro de la prueba, desde 1 |
+  | `de` y `a` | el nombre de quien lo mandó y de quien lo recibió, como texto (`"Vendedor"`, `"Vendedor Norte"`); si lo mandó la prueba, `"(programa)"` |
+  | `tipo` | el nombre del mensaje, como texto: `"Pedido"` |
+  | `mensaje` | el mensaje entero, para mirar sus campos |
+  | `pregunta` | `verdadero` si fue con `preguntar`, `falso` si fue con `enviar` |
+  | `conversacion` | el número de conversación (ver "Cómo hablan los agentes"), desde 1 en cada prueba |
+  | `respuesta_a` | si es la respuesta a un `enviar`, el `numero` del mensaje que contesta; si no, `nada` |
+
+  Con el nombre de un mensaje (`mensajes_enviados("Pedido")`) trae solo los de ese tipo. Antes
+  de contestar entrega lo que la prueba dejó en la cola, igual que `asegurar`. Cada prueba
+  arranca con el historial vacío (lo que mandó el programa antes de las pruebas no cuenta), y
+  también figuran los mensajes que fallaron. **Solo existe dentro de una prueba**: escrita en
+  el programa o en un agente es un error antes de correr.
+
+  Para ver esos números mientras armás la prueba, corré `probar` con `--traza`: debajo de cada
+  prueba aparece su conversación numerada **igual que en `mensajes_enviados()`** (desde 1 en
+  cada prueba), así que si la traza dice `en respuesta al 2`, el `asegurar` compara contra 2.
+  Con `--traza=conversacion.txt`, en el archivo cada prueba va con su título
+  (`Prueba "el nombre" ...`) y debajo sus mensajes, también desde 1.
+
+### Los datos de un error atajado: `detalle_de`
+
+En `intentar { ... } si falla e { ... }`, `e` es el texto del error. Para decidir qué hacer sin
+depender de cómo está redactado ese texto, `detalle_de(e)` devuelve un mapa con cuatro datos:
+
+| Dato | Qué trae |
+|---|---|
+| `detalle_de(e).texto` | el mismo texto de `e` |
+| `detalle_de(e).linea` | el número de renglón donde pasó |
+| `detalle_de(e).clase` | qué clase de error fue (la lista de abajo): no cambia aunque cambie la redacción |
+| `detalle_de(e).dato` | el valor que se le dio a `fallar`, tal cual (`fallar { codigo: 404 }`); en los demás errores, `nada` |
+
+Las clases son: `"fallar"` (un `fallar` del programa), `"asegurar"`, `"contrato"` (un mensaje
+o una respuesta que no cumple su contrato), `"clave"` (una clave o un campo que no está),
+`"posicion"`, `"division"` (por cero), `"nombre"` (un nombre que no existe), `"numero"` (un
+texto que no es un número), `"json"`, `"agente"` (no sabe recibir ese mensaje o no respondió),
+`"ciclo"` (de preguntas), `"archivo"` (un archivo que no está o que no se puede tocar),
+`"ia"` (la IA no contestó: sin clave, sin red, sin crédito...), `"tope"` (el agente llegó a su tope de consultas del día y sus frenos no tienen `reserva`), `"python"` (falló una función
+de un archivo traído con `usar python`) y `"otro"` para el resto. Hay que pasarle `e` tal cual llegó: si lo
+cambiás (`e + "!"`) es un texto común y `detalle_de` avisa que no es un error atajado.
+
+## Mate aprende
+
+Desde la versión 0.4 un agente puede mejorar con el uso. Son tres piezas que encajan:
+
+| Pieza | Qué hace | Dónde queda |
+|---|---|---|
+| **Memoria** | un dato del agente no se pierde cuando el programa termina | `mi_mostrador.memoria.json` |
+| **Lecciones** | correcciones que el agente tiene siempre en cuenta, y que la IA recibe sola | en ese mismo archivo |
+| **Bitácora** | cada falla de un agente queda anotada sola, con fecha y motivo | `mi_mostrador.bitacora.txt` |
+
+Los dos archivos aparecen **al lado del programa** (si el programa es `mi_mostrador.mate`, se
+llaman como en la tabla), se abren con el Bloc de notas y nunca se mandan a ningún lado: lo
+único que sale por internet es lo que ya salía con `consultar_ia`. Un programa que no usa
+nada de esto corre igual que antes y no crea ningún archivo.
+
+Con `probar` nada de esto se lee ni se guarda: cada prueba arranca limpia, sin memoria y sin
+lecciones. Solo `correr` toca esos archivos.
+
+El ejemplo completo es `ejemplos/08_agente_que_aprende.mate`; arriba, en sus comentarios,
+están los pasos para probarlo en PowerShell.
+
+Hay una cuarta pieza, que no es de los agentes sino del lenguaje: **Mate anota los errores
+que te muestra**, en `errores_de_uso.txt` (al lado de `mate.py`), para poder mejorar sus
+mensajes. Está más abajo, en
+[El lenguaje también aprende](#el-lenguaje-también-aprende-el-registro-de-errores-de-uso).
+
+### Memoria: `estado recordado`
+
+Es un `estado` como cualquiera, con una palabra más:
+
+```
+agente Mostrador {
+    estado recordado atendidos = 0        (se guarda al terminar y vuelve la próxima vez)
+    estado saludo = "Hola"                (este no: arranca siempre igual)
+
+    al recibir Consulta como c {
+        atendidos += 1
+        ...
+    }
+}
+```
+
+```
+python mate\mate.py correr mi_mostrador.mate          (atendidos termina en 1)
+python mate\mate.py correr mi_mostrador.mate          (arranca en 1 y termina en 2)
+```
+
+- El valor escrito después del `=` es el de la **primera vez** (o el de después de
+  `--olvidar`). Las demás veces arranca con lo que quedó guardado.
+- Se recuerdan **datos**: números, textos, `verdadero`/`falso`, listas, mapas y mensajes. Un
+  agente o una función no se pueden recordar: Mate avisa y ese dato arranca de cero.
+- Cada agente tiene lo suyo, y también cada copia **con nombre**
+  (`crear Mostrador llamado "Centro"` recuerda aparte, como `Mostrador Centro`). Una copia sin
+  nombre no recuerda, porque no se sabría cuál es cuál: Mate lo avisa. Si a `crear` le das un
+  valor para un estado recordado, es solo el de la primera vez.
+- Se guarda **también si el programa termina con un error** o lo cortás con Ctrl+C. Lo que
+  un agente cambió mientras atendía un mensaje que falló (o que cortaste con Ctrl+C a mitad
+  de camino) no cuenta: el agente vuelve a como estaba antes de ese mensaje, igual que
+  siempre. El archivo se escribe entero de una vez:
+  nunca queda a medio escribir.
+- Si cambiás el programa y un dato pasa a ser de otro tipo (antes era un número y ahora un
+  texto), Mate avisa y usa el valor inicial:
+  `aviso: Mostrador.atendidos está guardado en la memoria como texto y en el programa ahora es numero...`
+- Para **empezar de cero**: `python mate\mate.py correr mi_mostrador.mate --olvidar`. Borra lo
+  recordado y deja las lecciones (esas se borran aparte, más abajo).
+- El archivo se puede mirar y hasta corregir a mano con el Bloc de notas. Si queda mal escrito
+  (una coma de más, una llave sin cerrar), Mate no lo pisa ni sigue como si nada: dice en qué
+  renglón está el problema y no corre hasta que lo arregles, lo borres o uses `--olvidar`.
+  Ojo: con el archivo mal escrito, `--olvidar` no puede rescatar las lecciones, así que esa
+  vez **también se pierden**. Mate lo avisa y deja el archivo como estaba, con el nombre
+  `mi_mostrador.memoria.rota.json`, para que puedas abrirlo y volver a anotar con `corregir`
+  las que te importen.
+- **La memoria es del programa que corrés.** Si el agente está escrito en otro archivo y lo
+  traés con `usar`, lo que recuerda y sus lecciones se guardan con el programa principal
+  (`principal.memoria.json`), no con el archivo donde está escrito. Por eso en `corregir` y
+  `lecciones` va el programa que corrés. Si corregiste nombrando el otro archivo, Mate te
+  avisa al correr que esa memoria no se usa y te muestra el comando que sí.
+- Un mapa guardado vuelve siempre como mapa. Si tiene justo la forma que Mate usa para un
+  mensaje (las claves `tipo` y `campos`), en el archivo lo vas a ver envuelto en
+  `{"mapa": {...}}`: es para no confundirlo.
+- `recordado` no es una palabra reservada: solo significa algo después de `estado`.
+- **Con el programa abierto en una ventana se puede seguir trabajando desde otra**: anotar
+  una lección con `corregir`, aprobar una propuesta, o correr el mismo programa otra vez. Al
+  guardar, Mate relee el archivo y le **suma** lo de esa corrida (lo que cambió del estado,
+  las lecciones y propuestas nuevas, las consultas que hizo) en vez de pisarlo. Lo anotado
+  desde la otra ventana lo usa el agente desde su próxima corrida. Si las dos ventanas
+  cambiaron el mismo estado recordado, queda el de la que terminó última.
+
+Así se ve el archivo:
+
+```
+{
+  "que_es": "La memoria de mi_mostrador.mate: lo que cada agente recuerda...",
+  "agentes": {
+    "Mostrador": {
+      "estado": {
+        "atendidos": 2
+      },
+      "lecciones": [
+        {
+          "fecha": "21/11/2026 14:30",
+          "texto": "Si piden menos de 10 unidades, avisá que no hay envío"
+        }
+      ]
+    }
+  }
+}
+```
+
+### Lecciones: corregir a un agente
+
+Cuando el agente contesta algo mal, se lo corregís **desde PowerShell, sin tocar el programa**:
+
+```
+python mate\mate.py corregir mi_mostrador.mate Mostrador "Si piden menos de 10 unidades, avisá que no hay envío"
+```
+
+Va todo en un renglón: la orden, el programa, el nombre del agente y la lección entre comillas.
+Queda guardada con su fecha, y desde la próxima corrida el agente la tiene en cuenta. La
+lección puede empezar con un guion (`"-10% a los jubilados"`): con `corregir`, lo que viene
+después del agente es la lección.
+
+Una **copia con nombre** (`crear Mostrador llamado "Centro"`) se nombra con el agente y su
+nombre, entre comillas porque lleva un espacio: `corregir mi_mostrador.mate "Mostrador Centro"
+"Cerrá a las 20"`. Lo mismo en `lecciones`. Si el programa o su carpeta tienen espacios en el
+nombre, también van entre comillas; los comandos que Mate te sugiere ya las traen puestas.
+
+```
+python mate\mate.py lecciones mi_mostrador.mate                         (las muestra todas, numeradas)
+python mate\mate.py lecciones mi_mostrador.mate Mostrador               (solo las de ese agente)
+python mate\mate.py lecciones mi_mostrador.mate Mostrador --borrar=2    (le borra la número 2)
+python mate\mate.py lecciones mi_mostrador.mate Mostrador --borrar=todas
+```
+
+**Cómo le llegan a la IA.** No hay que cambiar nada en el programa: cada vez que ese agente
+llama a `consultar_ia`, Mate agrega sus lecciones solas al final de las instrucciones, así:
+
+```
+Atendés el mostrador de un almacén de barrio. Contestá en una sola oración corta.
+
+LECCIONES APRENDIDAS (correcciones que te hicieron antes: tenelas siempre en cuenta)
+1. Los domingos el almacén está cerrado.
+2. Si piden menos de 10 unidades, avisá que no hay envío
+```
+
+Con `--traza` se ve, debajo de cada consulta, un renglón por lección
+(`con la lección 1: "Los domingos..."`). Lo que consulta el programa principal, fuera de un
+agente, va sin lecciones.
+
+**Un agente también se anota lecciones solo**, y puede leer las que tiene:
+
+```
+al recibir Novedad como n {
+    aprender(n.texto)                 (se la anota; si ya la tenía, no la repite)
+}
+al recibir QueSabes {
+    responder lecciones()             (la lista de sus lecciones, como textos)
+}
+```
+
+- `aprender` y `lecciones` van dentro de un agente: cada uno anota y lee lo suyo. Una copia
+  con nombre usa las lecciones del agente del que es copia y, además, las propias.
+- Si el agente falla mientras atiende, lo que aprendió en ese mensaje no queda (igual que su
+  estado).
+- **Topes, para que no crezca el gasto** (las lecciones viajan en cada consulta, y cada
+  consulta se paga): hasta 20 lecciones por agente y hasta 300 letras cada una. Si se anota
+  una de más, se olvida la más vieja y Mate avisa. Una lección más larga que el tope no se
+  anota: es un error que dice cuántas letras tiene.
+- Las lecciones son texto que se le suma a las instrucciones: la IA las tiene en cuenta, pero
+  no es una garantía. Si algo tiene que cumplirse sí o sí, va en el programa (un `si`, un
+  contrato con `desde`/`hasta`), no en una lección.
+
+**En las pruebas** ningún agente tiene lecciones guardadas. Se le fijan con `aprender`,
+diciendo a qué agente, y `consultas_ia()` muestra lo que le llegó a la IA:
+
+```
+prueba "la lección le llega a la IA" {
+    aprender("No hay envío por menos de 10", Mostrador)
+    simular_ia("Por 5 no hay envío.")
+    sea a = preguntar Consulta { cliente: "Marta", pregunta: "¿Me mandan 5?" } a Mostrador
+    sea consulta = ultimo(consultas_ia())
+    asegurar tiene(consulta.instrucciones, "No hay envío por menos de 10")
+    asegurar lecciones(Mostrador) == ["No hay envío por menos de 10"]
+}
+```
+
+`consultas_ia()` da una lista con un mapa por consulta: `agente`, `instrucciones` (con las
+lecciones al final), `pregunta` y `respuesta` (`nada` si la consulta falló). Como
+`mensajes_enviados` y `simular_ia`, solo existe dentro de una prueba. Si el agente tiene
+[frenos](#frenos), cada consulta trae además `freno` y `devuelto`.
+
+### Bitácora: lo que salió mal queda anotado
+
+Si el programa tiene algún `estado recordado`, usa lecciones o algún agente tiene `frenos`,
+cada falla de un agente se anota sola en `mi_mostrador.bitacora.txt`, un renglón por falla:
+
+```
+21/11/2026 14:30 | Mostrador | la IA no contestó (lo atajó con 'intentar') | Consulta { cliente: "Marta", pregunta: "¿Hay yerba?" } | consultar_ia(): falta la clave para hablar con la IA...
+```
+
+Cada renglón trae la fecha, el agente, qué pasó, qué mensaje estaba atendiendo y el motivo.
+Se anota cuando un agente falla al atender un mensaje, cuando la IA no le contesta, cuando un
+mensaje o una respuesta no cumple su contrato, y también cuando el agente ataja el error con
+`intentar` (esas son las fallas que de otro modo nadie ve). Para leerla resumida:
+
+```
+python mate\mate.py bitacora mi_mostrador.mate
+```
+
+Muestra cuántas fallas hay, cuáles agentes fallan más, qué pasó, los motivos que más se
+repiten y las últimas cinco. Es el lugar donde mirar antes de escribir una lección. Si algún
+agente tiene [frenos](#frenos), ahí quedan también los frenos que saltaron, y al final sale
+cuánto consultó a la IA cada agente, día por día.
+
+- Guarda las últimas 200 fallas: las más viejas se van solas. Si borrás el archivo, empieza de
+  nuevo.
+- **La clave de la IA nunca queda escrita**, ni en la bitácora ni en la memoria.
+- Los avisos (`aviso: ...`) salen aparte de lo que muestra el programa, así que no se mezclan
+  con su salida.
+
+### Para sumárselo a un agente que ya tenés
+
+1. En el Bloc de notas, cambiá `estado atendidos = 0` por `estado recordado atendidos = 0` en
+   los datos que quieras que no se pierdan.
+2. Corré el programa como siempre. Cuando conteste algo que no te gusta, anotale la lección
+   con `corregir`.
+3. Cada tanto mirá `bitacora` para ver qué le viene fallando.
+
+### El lenguaje también aprende: el registro de errores de uso
+
+Lo de arriba es para que aprendan **tus agentes**. Esto otro es para que mejore **Mate**: cada
+vez que Mate te muestra un error, anota un renglón en un archivo de tu computadora. Con el
+tiempo ese archivo dice qué errores son los más comunes y, sobre todo, cuáles mensajes no
+alcanzaron (corriste, falló, corriste de nuevo y falló igual).
+
+**Qué se guarda y dónde.** Un solo archivo, `errores_de_uso.txt`, **al lado de `mate.py`** (en
+la carpeta `mate`, no en la de tus programas). Se abre con el Bloc de notas. Cada renglón:
+
+```
+21/11/2026 14:30 | Mate 0.4 | correr | antes de correr: no existe '<nombre>' | con sugerencia | 2 veces seguidas | no existe '<nombre>'. ¿Quisiste decir '<nombre>'?
+```
+
+Es decir: la fecha, la versión de Mate, la orden que usaste (sin el archivo), qué error fue,
+si Mate te dio una sugerencia, cuántas veces seguidas te salió, y el mensaje **con tus datos
+tapados**. "Seguidas" es: el mismo error, con la misma orden, sin otro error ni una corrida
+que anduvo bien en el medio, y a pocos minutos del anterior. (Cuando un `correr` o un
+`verificar` termina bien justo después de un error, Mate agrega al final del archivo un
+renglón que empieza con `#` para acordarse; no anota nada más de lo que sale bien.)
+
+- **No guarda tus programas** ni el renglón donde cayó el error.
+- **Tapa tus datos con marcas**: los textos entre comillas quedan como `"<texto>"`, los nombres
+  que elegiste como `'<nombre>'`, los archivos como `<archivo>`, las carpetas como `<ruta>` (ahí
+  suele estar tu nombre de usuario de Windows), lo que escribiste en la orden como `<dato>`, y
+  cualquier cosa con forma de clave como `<clave>`. La clave de la IA no queda escrita nunca.
+  Un dato entre comillas simples se tapa entero aunque traiga un apóstrofo (`'O'Higgins 4500'`,
+  `'D'Angelo'`), y una lección que empieza con guion también.
+- Lo que tu programa dice con `fallar` o con `asegurar` es texto tuyo: no se guarda, solo
+  queda anotado que el programa cortó con `fallar`.
+- **Nunca sale de tu computadora.** Mate no lo manda a ningún lado: lo único que sale por
+  internet sigue siendo lo que ya salía con `consultar_ia`. Si querés compartirlo, lo copiás
+  vos.
+- Guarda los últimos 500 renglones. Si lo borrás, empieza de nuevo. Si lo editás a mano y un
+  renglón queda mal, Mate lo saltea y te avisa cuántos no entendió.
+- **Con `probar` no se anota nada**, y tampoco cuando otro programa de Python usa a Mate por
+  dentro. Si la carpeta no deja escribir, Mate sigue como si nada.
+- Tus programas dan el mismo resultado que antes: el registro no cambia nada de lo que ves.
+
+**Para apagarlo.** Una vez: agregá `--sin-registro` al comando. Para toda la ventana de
+PowerShell:
+
+```
+$env:MATE_SIN_REGISTRO = "1"
+```
+
+Para siempre (cerrá y volvé a abrir PowerShell después): `setx MATE_SIN_REGISTRO 1`.
+
+**Para verlo resumido:**
+
+```
+python mate\mate.py informe
+```
+
+Muestra desde cuándo hay datos, los errores más frecuentes (con su mensaje), los que se
+repitieron seguido, cuántos traían una sugerencia y cuáles no, y con qué orden pasaron.
+
+**Para pedir mejoras:**
+
+```
+python mate\mate.py informe --para-mejorar
+```
+
+Arma un texto listo para copiar y pegarle a un asistente o a tu equipo de agentes: cuenta
+qué es Mate, pone el resumen y termina con preguntas concretas (qué mensaje cambiar, cómo
+quedaría escrito, qué arreglar primero). Mate no lo manda: lo copiás vos, y antes lo podés
+leer entero. Para guardarlo en un archivo:
+`python mate\mate.py informe --para-mejorar --guardar=pedido.txt` (con `> pedido.txt`, en
+PowerShell las tildes quedan rotas).
+
+**Para borrarlo:** `python mate\mate.py informe --borrar` (o borrá el archivo). `--borrar` y
+`--para-mejorar` van por separado: si las escribís juntas Mate no borra nada y te lo dice.
+
+Si al archivo (o a una bitácora) se le daña un renglón, Mate saltea ese solo: los demás se
+siguen leyendo bien, con sus tildes.
+
+## Frenos
+
+Una IA a veces inventa: un precio que no existe, un descuento que nadie autorizó, una
+respuesta de tres párrafos. Si un agente atiende clientes, eso no puede llegarle al cliente.
+Con **frenos**, el agente declara sus reglas y **Mate revisa cada respuesta de `consultar_ia`
+antes de devolverla**. No se le pide a la IA que se controle sola: el control lo hace Mate,
+siempre igual, y queda anotado.
+
+```
+mensaje Consulta { pregunta: texto }
+
+agente Mostrador {
+    estado lista = [35000, 9800.5, 14500]
+
+    frenos {
+        precios: lista
+        prohibido: ["descuento", "fiado"]
+        largo: 400
+        reserva: "Eso te lo confirma una persona, ya te paso."
+        consultas_por_dia: 100
+    }
+
+    al recibir Consulta como c {
+        responder consultar_ia("Atendés el mostrador de un mayorista.", c.pregunta)
+    }
+}
+```
+
+`frenos` va dentro del agente, una regla por renglón. Todas son opcionales:
+
+| Regla | Qué lleva | Qué controla |
+|---|---|---|
+| `precios` | una lista de números (o la tabla de precios) | los únicos importes en pesos que la IA puede nombrar |
+| `prohibido` | una lista de textos | palabras o temas que no pueden aparecer en la respuesta |
+| `largo` | un número | cuántas letras puede tener la respuesta, como mucho |
+| `reserva` | un texto | lo que se contesta en lugar de una respuesta mala |
+| `consultas_por_dia` | un número | el tope de gasto: cuántas consultas a la IA puede hacer por día |
+| `tokens_por_dia` | un número | otro tope de gasto: cuántos tokens puede gastar por día |
+
+Si hay `precios`, `prohibido` o `largo`, tiene que haber `reserva` (Mate lo avisa antes de
+correr). El valor de cada regla puede usar el estado y las funciones del agente, y se calcula
+de nuevo en cada consulta: si la lista de precios cambia, el freno la sigue. Un agente sin
+`frenos` funciona exactamente igual que antes.
+
+**Unos frenos mal escritos frenan el programa, no pasan de largo.** Un valor fijo que no
+sirve (`consultas_por_dia: -5`, `largo: 2.5`, una `reserva` vacía) se avisa antes de correr.
+Y si el error aparece recién al calcularlos (una función que nombra una columna que no
+existe, una lista donde iba un número), el programa corta ahí con el archivo y el renglón
+de la regla: ese error **no se ataja con `intentar`**, para que no se confunda con "la IA no
+contestó" y el agente siga atendiendo sin frenos.
+
+### Qué pasa cuando un freno salta
+
+1. Mate **no devuelve** esa respuesta.
+2. Consulta **una vez más**, con la misma pregunta y un aviso para la IA que dice qué regla
+   rompió ("nombró el importe $ 12.000, que no está entre los precios permitidos").
+3. Si la segunda respuesta cumple, vale esa. Si vuelve a romper una regla (o la IA no
+   contesta), `consultar_ia` devuelve **el texto de `reserva`**. La respuesta mala no llega
+   nunca al programa.
+
+Con `--traza` se ve todo:
+
+```
+  ·        Mostrador consulta a la IA (simulada): "¿Y el café?"
+  ·        la IA contesta: "El café sale $ 12.000 el kilo."
+  ·        freno de Mostrador: la respuesta no pasa (nombró el importe $ 12.000, que no está entre los precios permitidos). Consulta una vez más
+  ·        Mostrador consulta a la IA (simulada): "¿Y el café? [Aviso del sistema: tu respuesta anterior a esta misma con..."
+  ·        la IA contesta: "El café sale $ 12.000 el kilo."
+  ·        freno de Mostrador: el segundo intento tampoco pasa (nombró el importe $ 12.000, que no está entre los precios permitidos). Devuelve el texto de reserva: "Eso te lo confirma una persona, ya te paso."
+```
+
+Y queda en la bitácora (`python mate\mate.py bitacora mi_mostrador.mate`), con la pregunta, la
+regla y lo que había contestado la IA. El segundo intento es otra consulta: también se paga
+y también cuenta para el tope.
+
+### El freno de precios, con detalle
+
+`precios` lleva los importes permitidos. Lo más común es la columna de precios de tu lista:
+
+```
+funcion solo_precios(tabla) {
+    var importes = []
+    para fila en tabla {
+        importes = agregar(importes, fila.precio)
+    }
+    devolver importes
+}
+```
+
+y en los frenos, `precios: solo_precios(filas)`. Si ponés la tabla entera (`precios: filas`)
+valen **todos** los números de la tabla, también el stock: es más cómodo y frena menos. Si el
+programa calcula un total y la IA lo tiene que poder decir, sumalo a esa lista.
+
+Qué cuenta como un importe en pesos dentro de la respuesta:
+
+| Escrito así | Se lee como |
+|---|---|
+| `$ 3.500`, `$3500`, `$ 3.500,00`, `$ 3.500.-`, `$ **3.500**` (con la negrita que a veces pone la IA), `$ -3500` | 3500 (el punto es de los miles y la coma, de los centavos) |
+| `3500 pesos`, `3.500 pesos`, `3500$`, `3500.-` | 3500 |
+| `3 mil pesos`, `$ 2 millones` | 3000 y 2.000.000 |
+| `sale 3500`, `cuesta 3.500`, `vale 3500`, `el precio es de 3500`, `precio de lista: 3500`, `total: 3500`, `te lo dejo a 3500` | 3500 (solo si es de 100 o más) |
+| `sale 3500 hoy`, `sale 3500 x kilo`, `sale 3500 el kilo` | 3500: después del número puede venir cualquier palabra |
+| `USD 40`, `US$ 40`, `40 dólares`, `40 euros` | 40: el freno compara **números**, no monedas |
+| `$ 3,500` | 3,5 o 3500: alcanza con que uno de los dos esté permitido |
+
+**Lo que no se mira, a propósito:** cantidades ("40 bolsones", "sale 500 gramos", "vale 300
+puntos": un número seguido de una unidad no es plata), teléfonos, fechas, horarios,
+porcentajes ("10%") y cualquier número que no tenga `$`, "pesos" (o "dólares", "USD",
+"euros") ni venga justo después de "sale", "cuesta", "vale", "precio", "cobramos", "total" o
+"te lo dejo a". Ante la duda, este freno prefiere no saltar antes que tapar una respuesta
+buena. Por eso mismo **no ve**:
+
+- un importe escrito con letras ("tres mil quinientos pesos", "4 lucas");
+- un segundo número lejos de esas palabras: en "la yerba sale 3500 y el azúcar 999", el 999
+  no se mira; tampoco "son 4000", "está a 4000" ni "queda en 4000";
+- un importe suelto de menos de 100 ("sale 99").
+
+No es una garantía absoluta: es una red que ataja lo más común. Y como compara números, "sale
+3500 dólares" pasa si 3500 está en la lista.
+
+**Si un precio de la lista quedó como texto** (en la planilla dice `1,234.50` o `consultar`),
+no cuenta como precio permitido, y la IA no lo va a poder nombrar. Cuando el texto parece un
+importe, Mate lo avisa al correr (`'precios' trae 1 dato(s) que parecen importes pero no son
+números`): escribilo en la planilla como número (`1234,50`).
+
+**Los totales.** La IA puede nombrar solo los importes de la lista: si un cliente pregunta
+cuánto salen 3 yerbas y la IA contesta "$ 10.500", ese importe no está en la lista y el
+cliente recibe la `reserva`. Si querés que pueda decir totales, calculalos en el programa y
+sumalos a `precios` (por ejemplo, el precio por 2, por 3 y por 5 de cada producto).
+
+### Palabras prohibidas y largo
+
+`prohibido` no distingue mayúsculas ni tildes, y busca desde el comienzo de una palabra:
+`"descuento"` frena "Descuento" y "descuentos", pero `"oferta"` no frena "transferta". Puede
+ser una frase (`"precio especial"`). `largo` cuenta letras, con espacios.
+
+### Tope de gasto
+
+`consultas_por_dia: 100` hace que ese agente no consulte a la IA más de 100 veces en un día.
+Al llegar al tope, `consultar_ia` **no consulta**: devuelve el texto de `reserva` o, si los
+frenos no tienen reserva, falla con un error que se ataja con `intentar`
+(`detalle_de(e).clase` es `"tope"`). Queda en la bitácora.
+
+- **Mate lo avisa en pantalla, una vez**, la primera vez que el agente llega al tope:
+  `aviso: Mostrador llegó a su tope (ya hizo 100 consulta(s) a la IA hoy y su tope es 100
+  por día). Desde ahora contesta con el texto de reserva, sin consultar...`. Si de golpe tu
+  mostrador contesta siempre la reserva, es esto.
+- **La cuenta vale entre corridas del mismo día**: se guarda con la memoria del programa
+  (`mi_mostrador.memoria.json`), después de cada consulta de verdad. Al día siguiente
+  arranca de cero. Las copias de un agente (`crear`) cuentan todas juntas, con el original.
+  Si el mismo programa está abierto en dos ventanas, el tope es uno solo: antes de cada
+  consulta Mate mira lo que ya anotó la otra.
+- **Cuenta toda consulta que se cobra**, también la que llegó a la IA y volvió sin servir
+  (una respuesta cortada por lo larga, sin texto, o frenada por un filtro): Anthropic la
+  cobra igual, y si no contara, un programa que reintenta podría gastar sin límite.
+- **`--olvidar` no borra la cuenta** (borra lo que recuerdan los agentes, no las lecciones
+  ni las consultas de hoy). Si de verdad querés empezarla de cero, borrá el archivo
+  `mi_mostrador.memoria.json` (ojo: ahí también están las lecciones), o subí el tope en los
+  frenos.
+- **La orden `proponer` entra en la misma cuenta** y respeta el tope cuando está escrito
+  como un número fijo en los frenos: si el agente ya llegó, no consulta y redacta la
+  lección de la manera fija.
+- **En la consola** (`python mate\mate.py consola`) no hay archivo de memoria: el tope vale
+  solo para esa sesión, y cada vez que la abrís arranca de cero.
+- **`tokens_por_dia`** usa lo que informa el servicio en cada respuesta (los tokens de la
+  pregunta más los de la respuesta, que es lo que se cobra). Mate se entera de cuánto gastó
+  una consulta recién cuando termina, así que el tope se puede pasar por lo que gaste la
+  última.
+- **Mate no calcula plata**: cuenta consultas y tokens. El precio de cada token depende del
+  modelo y cambia; lo que se gastó en plata se mira en platform.claude.com.
+- **Con `--ia-simulada` el tope se ensaya, y cuenta solo esa corrida**: las consultas
+  simuladas van en una cuenta aparte ("simuladas", que se ve en `bitacora`), no te comen
+  las de verdad, y cada ensayo arranca de cero. Así el mismo ensayo da lo mismo todas las
+  veces que lo corras en el día. Con `--ia-simulada` no hay tokens.
+- **Con `probar` no se toca la cuenta de verdad**: cada prueba arranca con la cuenta en cero.
+- El tope de siempre (50 consultas de verdad por corrida, que saca `--sin-limite`) sigue
+  estando: es para los bucles, y este otro es para el día.
+
+Para ver cuánto consultó cada agente:
+
+```
+python mate\mate.py bitacora mi_mostrador.mate
+```
+
+```
+Consultas a la IA (la cuenta la llevan los agentes que tienen 'frenos'):
+  Mostrador
+    hoy:              12 consultas, 8.450 tokens  (y 4 simuladas, que no se pagan)
+    20/11/2026:       31 consultas, 22.300 tokens
+    últimos 2 día(s) con consultas (se guardan 30): 43 consultas, 30.750 tokens  (y 4 simuladas, que no se pagan)
+```
+
+La cuenta la llevan solo los agentes que tienen `frenos`. Si querés la cuenta y ningún
+control, alcanza con `frenos { consultas_por_dia: 100000 }`.
+
+### Lecciones propuestas
+
+Las [lecciones](#lecciones-corregir-a-un-agente) las escribís vos con `corregir`. Ahora Mate
+también puede **proponerlas**, de dos maneras:
+
+- **Cuando salta un freno**, queda sola una lección propuesta con lo que pasó.
+- **Cuando una respuesta estuvo mal y se lo contás**:
+
+  ```
+  python mate\mate.py proponer mi_mostrador.mate Mostrador "Ofreció envíos y no hacemos envíos"
+  ```
+
+  Mate redacta la lección. Si la clave de la IA está puesta (`ANTHROPIC_API_KEY`), la redacta
+  la IA: es una consulta de verdad, se paga y entra en la cuenta del día. Sin clave, o si la
+  IA no contesta, usa una redacción fija ("Una respuesta tuya estuvo mal: ... No lo
+  repitas."). Siempre te dice cuál de las dos fue. Después de lo que estuvo mal podés
+  agregar, también entre comillas, lo que había contestado el agente.
+
+**Una propuesta no se usa hasta que la aprobás.** Para verlas, con su número:
+
+```
+python mate\mate.py propuestas mi_mostrador.mate
+```
+
+```
+Lecciones propuestas, sin aprobar (1). Ningún agente las usa todavía:
+  1. Para Mostrador: No nombres ningún importe que no esté en los precios que te dieron. Si no sabés un precio, decí que lo confirma una persona.   (del 21/11/2026 10:30)
+       Por qué: saltó un freno: nombró el importe $ 12.000, que no está entre los precios permitidos. La IA había contestado: "El café sale $ 12.000 el kilo."
+```
+
+Y para decidir:
+
+```
+python mate\mate.py propuestas mi_mostrador.mate aprobar 1
+python mate\mate.py propuestas mi_mostrador.mate descartar 1
+```
+
+(`aprobar 1 3` aprueba varias; `descartar todas` las saca a todas.) Una propuesta aprobada
+pasa a ser una lección como las de `corregir`: viaja en cada consulta a la IA desde la
+próxima corrida, se ve con `lecciones` y se borra con `lecciones ... --borrar=1`. Valen los
+mismos topes: 20 lecciones por agente y 300 letras cada una. Las propuestas sin aprobar
+también tienen tope (20 por agente; se va la más vieja), y la misma no se propone dos veces.
+
+### Probar los frenos sin gastar
+
+En una prueba, `simular_ia` fija lo que "contesta" la IA y `consultas_ia()` cuenta qué pasó.
+Si el agente tiene frenos, cada consulta trae dos datos más: `freno` (qué regla rompió esa
+respuesta, o `""` si pasó) y `devuelto` (lo que `consultar_ia` le devolvió al programa).
+
+```
+prueba "un precio inventado no le llega al cliente" {
+    simular_ia("El café sale $ 12.000 el kilo.")
+    sea dicho = preguntar Consulta { pregunta: "¿Y el café?" } a Mostrador
+    asegurar dicho == "Eso te lo confirma una persona, ya te paso."
+    asegurar largo(consultas_ia()) == 2
+    asegurar tiene(consultas_ia()[0].freno, "$ 12.000")
+}
+
+prueba "si en el segundo intento se corrige, vale esa respuesta" {
+    simular_ia(["El café sale $ 12.000 el kilo.", "Café no trabajamos."])
+    asegurar (preguntar Consulta { pregunta: "¿Y el café?" } a Mostrador) == "Café no trabajamos."
+}
+```
+
+El segundo intento es otra consulta: con una lista en `simular_ia`, gasta la respuesta
+siguiente. El ejemplo completo es `ejemplos\11_mostrador_con_frenos.mate`:
+
+```
+python mate\mate.py correr mate\ejemplos\11_mostrador_con_frenos.mate --ia-simulada --traza
+python mate\mate.py probar mate\ejemplos\11_mostrador_con_frenos.mate
+```
+
+### Lo que los frenos no hacen
+
+- Revisan lo que devuelve `consultar_ia` **dentro de un agente que está atendiendo un
+  mensaje**. Una consulta hecha desde el programa principal, o al calcular el estado inicial
+  de un agente, no tiene frenos.
+- No entienden el sentido de la respuesta: buscan importes, palabras y cuentan letras. Una
+  promesa escrita con otras palabras ("te lo dejo más barato") pasa, salvo que la pongas en
+  `prohibido`.
+- Si la IA directamente no contesta (no hay internet, falta la clave), el error es el de
+  siempre y se ataja con `intentar`: la `reserva` es para las respuestas malas y para el tope.
+- Si cerrás la ventana de PowerShell con la X en vez de dejar terminar el programa, la
+  cuenta de consultas de verdad ya quedó guardada, pero los frenos que saltaron en esa
+  corrida no llegan a la bitácora ni quedan como propuestas. Para terminar una charla, mejor
+  `chau` o Ctrl+C.
+
+## Referencia rápida
+
+```
+# comentario
+sea x = 1                  var y = [1, 2]             y[0] = 5
+funcion doble(n) { devolver n * 2 }
+funcion con_iva(precio, tasa = 0.21) { ... }          (tasa tiene valor por defecto)
+si a > b { } sino si a == b { } sino { }
+mientras cond { }          para item en lista { }
+para i, item en lista { }  para clave, valor en mapa { }   (i es la posición, desde 0)
+romper                     continuar                  (solo dentro de mientras o para)
+y += 1                     y -= 1                     (lo mismo que y = y + 1)
+y  o  no   ==  !=  <  <=  >  >=   +  -  *  /  %
+{ nombre: "yerba", precio: 3500 }       mapa.nombre      mapa["nombre"]
+"Total: {precio * 2}"      "Sale {precios["yerba"]}"  (lo que va entre llaves se calcula)
+""" ... """                (un texto de varios renglones: ver "Textos")
+3.5 (decimal con punto)    1_500 (mil quinientos; los miles nunca llevan punto)
+```
+
+### Funciones incluidas
+
+Son estas y no hay otras. Cada renglón es un ejemplo que se puede copiar:
+
+| Ejemplo | Qué da |
+|---|---|
+| `mostrar("Total:", total)` | escribe en pantalla |
+| `leer("¿Cuántos?", "3")` | le pide un texto a la persona (en las pruebas da el 2.º valor) |
+| `simular_teclado(["hola", "chau"])` | solo en una prueba: lo que 'teclea' la persona en cada leer() |
+| `texto(3.5)` | lo pasa a texto: "3.5" |
+| `numero("1.234,50")` | lee un número escrito como texto: 1234.5 |
+| `tipo(x)` | dice qué es: "numero", "texto", "lista", "mapa"... |
+| `largo(lista)` | cuántos elementos tiene (o letras, o claves) |
+| `redondear(3.14159, 2)` | 3.14 (sin el 2.º valor, sin decimales) |
+| `pesos(1234.5)` | el texto "$ 1.234,50" |
+| `absoluto(-5)` | 5: el número sin el signo |
+| `sumar([1, 2, 3])` | 6 |
+| `promedio([4, 6])` | 5 |
+| `minimo([3, 1, 2])` | 1: el más chico de la lista |
+| `maximo([3, 1, 2])` | 3: el más grande de la lista |
+| `rango(1, 10, 3)` | [1, 4, 7]; rango(3) es [0, 1, 2] y rango(2, 5) es [2, 3, 4] |
+| `tiene(lista, x)` | verdadero si x está en la lista, es clave del mapa o parte del texto |
+| `claves(mapa)` | la lista de sus claves |
+| `valores(mapa)` | la lista de sus valores |
+| `obtener(mapa, "clave", 0)` | el valor de esa clave o, si el mapa no la tiene, el 3.er valor |
+| `agregar(lista, x)` | una lista NUEVA con x al final |
+| `quitar(lista, x)` | una lista NUEVA sin los que valen x (en un mapa, sin esa clave) |
+| `ordenar(lista, "precio")` | una lista NUEVA ordenada; el campo es opcional: ordenar(lista) |
+| `ultimo(lista)` | el último elemento (o la última letra de un texto) |
+| `porcion(lista, 1, 3)` | los de las posiciones 1 y 2; sin el 3.er valor, hasta el final |
+| `unir(lista, ", ")` | un texto con los elementos separados por coma |
+| `partir("a,b", ",")` | la lista ["a", "b"] |
+| `mayusculas("hola")` | "HOLA" |
+| `minusculas("HOLA")` | "hola" |
+| `recortar("  hola ")` | "hola": sin los espacios de las puntas |
+| `reemplazar(t, "a", "b")` | el texto con cada a cambiada por b |
+| `empieza_con(t, "Sr.")` | verdadero si el texto empieza así |
+| `termina_con(t, ".txt")` | verdadero si el texto termina así |
+| `a_json(valor)` | el valor escrito como texto JSON |
+| `de_json(texto, "Pedido")` | el valor que describe ese JSON; el 2.º valor (opcional) exige ese tipo |
+| `a_mapa(pedido)` | un mapa común con los campos de ese mensaje, para recorrerlos |
+| `detalle_de(e)` | los datos de un error atajado: un mapa con texto, linea, clase y dato |
+| `hoy()` | la fecha, "21/11/2026" (en las pruebas, siempre "01/01/2025") |
+| `ahora()` | fecha y hora, "21/11/2026 14:30" (en las pruebas, "01/01/2025 12:00") |
+| `leer_archivo("notas.txt")` | el texto de ese archivo (de la carpeta del programa) |
+| `escribir_archivo("notas.txt", t)` | guarda el texto t en ese archivo (si ya existía, lo pisa) |
+| `agregar_a_archivo("pedidos.txt", t)` | suma el texto t como un renglón más al final de ese archivo |
+| `leer_tabla("precios.csv")` | la planilla guardada como CSV: una lista con un mapa por fila |
+| `mensajes_enviados("Pedido")` | solo en una prueba: los mensajes que se mandaron (o los de ese tipo) |
+| `consultar_ia(reglas, duda)` | lo que contesta una IA de verdad (Claude), como texto; es pago |
+| `simular_ia("Sale $ 100")` | solo en una prueba: lo que contesta la IA desde ahí (o una lista) |
+| `aprender("Hoy no hay pan")` | dentro de un agente: se anota esa lección, y no la olvida al terminar |
+| `lecciones()` | dentro de un agente: la lista de sus lecciones (cada una es un texto) |
+| `consultas_ia()` | solo en una prueba: lo que se le consultó a la IA, con las lecciones |
+
+- Si a una función le das valores de más o de menos, el error trae el ejemplo:
+  `obtener() lleva 3 valores y recibió 2. Por ejemplo: obtener(mapa, "clave", 0)`.
+- `agregar`, `quitar`, `ordenar` y `porcion` no cambian la lista original: devuelven una nueva.
+  `quitar(lista, x)` saca **por valor** (todos los que valen `x`), no por posición.
+- `a_mapa(pedido)` sirve para recorrer los campos de un mensaje:
+  `para campo, valor en a_mapa(pedido) { mostrar("{campo}: {valor}") }`. El mapa es una copia:
+  cambiarlo no toca el mensaje.
+- `ordenar` ordena los textos como el diccionario: sin importar mayúsculas ni tildes, y con la
+  `ñ` después de la `n`. Con un segundo valor ordena una lista de mapas o de mensajes por ese
+  campo: `ordenar(productos, "precio")`.
+- `minimo`, `maximo`, `promedio` y `ultimo` no pueden con una lista vacía: es un error que lo
+  dice. `porcion(lista, 1, 3)` cuenta las posiciones desde 0 y no incluye la del final; si el
+  final se pasa del largo, llega hasta donde haya.
+- `obtener(mapa, "clave", 0)` sirve para no preguntar antes con `tiene`. Si en cambio escribís
+  `mapa["clave"]` y la clave no está, el error dice cuáles sí tiene:
+  `el mapa no tiene la clave "cafe" (tiene: yerba, azucar)`.
+- Esta tabla, la de `python mate\mate.py guia` y los ejemplos de los errores salen de un mismo
+  lugar dentro de `mate.py`, así que no se desacomodan entre sí.
+
+### Textos
+
+- Dentro de un texto, lo que va entre llaves se calcula: `"Total: {precio * 2}"`. Adentro de
+  las llaves puede haber otros textos con sus comillas: `"Sale {precios["yerba"]}"` o
+  `"Compras: {unir(lista, ", ")}"`.
+- La barra `\` es especial: `\n` es un salto de renglón, `\t` un espacio largo, `\"` una
+  comilla, `\{` una llave de verdad y `\\` una barra. Cualquier otra combinación es un error
+  que lo explica, y también un texto que parece una ruta de Windows con barras simples:
+  `"C:\temp\nuevo"` antes salía con un salto de renglón en el medio sin avisar. Las rutas se
+  escriben `"C:/temp/nuevo"` (Windows las entiende igual) o `"C:\\temp\\nuevo"`.
+
+- Un texto de **varios renglones** va entre tres comillas, `"""`, y adentro valen las mismas
+  llaves y las mismas barras:
+
+  ```
+  funcion carta(nombre, total) {
+      devolver """
+          Hola {nombre}:
+          tu pedido sale {pesos(total)}.
+
+          ¡Gracias!
+          """
+  }
+  ```
+
+  Para poder escribirlo prolijo dentro de un bloque, Mate saca lo que sobra: el renglón de
+  las comillas que abren y el de las que cierran (si no tienen nada más) y la sangría que
+  comparten todos los renglones, así que el texto de arriba empieza en `Hola` y no tiene
+  espacios adelante. Para que un texto quede con sangría, alcanza con poner las comillas de
+  cierre más a la izquierda. Las comillas sueltas (`"gracias"`) van tal cual; una llave de
+  verdad sigue siendo `\{`. Lo que va entre llaves se escribe entero en un renglón. Si el
+  texto termina con una comilla pegada al cierre (`dijo "hola""""`), la comilla es del texto y
+  cierran las últimas tres. Si falta el cierre, el error señala dónde se abrió (y si un renglón
+  termina en `\"""`, señala ese renglón: la barra deja el cierre con dos comillas). En la consola también se puede: sigue en los
+  renglones de abajo hasta las tres comillas.
+
+### Valores por defecto en una función
+
+```
+funcion con_iva(precio, tasa = 0.21) {
+    devolver precio * (1 + tasa)
+}
+mostrar(con_iva(100))         # 121: usa la tasa por defecto
+mostrar(con_iva(100, 0.5))    # 150
+```
+
+Un parámetro con `= valor` se puede dejar sin dar: toma ese valor. Los que tienen valor por
+defecto van **al final** (si no, Mate lo avisa antes de correr), y el valor se calcula en cada
+llamada: puede ser una cuenta y usar los parámetros de antes (`funcion f(a, b = a * 2)`). Si
+la llamada trae valores de más o de menos, el error dice cuántos lleva:
+`con_iva() espera entre 1 y 2 argumento(s) y recibió 3`.
+
+### Pedirle un dato a la persona: `leer`
+
+```
+sea nombre = leer("¿Cómo te llamás?")
+sea cantidad = numero(leer("¿Cuántos paquetes?", "3"))
+```
+
+- `leer` muestra la pregunta, espera que la persona escriba y apriete Enter, y devuelve lo
+  escrito como **texto** (sin los espacios de las puntas). Para hacer cuentas, pasalo por
+  `numero(...)`.
+- El segundo valor es la **respuesta preparada**: es lo que devuelve `leer` cuando corren las
+  pruebas (`probar` nunca espera el teclado) o cuando no hay teclado. Si en una prueba se
+  llega a un `leer` sin respuesta preparada, es un error que lo explica.
+- Solo se usa desde el programa principal (o desde una función llamada por él). Un agente no
+  puede frenar a todos esperando el teclado: se lee el dato afuera y se le manda en un mensaje.
+
+### Charlar por teclado
+
+Una charla es un bucle con un `leer` adentro, que sale cuando escriben una palabra:
+
+```
+funcion charlar() {
+    var consultas = 0
+    mientras verdadero {
+        sea dicho = leer("Cliente:", "chau")
+        si minusculas(dicho) == "chau" {
+            romper
+        }
+        mostrar("Mostrador: me pediste {dicho}")
+        consultas += 1
+    }
+    devolver consultas
+}
+
+mostrar("Escribí tu pedido y apretá Enter. Para terminar, escribí chau.")
+sea atendidas = charlar()
+mostrar("Atendí {atendidas} consulta(s).")
+
+prueba "atiende hasta que dicen chau" {
+    simular_teclado(["2 de yerba", "1 de azúcar", "chau"])
+    asegurar charlar() == 2
+}
+```
+
+- La respuesta preparada (`"chau"`) es la palabra de salida: así, cuando no hay teclado (con
+  `probar`, por ejemplo), la charla termina sola en vez de quedarse esperando.
+- **Ctrl+C** mientras el programa espera que escribas también termina bien: Mate avisa
+  `Listo: cortaste con Ctrl+C...`, no muestra ningún error, y lo que recuerdan los agentes
+  (`estado recordado`) queda guardado igual. Lo que el programa tenía escrito después del
+  bucle no se llega a hacer; si necesitás que se haga, salí con la palabra. (Para quien usa
+  Mate desde un `.bat`: el código de salida de un corte con Ctrl+C sigue siendo 130.)
+- Si usás la orden corta `mate` (la de `instalar.bat`) o `mate.bat`, después de Ctrl+C
+  Windows puede preguntar **"¿Desea terminar el trabajo por lotes (S/N)?"**: es de Windows,
+  no de Mate, y no se perdió nada. Escribí `S` y Enter. Para que no aparezca, terminá la
+  charla con la palabra de salida (`chau`). (Todavía sin probar en una Windows de verdad.)
+- En una prueba nadie teclea: `simular_teclado(["2 de yerba", "chau"])` fija lo que se
+  "escribe", un texto por cada `leer`, en orden. Cuando se acaban, `leer` devuelve su respuesta
+  preparada. Solo vale adentro de una prueba, y cada prueba arranca sin nada tecleado.
+- Las tildes y la ñ andan bien al escribir en la ventana de PowerShell. (Si en vez de teclear
+  le pasás un texto con `|` desde PowerShell 5.1, las tildes pueden llegar como `?`: eso lo
+  hace PowerShell antes de que el texto llegue a Mate.)
+- Para que conteste un agente, el programa lee y le pregunta:
+  `sea a = preguntar Consulta { pregunta: dicho } a Mostrador`. El ejemplo completo, con IA y
+  lista de precios, es `ejemplos\10_mostrador_mayorista.mate`.
+
+### Archivos de texto: `leer_archivo` y `escribir_archivo`
+
+```
+escribir_archivo("compras.txt", unir(["yerba", "pan"], "\n"))
+sea renglones = partir(leer_archivo("compras.txt"), "\n")
+```
+
+- `leer_archivo("compras.txt")` devuelve todo el archivo como un texto; con
+  `partir(texto, "\n")` queda una lista con un renglón por elemento. Lee lo que guarda el Bloc
+  de notas en cualquiera de sus codificaciones.
+- `escribir_archivo("compras.txt", texto)` guarda ese texto. Si el archivo ya existía, **lo
+  reemplaza entero** (para sumar un renglón sin tocar lo que había está
+  `agregar_a_archivo`, más abajo). Lo que se
+  guarda tiene que ser un texto: un número va con `texto(n)`, una lista con `unir(lista, "\n")`
+  y un mensaje con `a_json(mensaje)`.
+- Los archivos son **los de la carpeta del programa** (o de una subcarpeta que ya exista:
+  `"datos/compras.txt"`). Con `"C:/Windows/algo.txt"` o `"../afuera.txt"` Mate frena y lo
+  explica. En la consola, la carpeta es en la que estás parado.
+- `escribir_archivo` nunca pisa un programa: no escribe en archivos `.mate`, `.py`, `.pyw`,
+  `.bat`, `.cmd` ni `.ps1`. Tampoco en los dos archivos que Mate lleva del propio programa
+  (`mi_mostrador.memoria.json` y `mi_mostrador.bitacora.txt`): ahí están las lecciones y la
+  cuenta de consultas. Lo mismo vale para `agregar_a_archivo`.
+- Solo andan desde el programa principal (o desde una función llamada por él). Un agente no
+  toca archivos: se lee afuera y se le manda el dato en un mensaje.
+- Si el archivo no está, el error lo dice y sugiere el nombre parecido (o el `notas.txt.txt`
+  que deja el Bloc de notas). Para seguir igual:
+  `intentar { sea t = leer_archivo("notas.txt") } si falla e { ... }`, y
+  `detalle_de(e).clase` vale `"archivo"`.
+- **Con `probar` no se toca el disco**: lo que el programa o una prueba guardan con
+  `escribir_archivo` (igual que con `agregar_a_archivo`) queda aparte, se ve con
+  `leer_archivo` y `leer_tabla` dentro de esa prueba, y se descarta al terminar. Así una
+  prueba nunca pisa un archivo de datos de verdad. (Hasta la 0.4, `escribir_archivo` sí
+  escribía el archivo con `probar`.)
+
+### Anotar en un archivo: `agregar_a_archivo`
+
+```
+agregar_a_archivo("pedidos.txt", "{ahora()} | Almacén Don Luis | 2 bolsones de yerba")
+```
+
+- Suma ese texto como **un renglón más al final** del archivo, sin tocar lo que ya tenía. Si
+  el archivo no existe, lo crea. Sirve para ir anotando pedidos o consultas y mirarlos después
+  con el Bloc de notas.
+- Tiene los mismos cuidados que `escribir_archivo`: solo en la carpeta del programa, solo
+  desde el programa principal, nunca sobre un programa, y lo que se agrega es un texto.
+- **Con `probar` no escribe el archivo de verdad.** Lo que el programa o una prueba "agregan"
+  queda en el aire: dentro de esa prueba, `leer_archivo("pedidos.txt")` devuelve el archivo
+  como está en el disco más lo agregado, y al terminar la prueba se descarta. Así se
+  comprueba sin ensuciar:
+
+  ```
+  funcion anotar(pedido) {
+      agregar_a_archivo("pedidos.txt", pedido)
+  }
+
+  prueba "el pedido queda anotado" {
+      anotar("2 bolsones de yerba")
+      asegurar termina_con(leer_archivo("pedidos.txt"), "2 bolsones de yerba\n")
+  }
+  ```
+
+### Una lista de precios de Excel: `leer_tabla`
+
+`leer_tabla` lee una planilla **guardada como CSV** y la devuelve como una lista con un mapa
+por fila. Las claves de cada mapa son los títulos de la primera fila.
+
+Si `precios.csv` (al lado del programa) dice:
+
+```
+producto;precio;stock
+Yerba mate;3.500;40
+Azúcar;1.250,50;0
+```
+
+entonces:
+
+```
+sea precios = leer_tabla("precios.csv")
+para fila en precios {
+    mostrar("{fila.producto} sale {pesos(fila.precio)}")
+}
+mostrar(precios[0].precio + 100)
+```
+
+muestra `Yerba mate sale $ 3.500,00`, `Azúcar sale $ 1.250,50` y `3600`.
+
+**Cómo guardar la planilla desde Excel:**
+
+1. La primera fila tiene que tener los títulos de las columnas (conviene en minúscula y sin
+   espacios: `producto`, `precio`, `stock`). Debajo, un producto por fila.
+2. Archivo > Guardar como > en "Tipo" elegí **CSV (delimitado por comas) (*.csv)**. Si Excel
+   pregunta si querés mantener ese formato, decile que sí.
+3. Guardala en la misma carpeta que el programa.
+
+Lo que hay que saber:
+
+- Anda con las dos formas en que Excel guarda un CSV: separado por **punto y coma** (lo que
+  hace en la Argentina) o por **coma**. También si lo guardaste como "CSV UTF-8" o desde el
+  Bloc de notas en cualquiera de sus codificaciones: las tildes y la ñ llegan bien.
+- **Los números llegan como números**, también escritos a la argentina: `3.500` es tres mil
+  quinientos, `3.500,50`, `$ 3.500`, `3500.-`, `1.200 $`, `3,5`. Ojo: en una planilla el punto es siempre de los
+  miles (`1.250` es mil doscientos cincuenta); los decimales van con coma. Lo que no es un
+  número llega como texto, y también los códigos que empiezan con cero (`00123`). Una celda
+  vacía es el texto vacío `""`.
+- Las claves son los títulos **tal cual están escritos**: si la columna se llama `Precio`, es
+  `fila.Precio` (si el programa pide `fila.precio`, el error dice que las mayúsculas cuentan
+  y cómo está escrito el título en la planilla). Un título con espacios se lee con corchetes: `fila["precio de lista"]`.
+- Los renglones en blanco se saltean. Si la planilla tiene solo los títulos, da una lista vacía.
+- Los errores dicen qué pasa y dónde:
+  - si el archivo no está, en qué carpeta lo buscó (y si hay uno de nombre parecido);
+  - si a una fila le sobra o le falta un dato, **qué renglón del archivo es** y qué dice;
+  - si el archivo está vacío, si una columna no tiene título o si dos se llaman igual;
+  - si arriba de los títulos hay otra fila (el nombre de la lista, una fecha), que la primera
+    fila tiene que ser la de los títulos y hay que borrar las de arriba;
+  - si le pasás la planilla de Excel sin convertir (`precios.xlsx`), cómo guardarla como CSV.
+- Como `leer_archivo`, solo anda desde el programa principal y con archivos de la carpeta del
+  programa. Para que un agente use la lista, el programa se la manda en un mensaje (así lo hace
+  `ejemplos\10_mostrador_mayorista.mate`, que la pone en las instrucciones de la IA).
+
+### La fecha y la hora: `hoy` y `ahora`
+
+- `hoy()` devuelve la fecha como texto, `"21/11/2026"` (día/mes/año), y `ahora()` le agrega
+  la hora, `"21/11/2026 14:30"`. Sirven para mostrar o guardar: `"Presupuesto del {hoy()}"`.
+- Con `probar` devuelven siempre `"01/01/2025"` y `"01/01/2025 12:00"`: así una prueba da lo
+  mismo cualquier día que se corra.
+- Son textos: no se pueden restar, y compararlos con `<` o `>` es un error (como textos,
+  `"21/11/2026" < "01/12/2026"` daría cualquier cosa). Con `==` y `!=` sí se puede ver si son
+  la misma fecha. El día, el mes y el año salen con `partir(hoy(), "/")`.
+
+### Salir de un bucle: `romper` y `continuar`
+
+```
+para cosa en compras {
+    si cosa == "" { continuar }      # salta a la vuelta siguiente
+    si cosa == "fin" { romper }      # corta el bucle acá
+    mostrar(cosa)
+}
+```
+
+Valen dentro de `para` y de `mientras`, y afectan al bucle más cercano. Fuera de un bucle,
+Mate lo avisa antes de correr.
+
+### Números y plata
+
+- Los decimales se muestran limpios: `mostrar(0.1 + 0.2)` muestra `0.3` y `mostrar(10 / 3)`
+  muestra `3.33333333333`. Es solo cómo se ven: por dentro la cuenta sigue teniendo su resto
+  minúsculo, así que `0.1 + 0.2 == 0.3` da `falso`. Para comparar plata, redondeá antes:
+  `redondear(a, 2) == redondear(b, 2)`.
+- Ojo con los números de muchas cifras: un decimal de 16 cifras o más se muestra con 12 como
+  mucho, aunque lo hayas escrito vos (`mostrar(3.141592653589793)` muestra `3.14159265359`).
+  Lo mismo hacen `texto()`, `unir()` y `"{...}"`, así que `numero(texto(x))` puede no dar
+  exactamente `x`. El valor guardado no cambia; para pasarlo entero a texto usá `a_json(x)`.
+  Esto vale para los números de menos de 10.000 millones. En los más grandes Mate solo quita
+  el ruido del final cuando puede hacerlo sin perder cifras de verdad (los centavos de un
+  monto enorme), así que `mostrar(100000000000 / 3)` muestra `33333333333.333332`.
+- Entre enteros la suma, la resta, la multiplicación y la división que da justo son exactas,
+  por grandes que sean.
+- `redondear(2.5)` da `3` y `redondear(2.675, 2)` da `2.68`: el medio va siempre hacia arriba,
+  como en la escuela. En los negativos se aleja del cero: `redondear(-2.5)` da `-3`.
+  `redondear` y `pesos` redondean el número que se ve: `0.57 * 50` se muestra `28.5` y
+  `redondear(0.57 * 50)` da `29`. La cantidad de decimales va de 0 en adelante:
+  `redondear(1234, -2)` es un error.
+- `pesos(1234567.891)` devuelve el texto `$ 1.234.567,89`; `pesos(3500, 0)` devuelve `$ 3.500`
+  (el segundo valor es la cantidad de decimales, de 0 a 6). Los negativos salen `-$ 1.500,00`.
+- `numero("1.234,50")` da `1234.5` y `numero("$ 7,25")` da `7.25`: entiende la coma decimal, el
+  punto de miles y el signo `$`. Ojo: con un solo punto y sin coma, el punto es decimal
+  (`numero("3.500")` da `3.5`); con dos o más puntos son miles (`numero("1.234.567")`). Con el
+  signo `$` adelante, el punto seguido de tres cifras son miles: `numero("$ 3.500")` da `3500`,
+  así lo que escribe `pesos()` se puede volver a leer. Un texto vacío o que no es un número
+  (`"1e5"`, `"hola"`, `".5"`, `"5."`, `"1_000"`) es un error: medio se escribe `"0.5"` o `"0,5"`.
+
+- La igualdad no convierte nada, tampoco adentro de una lista o un mapa: `1 == verdadero` da
+  `falso` y `[1] == [verdadero]` también.
+
+Los nombres de mensajes y agentes empiezan con mayúscula; el resto (variables, funciones,
+parámetros), con minúscula: Mate no acepta `sea Total = 0`.
+
+Detalles: `partir("abc", "")` separa letra por letra; `redondear(3.14159, 2)` lleva una cantidad
+entera de decimales; `rango(10, 0, -1)` cuenta para atrás; las claves de un mapa son siempre textos (`tiene(mapa, [1])` da `falso`);
+solo se puede asignar a una variable o a una parte de ella (`x`, `x.campo`, `x[0]`).
+
+## Qué tan rápido es
+
+Mate no es un lenguaje para cuentas pesadas: es un intérprete escrito en Python, pensado para
+programas chicos y claros. Hasta la 0.4, además, era bastante más lento de lo necesario. En la
+0.5 el intérprete "arma" cada programa una sola vez antes de correrlo (antes, cada vez que
+pasaba por un renglón volvía a preguntarse qué clase de renglón era) y quedó así, medido con
+`mate\pruebas\velocidad.py` en la misma computadora y en el mismo momento (Python 3.13; de
+cada programa, la más rápida de 7 corridas, en segundos):
+
+| Programa del medidor | 0.4 | 0.5 | Cuántas veces más rápido |
+|---|---|---|---|
+| bucle con cuentas (200.000 vueltas) | 1,687 | 0,310 | 5,43 |
+| llamadas a funciones (unas 65.000) | 0,405 | 0,140 | 2,90 |
+| listas y mapas | 0,394 | 0,189 | 2,09 |
+| textos | 1,152 | 0,879 | 1,31 |
+| mensajes entre agentes (16.000) | 0,262 | 0,180 | 1,46 |
+| en total | 3,901 | 1,698 | 2,30 |
+
+Lo que mejoró poco, y por qué: en **textos**, casi todo el tiempo se va en armar una lista
+larga con `lista = agregar(lista, x)`, que copia la lista entera en cada vuelta (así una
+copia nunca cambia el original); eso no se tocó. Y en los **mensajes entre agentes** el tiempo
+está en lo que Mate controla en cada mensaje (el contrato, guardar el estado por si el agente
+falla), que tampoco se tocó. Nada de lo que hace un programa cambió: mismas salidas, mismos
+errores con su renglón, misma traza y mismo freno de pasos.
+
+Para medir en tu computadora (tarda unos segundos y no escribe ningún archivo):
+
+```
+python mate\pruebas\velocidad.py
+```
+
+Si igual algo queda lento, la salida es escribir esa parte en Python y llamarla con
+[`usar python`](#funciones-escritas-en-python-usar-python): ahí corre a la velocidad de Python.
+
+## Qué cambió en la 0.5
+
+Todo lo nuevo de esta versión, en un solo lugar. Un programa que no usa nada de esto corre
+igual que en la 0.4 y no crea ningún archivo.
+
+| Qué hay de nuevo | Dónde se explica |
+|---|---|
+| El intérprete corre entre 2 y 5 veces más rápido en bucles y llamadas | [Qué tan rápido es](#qué-tan-rápido-es) |
+| `usar python "ayudas.py"`: sumar lo que Mate no trae con funciones escritas en Python | [Funciones escritas en Python](#funciones-escritas-en-python-usar-python) |
+| `leer_tabla("precios.csv")`: leer tu lista de precios guardada desde Excel | [Una lista de precios de Excel](#una-lista-de-precios-de-excel-leer_tabla) |
+| `agregar_a_archivo(...)`: anotar un renglón más en un archivo | [Anotar en un archivo](#anotar-en-un-archivo-agregar_a_archivo) |
+| Charlar por teclado: `leer` se prueba con `simular_teclado` y se corta bien con Ctrl+C | [Charlar por teclado](#charlar-por-teclado) |
+| `frenos { ... }`: Mate revisa cada respuesta de la IA (precios, palabras prohibidas, largo) | [Frenos](#frenos) |
+| Tope de gasto por día (`consultas_por_dia`, `tokens_por_dia`) y la cuenta en `bitacora` | [Tope de gasto](#tope-de-gasto) |
+| Lecciones propuestas: las órdenes `propuestas` y `proponer` | [Lecciones propuestas](#lecciones-propuestas) |
+| El curso: 12 clases en `mate\curso` y la orden `curso` | [El curso](#el-curso) |
+| `instalar.bat`: la orden `mate` desde cualquier carpeta, sin permisos de administrador | [Instalarlo](#instalarlo) |
+| `docs\index.html`: una página para compartir, que se ve bien en el celular | [Por dónde empezar](#por-dónde-empezar) |
+| `mate.bat` ya no se confunde con el "python" de mentira de Windows (el atajo a la tienda): prueba que Python ande antes de usarlo | [Primeros pasos en Windows](#primeros-pasos-en-windows) |
+
+Con más detalle:
+
+Los programas corren **entre 2 y 5 veces más rápido** en los bucles y las
+llamadas a funciones (ver [Qué tan rápido es](#qué-tan-rápido-es)), y un programa puede sumar
+lo que Mate no trae con funciones escritas en Python (ver
+[Funciones escritas en Python](#funciones-escritas-en-python-usar-python)).
+Además, un programa ya puede **trabajar con tus datos y charlar con vos**: lee tu lista de
+precios guardada desde Excel (`leer_tabla`), anota renglones en un archivo
+(`agregar_a_archivo`) y conversa por teclado (`leer`, que ya estaba, ahora se puede probar con
+`simular_teclado` y se corta bien con Ctrl+C). El ejemplo completo es
+`ejemplos\10_mostrador_mayorista.mate` (ver
+[Una lista de precios de Excel](#una-lista-de-precios-de-excel-leer_tabla) y
+[Charlar por teclado](#charlar-por-teclado)).
+También hay **frenos para la IA, tope de gasto por día y lecciones propuestas**
+que vos aprobás o descartás. El ejemplo es `ejemplos\11_mostrador_con_frenos.mate` (ver
+[Frenos](#frenos)).
+
+Después de la revisión de la 0.5 se corrigió, sobre todo, lo que tiene que ver con la plata
+y con no perder datos: el tope por día cuenta toda consulta que se cobra y avisa en pantalla
+cuando se llega; guardar la memoria ya no pisa lo que se anotó desde otra ventana; `probar`
+no toca los archivos de datos; unos frenos mal escritos cortan el programa en vez de pasar
+de largo; el freno de precios ve más formas de escribir un importe; y `guia
+--guardar=guia.txt` deja la guía en un archivo que el Bloc de notas lee bien. El detalle
+está en `MEJORAS.md`, mejora 120.
+
+Y para que otra persona pueda instalarlo y aprenderlo sola: el **curso** de doce clases
+(`python mate\mate.py curso`), el instalador `instalar.bat` y la página `docs\index.html`.
+`curso` es una orden nueva: si tenías un programa llamado `curso.mate`, se corre con
+`correr curso.mate`. El instalador avisa con la variable `MATE_ORDEN` que la orden es `mate`,
+y entonces los comandos que Mate sugiere en pantalla se escriben `mate ...` en vez de
+`python mate\mate.py ...`; sin instalar, todo se ve como antes.
+
+## Qué cambió y puede frenar un programa viejo
+
+Varias mejoras vuelven error cosas que antes corrían. Esta tabla junta todo lo que cambió
+desde la versión 0.2 hasta la 0.5 (`python mate\mate.py --version` dice cuál tenés). Si un
+archivo viejo deja de andar, casi seguro es por una de estas:
+
+| Qué pasa ahora | Cómo se arregla |
+|---|---|
+| Con Ctrl+C mientras el programa espera en un `leer`, el aviso dice `Listo: cortaste con Ctrl+C...` (antes decía en qué línea se había cortado). El código de salida sigue siendo 130 y el aviso sigue saliendo aparte de lo que muestra el programa | Nada: es la manera de cortar una charla. Lo que recuerdan los agentes se guarda igual |
+| `propuestas`, `proponer` y `curso` son órdenes (0.5): `python mate\mate.py propuestas` ya no corre un archivo llamado `propuestas.mate`, y lo mismo las otras dos. Si en la carpeta hay un archivo con ese nombre, Mate te avisa cómo correrlo | Escribir la orden entera: `correr propuestas.mate`, `correr curso.mate` |
+| Con `probar`, `escribir_archivo` ya no escribe el archivo de verdad: lo guardado se ve con `leer_archivo` dentro de esa prueba y se descarta (así una prueba no pisa los datos reales) | Si necesitabas el archivo en el disco, generalo con `correr` |
+| `escribir_archivo` y `--traza=archivo` tampoco escriben en archivos `.pyw`, ni `escribir_archivo` en la memoria y la bitácora del propio programa | Elegir otro nombre de archivo |
+| `leer` le saca a lo tecleado la marca invisible del principio (U+FEFF) que mandan algunos programas al pasarle un archivo por teclado | Nada: antes esa marca quedaba pegada a la primera palabra |
+| Cambió la redacción de más errores (0.5): `pesos()` con un texto, `texto * numero`, comparar un texto vacío con un número, `lista no tiene campos`, un campo de un mapa escrito con otra mayúscula, el `$` suelto, `usar python` sin el archivo, un renglón mal puesto dentro de un agente (ahora nombra también `frenos`), y `leer` sin respuesta en una prueba (ahora nombra `simular_teclado`) | No comparar el texto entero del error |
+| Un parámetro, un estado o una variable no puede llamarse como una función incluida (`texto`, `tipo`, `numero`, `largo`, `valores`, `pesos`...), tampoco dentro de una función | Elegir otro nombre: `funcion saludar(nombre)`. Ojo: cada función incluida nueva ocupa un nombre |
+| `responder` dentro de una función de afuera de un agente es un error antes de correr | Pasar la función adentro del agente, o que devuelva el valor y el `responder` quede en el `al recibir` |
+| `preguntar` a un agente que para ese mensaje nunca responde es un error antes de correr | Usar `enviar`: ahora se entrega solo antes del siguiente `preguntar` |
+| Dentro de una prueba, `intentar` no ataja un `asegurar` de la prueba | Para comprobar que algo falla, usar `fallar` en el código y `asegurar` afuera del `intentar` |
+| "Demasiada recursión" y el freno de pasos no se atajan con `intentar` | Achicar la recursión, o `--sin-limite` para el freno de pasos |
+| Un agente no puede cambiar ninguna variable que no sea suya, ni llamando a una función que la tenga guardada | Que la función devuelva el valor y el agente lo guarde en su `estado` |
+| `numero(".5")`, `numero("5.")` y `numero("1_000")` son error; `numero("1.234.567")` y `numero("1,5")` ahora sí son números | Escribir `"0.5"`; si usabas `intentar` para detectar texto inválido, revisalo |
+| `redondear(x, -2)` es un error, y el medio redondea hacia arriba | Para centenas: `redondear(x / 100) * 100` |
+| Los decimales se muestran con 12 cifras como mucho, y `fallar 0.1 + 0.2` dice `0.3` | Ver "Números y plata" |
+| Cambió la redacción de varios errores (`largo() lleva 1 valor y recibió 2`, sugerencias `¿Quisiste decir...?`, `las claves de un mapa son textos, no numero`) | No comparar el texto entero del error con `==`; buscar una palabra con `tiene(e, "clave")` |
+| `if`, `else`, `true`, `función`... usados como si fueran de Mate son un error antes de correr | Escribir la palabra de Mate que dice el error |
+| Un renglón que solo calcula (`i + 1`, `largo(x)`, `agregar(lista, 4)` sin guardar) es un error: "calcula un valor y no hace nada con él" | Guardar el resultado (`lista = agregar(lista, 4)`), mostrarlo o borrar el renglón |
+| Un renglón no puede empezar con `+`, `*`, `/`, `==`, `y`, `o`; y un `-` al principio de un renglón empieza una sentencia nueva | Dejar el operador al final del renglón de arriba, o encerrar la cuenta entre paréntesis |
+| `responder`, `fallar`, `enviar` y `asegurar` con lo suyo en el renglón de abajo son un error | Escribirlo en el mismo renglón |
+| `sea x = ...` dentro de un `si`, `para`, `mientras` o `intentar` cuando `x` "ya existe afuera" (o es un `estado` del agente) es un error | Sacar el `sea` si querías cambiar la de afuera (tiene que ser `var`), o elegir otro nombre |
+| "No se puede comparar un texto con un número" con `==` o `!=` | Convertir uno de los dos: `numero(t) == 18` |
+| `[1] == [verdadero]` y `{ a: 1 } == { a: verdadero }` ahora dan `falso` | Nada: antes daban `verdadero` por error |
+| `romper`, `continuar` son palabras de Mate y `leer` es una función incluida: no sirven como nombre de variable | Elegir otro nombre |
+| El error de una llave sin cerrar cambió de redacción ("la llave que se abrió en la línea...") | No comparar el texto entero del error |
+| `recortar`, `reemplazar`, `empieza_con`, `termina_con`, `minimo`, `maximo`, `promedio`, `absoluto`, `ultimo`, `porcion` y `obtener` son funciones incluidas: no sirven como nombre de variable | Elegir otro nombre: `sea precio_minimo = ...`, `sea el_ultimo = ...` |
+| Dentro de un texto, una barra `\` seguida de algo que no es `n`, `t`, `\`, comilla o llave es un error; también `"C:\temp"` con una sola barra | Escribir `/` o doble barra: `"C:/temp"` o `"C:\\temp"` |
+| `1.500`, `12.000` (tres decimales terminados en cero) y `3,5` suelto son un error | `1500` o `1_500` si eran miles; `1.5` y `3.5` si eran decimales |
+| `ordenar` ya no pone las mayúsculas primero ni la `ñ` y las tildes al final | Nada: ahora ordena como el diccionario |
+| `yo` y `remitente` fuera de un agente (también en una función de afuera), una clave repetida en un mapa, un parámetro o estado repetido y `nada` en un campo obligatorio son un error antes de correr | Pasarle el agente a la función como valor; borrar el repetido; declarar el campo opcional con `?` |
+| `simular` es una palabra de Mate y `detalle_de` es una función incluida: no sirven como nombre de variable | Elegir otro nombre |
+| Dos copias de un agente no pueden tener el mismo nombre (`crear Vendedor llamado "Norte"` dos veces, o en una prueba cuando el programa ya creó esa copia) | Darles nombres distintos, o crear sin `llamado` |
+| Dos pruebas con el mismo nombre son un error antes de correr | Cambiarle el nombre a una |
+| `probar` muestra lo que cada prueba escribe debajo de su nombre (con `|` adelante), y si no hay pruebas ya no dice `0 de 0 pruebas pasaron` | Nada |
+| El error de un ciclo de preguntas ahora trae la cadena (`A → B → A`), y el de responderle mal a un `enviar` trae el renglón del `responder` | No comparar el texto entero del error |
+| Cambió la redacción de más errores: `la posición 3 está fuera de rango...` (antes "índice"), `el valor nada` en vez de `nada`, la lista `(tiene: ...)` en el error de clave, y `Por ejemplo: ...` al final del error de cantidad de valores | No comparar el texto entero del error; el de clave sigue trayendo la palabra "clave" |
+| Un nombre de variable, función o parámetro no puede empezar con mayúscula (`sea Total = 0`, `funcion Doble(n)`) | Pasarlo a minúscula: `sea total = 0` |
+| Una condición escrita a mano que nunca es verdadero o falso (`si 1 { }`, `verdadero y 1`, `si x + 1 { }`) es un error antes de correr, aunque esté en una parte que no se ejecuta | Escribir la comparación: `si x + 1 > 0 { }` |
+| `mensaje Pedido` con la `{` en el renglón de abajo ahora declara el mensaje con esos campos (antes quedaba vacío); lo mismo `crear Vendedor` | Nada: es lo que se quería escribir |
+| `a_mapa` es una función incluida: no sirve como nombre de variable | Elegir otro nombre |
+| Un renglón que solo calcula (`i + 1`) se avisa antes de correr, aunque esté en una parte que no se ejecuta; y ese error (también el de `numero(x)` suelto) ya no se ataja con `intentar` ni cuenta en `asegurar falla` | Guardar el resultado: `intentar { sea n = numero(dato) ... } si falla e { ... }` |
+| `asegurar falla { ... }` ya no se cumple por un nombre que no existe ahí adentro | Corregir el nombre |
+| `preguntar` a un agente cuyo `al recibir` solo tiene un `fallar` adentro de un `si` (y ningún `responder`) es un error antes de correr | Agregar el `responder`, o usar `enviar` |
+| `sea iva = 21%` y `} si no {` son un error que explica cómo se escribe | `21 / 100` o `0.21`; `sino` todo junto |
+| Comparar con `<`, `<=`, `>` o `>=` dos textos con forma de fecha (`"21/11/2026"`) es un error | Antes daba un resultado equivocado sin avisar; separar con `partir(fecha, "/")` y comparar los números |
+| `crear ... llamado` con algo que no es un texto (un número, `nada`, `llamado Sur` sin comillas) es un error | Pasarlo a texto: `llamado "Sucursal {n}"` |
+| Dentro de un `si`, `para`, `mientras` o `intentar` de una función, una prueba o un `al recibir`, `sea x = ...` es un error si `x` es una variable `var` del programa | Sacar el `sea` si querías cambiarla, o elegir otro nombre |
+| `unir`, `texto`, `a_json`, `agregar` y `"{...}"` tampoco pueden armar un texto o una lista de más de 10.000.000 de elementos | Trabajar con menos datos por vez |
+| Volver a declarar un nombre que vino con `usar` dice de qué archivo viene (cambió la redacción); el final de un archivo a medio escribir se señala en el último renglón escrito | Elegir otro nombre; no comparar el texto entero del error |
+| El error de "demasiada recursión" es más largo y nombra la función; y hay lugar para 3.000 llamadas en vez de 120 | No comparar el texto entero del error |
+| Cambió la redacción de los errores de `tiene()` y `quitar()` con un valor que no corresponde, y `quitar(mapa, 1)` es un error (las claves son textos) | No comparar el texto entero del error |
+| Un agente con `al fallar` se hace cargo de las fallas de lo que envió: ya no aparecen como error del programa | Nada si no usás `al fallar` |
+| `hoy`, `ahora`, `leer_archivo` y `escribir_archivo` son funciones incluidas: no sirven como nombre de variable (`sea hoy = ...`) | Elegir otro nombre: `sea fecha = hoy()` |
+| `ayuda` seguida de una palabra (`ayuda si`) ya no muestra la ayuda general sino la de esa palabra; y `consola` es una orden | Nada: `ayuda` sola sigue igual |
+| Un nombre que no existe (`totl`), o una llamada con valores de más o de menos (`largo(x, 2)`), es un error antes de correr aunque esté en una parte que no se ejecuta (un `si`, una función, un agente o una prueba que no se usan): el programa ya no arranca. Si faltan varios nombres, se avisan todos juntos | Corregir el nombre o la llamada. Adentro de `intentar` y de `asegurar falla` sigue como antes |
+| `consultar_ia` y `simular_ia` son funciones incluidas: no sirven como nombre de variable, de función ni de parámetro | Elegir otro nombre |
+| `--traza` cambió de formato: cada mensaje lleva su número, lo que un agente pregunta mientras atiende va con sangría, y hay renglones nuevos (`falló`, `sin respuesta`, `la respuesta ... se descartó`). El archivo de `--traza=archivo` trae lo mismo | Nada, salvo que compares la traza letra por letra con una guardada |
+| `--traza` agrega al final de los renglones sin sangría de qué conversación es cada mensaje y a cuál contesta: `(conversación 2, en respuesta al 4)`. El archivo de `--traza=archivo` trae lo mismo | Nada: es más información. Si algo leía la traza renglón por renglón, tiene que contar con ese agregado |
+| `mensajes_enviados` es una función incluida (solo para las pruebas): no sirve como nombre de variable, de parámetro ni de estado | Elegir otro nombre: `sea enviados = ...` |
+| Tres comillas seguidas (`"""`) abren un texto de varios renglones (antes eran un error) | Nada: un programa que corría no las tenía |
+| En un `mensaje`, después del tipo de un campo y en el mismo renglón, `desde`, `hasta`, `en` y `=` son reglas de ese campo (antes eran un error) | Nada: un programa que corría no los tenía ahí |
+| Con `probar --traza` (y `--traza=archivo`), la traza de cada prueba numera los mensajes y las conversaciones desde 1, igual que `mensajes_enviados()` (antes seguía la cuenta de todo el archivo); en el archivo cada prueba lleva un renglón de título | Nada, salvo que compares la traza letra por letra con una guardada. Con `correr` no cambió |
+| Un texto de tres comillas que termina con una comilla pegada al cierre (`"hola""""`) ya no es un error: la comilla queda en el texto | Nada: antes no corría |
+| El error de un valor con decimales que queda afuera de una regla por el resto de una cuenta (`0.1 + 0.2`) muestra el valor real y sugiere `redondear()` | No comparar el texto entero del error |
+| Adentro de `intentar { }` y de `asegurar falla { }`, un valor escrito a mano que no cumple la regla de su campo ya no frena el programa antes de correr: falla al llegar a ese renglón, y ahí se ataja | Nada: antes ese programa no arrancaba |
+| `consola --ia-simulada` ahora sí simula (antes la opción se ignoraba y la consulta salía a la IA de verdad) | Nada |
+| `probar` escribe los errores de cada prueba como `correr`: `archivo:5: error: ...` (antes `línea 5: ...` y `Agente al recibir X (línea 5): ...`) | Nada |
+| `aprender`, `lecciones` y `consultas_ia` son funciones incluidas (0.4). Un programa que ya usaba esos nombres para algo suyo (`sea lecciones = [...]`, `funcion aprender(...)`) **sigue andando igual**: son las únicas tres funciones incluidas cuyo nombre se puede usar, y en ese programa el nombre es tuyo (ahí no vas a poder llamar a la función de Mate) | Nada. En un programa nuevo conviene otro nombre: `sea mis_lecciones = lecciones()` |
+| `estado recordado atendidos = 0` declara un estado que se guarda entre corridas (antes era un error). `recordado` sigue sirviendo de nombre: `estado recordado = 5` es un estado que se llama así | Nada: un programa que corría no lo tenía |
+| `bitacora`, `corregir`, `lecciones` e `informe` son órdenes: `python mate\mate.py informe` ya no busca un archivo llamado `informe.mate` para correrlo (muestra el informe de errores de uso), y lo mismo las otras tres. Si en la carpeta hay un archivo con ese nombre, Mate te avisa cómo correrlo | Escribir la orden entera: `correr informe.mate`, `correr lecciones.mate` |
+| Si un agente tiene lecciones, `--traza` muestra un renglón por cada una debajo de su consulta a la IA (`con la lección 1: ...`) | Nada: sin lecciones la traza es la de antes |
+
+Un programa que no usa `estado recordado` ni lecciones corre exactamente igual que en la 0.3 y
+no crea ningún archivo al lado.
+
+## El tope: Mate tiene que seguir siendo chico
+
+Mate sirve porque entra en la cabeza. Para que siga así hay un presupuesto escrito, y las
+pruebas del intérprete no dejan pasarse:
+
+- **Palabras propias: 40 como mucho.** Hoy son 36 (`sea`, `si`, `agente`...).
+- **Funciones incluidas: 48 como mucho.** Hoy son 48. Empezó con 20 y el plan era sumar unas
+  12; con las de archivos y fechas y la de las pruebas (`mensajes_enviados`) el cupo de 40
+  quedó completo. Para conectar los agentes con una IA el tope se subió a 42, justo lo que
+  hacía falta (`consultar_ia` y `simular_ia`). Para que un agente aprenda (0.4) el tope se subió a 45,
+  otra vez lo justo: `aprender`, `lecciones` y `consultas_ia`. La memoria no gastó ninguna
+  palabra (`recordado` solo significa algo después de `estado`) y lo demás son órdenes de la
+  línea de comandos, no del lenguaje. Para agregar otra hay que sacar una, o discutir el tope.
+  En la 0.5, `python` no gastó ninguna palabra: solo significa algo después de `usar`
+  (sigue sirviendo como nombre de variable), y lo que falte se suma desde afuera, con
+  `usar python`, sin agrandar Mate. Lo que sí hizo falta fue trabajar con datos de verdad y
+  charlar por teclado: para eso el tope se subió de 45 a 48, otra vez lo justo (`leer_tabla`,
+  `agregar_a_archivo` y `simular_teclado`). Si hay que achicar, la candidata es
+  `simular_teclado`, que solo sirve en las pruebas. Los frenos para la IA, el tope de gasto
+  y las lecciones propuestas **no gastaron nada**: `frenos` no es una palabra propia (solo
+  significa algo dentro de un agente y seguida de una llave, así que sigue sirviendo como
+  nombre), sus reglas tampoco, y lo demás son órdenes de la línea de comandos (`propuestas`
+  y `proponer`) y dos datos más en lo que ya devolvía `consultas_ia()`.
+- **Cada agregado trae lo suyo**: su renglón en este README (en la tabla de funciones o en la
+  referencia), su explicación en `ayuda <palabra>` y al menos una prueba que lo use.
+- **Una sola forma de escribir cada cosa.** Nada de sinónimos (`función` con tilde, comillas
+  simples, `*=`): Mate explica cómo va, pero no acepta dos maneras.
+- **Un solo archivo, sin instalar nada**, y todo en castellano: palabras y errores.
+
+Los números están en `mate.py` (`TOPE_DE_PALABRAS` y `TOPE_DE_FUNCIONES`), bien arriba.
+
+**Además, en la 0.4, tres errores dicen mejor qué pasó** (antes también frenaban, con un
+mensaje menos claro):
+
+| Qué pasa ahora | Cómo se arregla |
+|---|---|
+| El comando pegado dos veces en un renglón (`correr mio.matepython mate\mate.py correr mio.mate`) dice "parece que el comando se pegó dos veces" y muestra el comando bien escrito | Escribir el comando una sola vez |
+| En la consola, un renglón que es el mismo texto pegado dos veces (`sea x = 1sea x = 1`, `mostrar(1)mostrar(1)`) ya no corre: avisa y muestra el renglón una sola vez | Escribirlo una vez; si de verdad querías dos cosas iguales, van en dos renglones |
+| Un texto de tres comillas sin cerrar, cuando en el archivo hay una cantidad impar de `"""`, dice cuántas hay, en qué renglones, y que sobra o falta una | Revisar esos renglones: cada texto abre y cierra con `"""` |
+| Un archivo `.mate` cuyo primer renglón es un comando de PowerShell o la pantalla (`PS C:\...>`) dice que se pegó adentro del archivo | Borrar ese renglón en el Bloc de notas |
+| `--borrar` sola (sin `=número`) ahora existe, y va con `informe` | Para una lección sigue siendo `lecciones archivo.mate Mostrador --borrar=2` |
+| Un argumento vacío al final (`correr hola.mate ""`) ya no dice que el comando se pegó dos veces: vuelve el mensaje de siempre | Sacar las comillas vacías |
+
+**En la 0.5 casi no cambió lo que hace un programa que ya tenías**: el intérprete es más
+rápido, pero da las mismas salidas. Las pocas diferencias están en las primeras filas de la
+tabla de [Qué cambió y puede frenar un programa viejo](#qué-cambió-y-puede-frenar-un-programa-viejo):
+el aviso de Ctrl+C en un `leer`, `escribir_archivo` con `probar` (ya no toca el disco), las
+órdenes nuevas y la redacción de algunos errores. Lo único que se mueve es un tope de seguridad, y
+para más lugar: con un Python anterior al 3.12, una función puede llamarse a sí misma unas 180
+veces seguidas en vez de unas 120. `usar python "archivo.py"` antes era un error de escritura,
+así que ningún programa viejo lo usaba. Lo mismo con los `frenos`: `frenos { ... }` dentro
+de un agente antes era un error de escritura. Un agente sin frenos consulta a la IA igual que
+antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `proponer` son
+órdenes nuevas: si tenías un programa llamado `propuestas.mate`, se corre con
+`correr propuestas.mate`.
+
+## Límites de la versión 0.5
+
+- Los agentes corren todos dentro del mismo programa, de a uno y en orden (por eso el resultado
+  es siempre el mismo). Un agente puede consultarle a una IA de verdad con `consultar_ia`,
+  pero cada consulta es suelta (la IA no recuerda la anterior: lo que tenga que saber va en
+  la pregunta) y los programas todavía no se conectan entre máquinas.
+- Todo lo que trae `usar` queda en un único espacio de nombres: dos archivos no pueden declarar
+  algo con el mismo nombre.
+- La memoria de un programa es un archivo al lado del programa, pensado para una persona y una
+  computadora: si el mismo programa corre dos veces a la vez, se guarda lo de la corrida que
+  termina última. Las lecciones solo le llegan a la IA por `consultar_ia`: no cambian lo que
+  hace el resto del programa (para eso está `lecciones()`).
+- El registro de errores de uso anota un renglón por corrida que falla (el primer error, y
+  cuántos más hubo) y no anota nada con `probar`. Tapa lo que tiene forma de dato tuyo, pero
+  los nombres que no van entre comillas en un mensaje (el de un mensaje o un campo) pueden
+  quedar: leelo antes de compartirlo.
+- `leer_tabla` lee planillas guardadas como CSV, no el `.xlsx` de Excel directamente (hay
+  que hacer "Guardar como"), y trae la planilla entera a la memoria: está pensada para listas
+  de cientos o miles de filas, no de millones. Cada vez que cambiás la planilla en Excel hay
+  que guardarla de nuevo como CSV.
+- Los frenos buscan importes, palabras y cuentan letras: no entienden el sentido de una
+  respuesta, no ven un importe escrito con letras y solo valen para `consultar_ia` dentro de
+  un agente que atiende un mensaje (ver [Lo que los frenos no hacen](#lo-que-los-frenos-no-hacen)).
+  El tope de gasto cuenta consultas y tokens, no plata, y es por programa y por computadora:
+  si el mismo agente corre en dos programas, cada uno lleva su cuenta.
+- La charla por teclado es en la ventana de PowerShell: un programa de Mate todavía no
+  atiende por WhatsApp ni por una página web.
+
+- Sigue siendo un intérprete: es entre 2 y 5 veces más rápido que la 0.4 en bucles y llamadas,
+  pero un programa de Python hace las mismas cuentas mucho más rápido todavía. Armar una
+  lista larga con `agregar` en un bucle es lento (copia la lista en cada vuelta).
+- Con `usar python` solo cruzan valores simples, y lo que pasa adentro del `.py` queda fuera
+  de los cuidados de Mate (permisos, freno de pasos, volver atrás entre pruebas).
+
+## Pruebas del intérprete
+
+```bash
+python3 -m pytest mate/pruebas -q -p no:cacheprovider
+```
+
+Para medir la velocidad (no es una prueba: muestra cuánto tarda cada programa del medidor, y
+con `--contra=otro_mate.py` compara dos copias del intérprete):
+
+```bash
+python3 mate/pruebas/velocidad.py
+```
