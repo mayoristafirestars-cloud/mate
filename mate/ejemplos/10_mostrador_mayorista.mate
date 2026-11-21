@@ -114,6 +114,18 @@ funcion buscar_en_lista(precios, pregunta) {
     devolver unir(encontrados, " / ")
 }
 
+# Si con la charla abierta alguien pega un comando de PowerShell, no es una consulta.
+funcion parece_comando(dicho) {
+    sea d = minusculas(dicho)
+    para arranque en ["py ", "python ", "mate ", "cd ", "notepad ", "ollama ", "$env:", "ps c:",
+                      "copy-item", "invoke-webrequest", "expand-archive", "get-", "remove-item"] {
+        si empieza_con(d, arranque) {
+            devolver verdadero
+        }
+    }
+    devolver falso
+}
+
 # La charla: una consulta atrás de otra hasta que escriben "chau". Devuelve cuántas fueron.
 funcion charlar(precios) {
     var consultas = 0
@@ -126,6 +138,11 @@ funcion charlar(precios) {
         }
         si tiene(["chau", "salir", "listo", "nada más"], minusculas(dicho)) {
             romper
+        }
+        si parece_comando(dicho) {
+            mostrar("   (Eso parece un comando de PowerShell, no una consulta: no lo tomé.")
+            mostrar("    Seguís dentro del mostrador. Para salir, escribí chau y apretá Enter.)")
+            continuar
         }
         sea atencion = preguntar Consulta {
             pregunta: dicho, sin_ia: buscar_en_lista(precios, dicho),
@@ -186,6 +203,13 @@ prueba "cada consulta queda anotada (en la prueba no se escribe el archivo de ve
     asegurar charlar(precios) == 1
     sea anotado = leer_archivo("consultas_atendidas.txt")
     asegurar tiene(anotado, "01/01/2025 12:00 | arroz | Arroz largo fino (bolsa de 30 kg): $ 27.300,00")
+}
+
+prueba "un comando pegado en la charla no cuenta como consulta" {
+    simular_teclado(["py mate\\mate.py correr mi_mostrador.mate", "$env:MATE_MODELO = 1",
+                     "Copy-Item precios.csv otra", "yerba", "chau"])
+    asegurar charlar(precios) == 1
+    asegurar no parece_comando("¿Cuánto sale la yerba?")
 }
 
 prueba "cuenta las consultas que atiende" {

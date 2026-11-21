@@ -8325,7 +8325,7 @@ def test_el_ejemplo_del_mostrador_mayorista(tmp_path, capsys, monkeypatch, ia):
     en_la_carpeta = archivos_de(RAIZ / "ejemplos")
     assert "precios.csv" in en_la_carpeta
     codigo, salida, err = orden_mate(capsys, "probar", original)
-    assert (codigo, err) == (0, "") and "6 de 6 pruebas pasaron" in salida and ia.pedidos == []
+    assert (codigo, err) == (0, "") and "7 de 7 pruebas pasaron" in salida and ia.pedidos == []
     assert archivos_de(RAIZ / "ejemplos") == en_la_carpeta  # 'probar' no deja nada
     ruta = shutil.copy(original, tmp_path / original.name)
     shutil.copy(RAIZ / "ejemplos" / "precios.csv", tmp_path)
