@@ -4310,7 +4310,7 @@ class ContratoConversacion:
                 invalido(f"campos desconocidos en el paso de '{tipo}'")
             clave = (estado, evento, origen, destino, tipo)
             alternativas = self.transiciones.setdefault(clave, [])
-            if any(all(campos[k] == otro[k] for k in campos.keys() & otro.keys())
+            if any(all(igual(campos[k], otro[k]) for k in campos.keys() & otro.keys())
                    for otro, _ in alternativas):
                 invalido(f"pasos ambiguos en '{estado}' para '{tipo}'")
             alternativas.append((campos, sigue))
@@ -4338,7 +4338,7 @@ class ContratoConversacion:
         a = destino.nombre if destino else "(programa)"
         clave = (estado, evento, de, a, mensaje.tipo)
         for campos, siguiente in self.transiciones.get(clave, ()):
-            if all(mensaje.campos.get(campo) == valor for campo, valor in campos.items()):
+            if all(igual(mensaje.campos.get(campo), valor) for campo, valor in campos.items()):
                 charlas[charla] = siguiente
                 return
         raise ErrorMate(f"contrato de conversación: charla '{charla}' en '{estado}' "
