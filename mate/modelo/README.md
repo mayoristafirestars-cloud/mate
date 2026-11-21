@@ -4,6 +4,12 @@ Esta carpeta deja que un programa de Mate le pida a **otra IA** que no es la que
 (por ejemplo un modelo que corre en tu computadora con Ollama o LM Studio). No cambia nada del
 lenguaje: son archivos nuevos que se usan con `usar python`.
 
+> **Para que un agente conteste con tu modelo no hace falta esta carpeta.** Desde la 0.5,
+> `consultar_ia()` usa un modelo propio con solo poner `$env:MATE_IA_PROPIA = "ollama"` y
+> `$env:MATE_MODELO`, y ahí sí valen los frenos, el tope y las lecciones (ver el manual,
+> "Usar un modelo propio en vez de Claude"). Esta carpeta sirve para otra cosa: pedirle al
+> modelo un **dato en JSON** desde el programa.
+
 ## El acuerdo
 
 ```

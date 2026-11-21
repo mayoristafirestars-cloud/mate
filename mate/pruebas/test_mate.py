@@ -10038,3 +10038,121 @@ def test_las_correcciones_de_la_revision_de_la_0_5_estan_documentadas():
     assert "Con 'probar' ninguna de las dos toca el disco" in guia
     assert "no se ataja con 'intentar'" in guia and "--guardar=guia.txt" in mate.__doc__
     assert mate.TOPE_DE_FUNCIONES == 48 == len(mate.FUNCIONES) and len(mate.PALABRAS) == 36
+
+
+# ─────────────── Un modelo propio (MATE_IA_PROPIA) en vez de Claude ───────────────
+
+@pytest.fixture
+def modelo_propio():
+    """Un servicio de mentira en esta máquina que habla como 'chat completions'."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    estado = {"dice": ["La yerba sale $ 3.500."], "codigo": 200, "pedidos": []}
+
+    class Atiende(BaseHTTPRequestHandler):
+        def do_POST(self):
+            cuerpo = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            estado["pedidos"].append((cuerpo, self.headers.get("Authorization")))
+            if estado["codigo"] != 200:
+                sale = {"error": {"message": "model not found, clave-de-mentira-123"}}
+            else:
+                dice = estado["dice"].pop(0) if len(estado["dice"]) > 1 else estado["dice"][0]
+                sale = {"choices": [{"message": {"content": dice}}],
+                        "usage": {"prompt_tokens": 40, "completion_tokens": 2}}
+            self.send_response(estado["codigo"])
+            self.end_headers()
+            self.wfile.write(json.dumps(sale).encode("utf-8"))
+
+        def log_message(self, *a):
+            pass
+
+    servidor = HTTPServer(("127.0.0.1", 0), Atiende)
+    threading.Thread(target=servidor.serve_forever, daemon=True).start()
+    estado["url"] = f"http://127.0.0.1:{servidor.server_port}/v1/chat/completions"
+    yield estado
+    servidor.shutdown()
+    servidor.server_close()
+
+
+PROGRAMA_CON_MODELO_PROPIO = '''
+mensaje Consulta { pregunta: texto }
+agente Mostrador {
+    frenos {
+        precios: [3500]
+        reserva: "Eso te lo confirma una persona."
+    }
+    al recibir Consulta como c {
+        responder consultar_ia("Atendés un almacén.", c.pregunta)
+    }
+}
+mostrar(preguntar Consulta { pregunta: "¿Cuánto sale la yerba?" } a Mostrador)
+'''
+
+
+def correr_con_modelo_propio(tmp_path, entorno_extra, *opciones):
+    import subprocess
+    programa = tmp_path / "m.mate"
+    programa.write_text(PROGRAMA_CON_MODELO_PROPIO, encoding="utf-8")
+    entorno = {k: v for k, v in os.environ.items()
+               if k not in ("ANTHROPIC_API_KEY", "MATE_MODELO", "MATE_IA_PROPIA",
+                            "MATE_IA_PROPIA_CLAVE") and not k.lower().endswith("_proxy")}
+    entorno.update({"MATE_SIN_REGISTRO": "1", "PYTHONIOENCODING": "utf-8"}, **entorno_extra)
+    return subprocess.run(
+        [sys.executable, str(RAIZ / "mate.py"), "correr", str(programa), *opciones],
+        capture_output=True, text=True, encoding="utf-8", env=entorno, cwd=str(tmp_path))
+
+
+def test_modelo_propio_contesta_sin_clave_de_anthropic_y_con_lecciones(tmp_path, modelo_propio):
+    import subprocess
+    entorno = {"MATE_IA_PROPIA": modelo_propio["url"], "MATE_MODELO": "qwen2.5:3b"}
+    (tmp_path / "m.mate").write_text(PROGRAMA_CON_MODELO_PROPIO, encoding="utf-8")
+    subprocess.run([sys.executable, str(RAIZ / "mate.py"), "corregir", str(tmp_path / "m.mate"),
+                    "Mostrador", "No hay envíos los domingos"], capture_output=True,
+                   env={**os.environ, "MATE_SIN_REGISTRO": "1"}, cwd=str(tmp_path))
+    corrida = correr_con_modelo_propio(tmp_path, entorno, "--traza")
+    assert corrida.returncode == 0, corrida.stdout + corrida.stderr
+    assert "La yerba sale $ 3.500." in corrida.stdout
+    cuerpo, autorizacion = modelo_propio["pedidos"][0]
+    assert cuerpo["model"] == "qwen2.5:3b" and autorizacion is None
+    assert cuerpo["messages"][0]["role"] == "system"
+    assert "No hay envíos los domingos" in cuerpo["messages"][0]["content"]
+    assert cuerpo["messages"][1] == {"role": "user", "content": "¿Cuánto sale la yerba?"}
+
+
+def test_modelo_propio_pasa_por_los_frenos(tmp_path, modelo_propio):
+    modelo_propio["dice"] = ["La yerba sale $ 9.999.", "Sale $ 9.999, te dije."]
+    corrida = correr_con_modelo_propio(
+        tmp_path, {"MATE_IA_PROPIA": modelo_propio["url"], "MATE_MODELO": "m"})
+    assert corrida.returncode == 0, corrida.stdout + corrida.stderr
+    assert "Eso te lo confirma una persona." in corrida.stdout
+    assert "9.999" not in corrida.stdout and len(modelo_propio["pedidos"]) == 2
+
+
+def test_modelo_propio_errores_claros_y_sin_la_clave(tmp_path, modelo_propio):
+    url = modelo_propio["url"]
+    sin_modelo = correr_con_modelo_propio(tmp_path, {"MATE_IA_PROPIA": url})
+    assert sin_modelo.returncode != 0 and "ollama list" in sin_modelo.stderr
+    mala = correr_con_modelo_propio(tmp_path, {"MATE_IA_PROPIA": "cualquier cosa", "MATE_MODELO": "m"})
+    assert mala.returncode != 0 and "MATE_IA_PROPIA" in mala.stderr
+    modelo_propio["codigo"] = 404
+    no_esta = correr_con_modelo_propio(tmp_path, {
+        "MATE_IA_PROPIA": url, "MATE_MODELO": "m", "MATE_IA_PROPIA_CLAVE": "clave-de-mentira-123"})
+    assert no_esta.returncode != 0 and "no conoce el modelo 'm'" in no_esta.stderr
+    assert "clave-de-mentira" not in no_esta.stderr + no_esta.stdout
+    assert modelo_propio["pedidos"][-1][1] == "Bearer clave-de-mentira-123"
+    import socket
+    libre = socket.socket()
+    libre.bind(("127.0.0.1", 0))
+    puerto = libre.getsockname()[1]
+    libre.close()
+    apagado = correr_con_modelo_propio(tmp_path, {
+        "MATE_IA_PROPIA": f"http://127.0.0.1:{puerto}/v1/chat/completions", "MATE_MODELO": "m"})
+    assert apagado.returncode != 0 and "no pude conectarme con tu modelo" in apagado.stderr
+
+
+def test_modelo_propio_no_se_usa_con_ia_simulada_ni_con_probar(tmp_path, modelo_propio):
+    entorno = {"MATE_IA_PROPIA": modelo_propio["url"], "MATE_MODELO": "m"}
+    correr_con_modelo_propio(tmp_path, entorno, "--ia-simulada")
+    assert modelo_propio["pedidos"] == []
+    assert mate.IA_PROPIA_ATAJOS["ollama"] == "http://localhost:11434/v1/chat/completions"

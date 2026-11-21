@@ -899,6 +899,37 @@ python mate\mate.py correr mate\ejemplos\07_agente_con_ia.mate --ia-simulada
   clave a mano al programarla. Si la primera consulta de verdad da un error raro, es el primer
   lugar donde mirar.
 
+### Usar un modelo propio en vez de Claude (Ollama y parecidos)
+
+`consultar_ia()` también puede hablarle a un modelo que corre **en tu computadora**, gratis y
+sin internet, en lugar de a Claude. No hay que cambiar nada en el programa: se elige con dos
+variables en PowerShell, antes de correr.
+
+```
+$env:MATE_IA_PROPIA = "ollama"
+$env:MATE_MODELO = "qwen2.5:3b"
+python mate\mate.py correr mi_mostrador.mate
+```
+
+- `MATE_IA_PROPIA` dice dónde está el modelo. `"ollama"` es un atajo de
+  `http://localhost:11434/v1/chat/completions` y `"lmstudio"` de
+  `http://localhost:1234/v1/chat/completions`; también va la dirección completa de cualquier
+  servicio que entienda "chat completions".
+- `MATE_MODELO` es el nombre que le da tu servicio (con Ollama lo muestra `ollama list`). Con
+  un modelo propio es obligatorio.
+- Si el servicio pide clave, va en `MATE_IA_PROPIA_CLAVE`. Nunca en el programa.
+- Para volver a Claude: `Remove-Item Env:MATE_IA_PROPIA` (y poné de nuevo el `MATE_MODELO`
+  de Claude, o borralo).
+
+Todo lo demás funciona igual: las lecciones le llegan, los **frenos** revisan cada respuesta,
+el tope por día cuenta las consultas, y se ve en `--traza` y en la bitácora. Con `probar` y
+con `--ia-simulada` no se consulta a ningún modelo.
+
+A tener en cuenta: un modelo chico se equivoca más que Claude (inventa, se va de tema, a
+veces contesta en otro idioma), así que con uno propio los frenos importan más. La primera
+consulta tarda porque el modelo tiene que cargarse. Y las variables valen solo para esa
+ventana de PowerShell: al abrir otra hay que ponerlas de nuevo.
+
 ### Las pruebas
 
 Cada `prueba` empieza limpia: los agentes declarados arrancan con el mismo estado inicial que

@@ -3256,6 +3256,130 @@ def explicar_error_de_ia(codigo, dicho, detalles, modelo):
     return f"Anthropic contestó con un error que no conozco (código {codigo}){original}"
 
 
+# ─────────────── Un modelo propio en vez de Claude (variable MATE_IA_PROPIA) ───────────────
+# Con MATE_IA_PROPIA puesta, consultar_ia() le habla a ese servicio (uno que entiende
+# "chat completions": Ollama, LM Studio, llama.cpp...) y no a Anthropic. Todo lo demás es
+# igual: lecciones, frenos, tope por día, traza y bitácora.
+IA_PROPIA_ATAJOS = {"ollama": "http://localhost:11434/v1/chat/completions",
+                    "lmstudio": "http://localhost:1234/v1/chat/completions"}
+
+
+def direccion_de_ia_propia():
+    """La dirección del modelo propio, o None si se usa Claude."""
+    valor = os.environ.get("MATE_IA_PROPIA", "").strip().strip("\"'").strip()
+    if not valor:
+        return None
+    direccion = IA_PROPIA_ATAJOS.get(valor.lower(), valor)
+    if not re.fullmatch(r"https?://[^\s/@?#]+(/[^\s?#]*)?", direccion):
+        raise error_de_ia(
+            'la variable MATE_IA_PROPIA no tiene una dirección que entienda. Poné "ollama", '
+            'o la dirección completa, como "http://localhost:11434/v1/chat/completions". '
+            "Para volver a la IA de siempre:  Remove-Item Env:MATE_IA_PROPIA")
+    return direccion
+
+
+def pedir_a_la_ia_propia(direccion, instrucciones, pregunta):
+    """Como pedir_a_la_ia, pero contra un modelo propio. La clave (si hace falta) va en
+    MATE_IA_PROPIA_CLAVE y nunca aparece en un error."""
+    import http.client
+    import socket
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    modelo = os.environ.get("MATE_MODELO", "").strip().strip("\"'").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:@/\[\]-]{0,99}", modelo):
+        raise error_de_ia(
+            "con MATE_IA_PROPIA hay que decir qué modelo usar, con el nombre que le da tu "
+            'servicio. En PowerShell:  $env:MATE_MODELO = "qwen2.5:3b"   (con Ollama, los '
+            "nombres los muestra:  ollama list)")
+    clave = os.environ.get("MATE_IA_PROPIA_CLAVE", "").strip().strip("\"'").strip()
+    lugar = urllib.parse.urlsplit(direccion).netloc
+    local = lugar.split(":")[0].lower() in ("localhost", "127.0.0.1", "[::1]")
+
+    def error(texto):
+        return error_de_ia(tapar_clave(texto, clave))
+
+    mensajes = [{"role": "user", "content": pregunta}]
+    if instrucciones.strip():
+        mensajes.insert(0, {"role": "system", "content": instrucciones})
+    encabezados = {"content-type": "application/json", "user-agent": f"mate/{VERSION}"}
+    if clave:
+        if not (clave.isascii() and clave.isprintable()) or " " in clave:
+            raise error_de_ia("la clave guardada en MATE_IA_PROPIA_CLAVE tiene espacios o "
+                              "letras raras (no la muestro por seguridad)")
+        encabezados["authorization"] = "Bearer " + clave
+    tardo = error(f"tu modelo tardó más de {IA_ESPERA // 60} minutos en contestar y dejé de "
+                  "esperar. La primera consulta es la más lenta (tiene que cargarse): probá "
+                  "de nuevo, o con un modelo más chico")
+    codigo, crudo = 200, b""
+    try:
+        pedido = urllib.request.Request(
+            direccion, headers=encabezados, method="POST",
+            data=json.dumps({"model": modelo, "messages": mensajes, "stream": False,
+                             "temperature": 0.2}).encode("utf-8"))
+        if local:  # a un modelo de esta computadora se va directo, sin el proxy del sistema
+            abrir = urllib.request.build_opener(urllib.request.ProxyHandler({})).open
+        else:
+            abrir = urllib.request.urlopen
+        with abrir(pedido, timeout=IA_ESPERA) as respuesta:
+            crudo = respuesta.read()
+    except urllib.error.HTTPError as e:
+        codigo = e.code
+        try:
+            crudo = e.read()
+        except Exception:
+            crudo = b""
+    except (TimeoutError, socket.timeout):
+        raise tardo
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, (TimeoutError, socket.timeout)):
+            raise tardo
+        raise error(
+            f"no pude conectarme con tu modelo en {lugar}. "
+            + ("Fijate que el programa que lo corre esté abierto (con Ollama: que se vea su "
+               "ícono al lado del reloj, o escribí  ollama list  en PowerShell)" if local
+               else "Revisá la dirección de MATE_IA_PROPIA y que haya red"))
+    except (OSError, http.client.HTTPException):
+        raise error("se cortó la conexión con tu modelo antes de que llegara la respuesta")
+    except (ValueError, TypeError):
+        raise error("no pude armar la consulta para tu modelo con esos textos")
+    try:
+        datos = json.loads(crudo.decode("utf-8"))
+    except (ValueError, UnicodeError):
+        datos = None
+    if codigo != 200:
+        detalle = datos.get("error") if isinstance(datos, dict) else None
+        dicho = detalle.get("message") if isinstance(detalle, dict) else detalle
+        dicho = " ".join(tapar_clave(dicho if isinstance(dicho, str) else "", clave).split())[:300]
+        original = f" (el servicio dijo: {dicho})" if dicho else ""
+        if codigo == 404:
+            raise error(f"tu servicio no conoce el modelo '{modelo}', o la dirección de "
+                        "MATE_IA_PROPIA no es la de 'chat completions'. Con Ollama, los "
+                        f"modelos que tenés los muestra:  ollama list{original}")
+        if codigo in (401, 403):
+            raise error("tu servicio no aceptó la clave (va en MATE_IA_PROPIA_CLAVE)"
+                        + original)
+        raise error(f"tu modelo contestó con un error (código {codigo}){original}")
+    try:
+        texto = datos["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        texto = None
+    uso = datos.get("usage") if isinstance(datos, dict) else None
+    partes = [uso.get(k) for k in ("prompt_tokens", "completion_tokens")] \
+        if isinstance(uso, dict) else []
+    _USO_DE_LA_IA["cobrada"] = True  # no se paga, pero cuenta para el tope por día
+    _USO_DE_LA_IA["tokens"] = sum(partes) \
+        if partes and all(type(n) is int and 0 <= n < 10 ** 12 for n in partes) else None
+    if not isinstance(texto, str):
+        raise error("tu modelo contestó algo que no pude entender (esperaba la forma de "
+                    "'chat completions'). Revisá la dirección de MATE_IA_PROPIA")
+    texto = re.sub(r"<think>.*?</think>", "", texto, flags=re.S).strip()
+    if not texto:
+        raise error("tu modelo contestó sin texto. Probá de nuevo o cambiá la pregunta")
+    return texto
+
+
 def pedir_a_la_ia(instrucciones, pregunta):
     """Le manda la consulta a Claude y devuelve el texto que contesta. Todo lo que puede
     salir mal es un ErrorMate en castellano, y la clave nunca aparece en ninguno."""
@@ -3266,6 +3390,9 @@ def pedir_a_la_ia(instrucciones, pregunta):
     import urllib.error
     import urllib.request  # (usa el proxy del sistema: el de Windows o HTTPS_PROXY)
 
+    propia = direccion_de_ia_propia()
+    if propia:
+        return pedir_a_la_ia_propia(propia, instrucciones, pregunta)
     clave, modelo = clave_de_ia(), modelo_de_ia()
 
     def error(texto):
@@ -8288,7 +8415,8 @@ def redactar_leccion(queja, respuesta, opciones, respuestas, en_el_tope=None):
         if dicho is None:
             return fija, "Es una redacción fija (con --ia-simulada sola no hay IA).", None
         como, tokens = "La redactó la IA simulada (el archivo de respuestas).", None
-    elif not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+    elif not (os.environ.get("ANTHROPIC_API_KEY", "").strip()
+              or os.environ.get("MATE_IA_PROPIA", "").strip()):
         return fija, ("Es una redacción fija: no hay clave para la IA (con la clave puesta "
                       "en ANTHROPIC_API_KEY la redacta la IA, y esa consulta se paga)."), None
     elif en_el_tope:
