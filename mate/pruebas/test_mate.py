@@ -3589,14 +3589,18 @@ def test_leer_y_escribir_archivos(tmp_path, capsys):
 
 
 def test_los_archivos_solo_de_la_carpeta_y_sin_pisar_programas(tmp_path, capsys):
+    tmp_path = tmp_path / "datos {literales}"
+    tmp_path.mkdir()
     carpeta = tmp_path / "programas"
     carpeta.mkdir()
     (tmp_path / "afuera.txt").write_text("secreto", encoding="utf-8")
     (carpeta / "notas.txt").write_text("hola", encoding="utf-8")
     (carpeta / "lista.txt.txt").write_text("hola", encoding="utf-8")
+    # En un texto de Mate, las llaves de una ruta son literales si llevan barra.
+    ruta_afuera = (tmp_path / "afuera.txt").as_posix().replace("{", r"\{")
     casos = {
         'leer_archivo("../afuera.txt")': "queda afuera",
-        f'leer_archivo("{(tmp_path / "afuera.txt").as_posix()}")': 'sin la ruta: "afuera.txt"',
+        f'leer_archivo("{ruta_afuera}")': 'sin la ruta: "afuera.txt"',
         'escribir_archivo("../nuevo.txt", "x")': "queda afuera",
         'escribir_archivo("programa.mate", "x")': "para no pisar un programa",
         'escribir_archivo("Otro.MATE", "x")': "para no pisar un programa",
@@ -9912,6 +9916,8 @@ def test_el_mostrador_del_curso_busca_sin_tildes(tmp_path, capsys, monkeypatch):
 
 def test_curso_n_reescribe_los_comandos_para_la_carpeta_donde_esta_la_persona(
         tmp_path, capsys, monkeypatch):
+    import os
+
     monkeypatch.delenv("MATE_ORDEN", raising=False)
     # parado al lado de la carpeta mate, sin la orden corta: tal cual (lo prueba otra prueba)
     # desde otra carpeta: la orden larga con la ruta completa de mate.py, y las rutas enteras
@@ -9921,7 +9927,9 @@ def test_curso_n_reescribe_los_comandos_para_la_carpeta_donde_esta_la_persona(
     assert salida.startswith("(Los comandos de esta clase están escritos para la carpeta donde "
                              "estás parado ahora:\nse pueden copiar tal cual.)\n\n# Clase 1: ")
     assert f"    python {RAIZ / 'mate.py'} correr {CURSO / 'clase_01_hola.mate'}\n" in salida
-    assert "mate\\curso" not in salida and "python mate\\mate.py" not in salida
+    sin_raiz_absoluta = salida.replace(str(RAIZ) + os.sep, "")
+    assert "mate\\curso" not in sin_raiz_absoluta
+    assert "python mate\\mate.py" not in sin_raiz_absoluta
     assert f"notepad {CURSO / 'practica.mate'}" in salida
     # con la orden instalada: 'mate', desde cualquier carpeta
     monkeypatch.setenv("MATE_ORDEN", "mate")
@@ -9929,14 +9937,15 @@ def test_curso_n_reescribe_los_comandos_para_la_carpeta_donde_esta_la_persona(
     salida = capsys.readouterr().out
     assert f"    mate correr {CURSO / 'clase_12_mostrador.mate'} --ia-simulada\n" in salida
     assert f"    mate probar {CURSO / 'clase_12_mostrador.mate'}\n" in salida
-    assert "python" not in salida.replace("Python", "") and "mate\\" not in salida
+    sin_raiz_absoluta = salida.replace(str(RAIZ) + os.sep, "")
+    assert "python" not in sin_raiz_absoluta.replace("Python", "")
+    assert "mate\\" not in sin_raiz_absoluta
     assert f"`{RAIZ / 'README.md'}`" in salida and f"`{RAIZ / 'ejemplos'}`" in salida
     # una carpeta con espacios va entre comillas
     import shutil
     con_espacio = tmp_path / "mis cosas" / "mate" / "curso"
     shutil.copytree(CURSO, con_espacio)
     assert mate.orden_curso(["1"], print, carpeta=con_espacio) == 0
-    import os
     corta = os.path.join("mis cosas", "mate", "curso", "clase_01_hola.mate")
     assert f'mate correr "{corta}"' in capsys.readouterr().out
 
@@ -9949,7 +9958,7 @@ def test_guia_e_informe_se_guardan_en_un_archivo_que_el_bloc_de_notas_lee_bien(
     assert salida == "Quedó guardado en guia.txt. Para abrirlo:  notepad guia.txt\n"
     crudo = (tmp_path / "guia.txt").read_bytes()
     assert crudo.startswith(b"\xef\xbb\xbf")  # con la marca: el Bloc de notas muestra las tildes
-    assert crudo.decode("utf-8-sig") == mate.texto_de_guia() + "\n"
+    assert (tmp_path / "guia.txt").read_text(encoding="utf-8-sig") == mate.texto_de_guia() + "\n"
     codigo, salida, err = orden_mate(capsys, "informe", "--para-mejorar",
                                      '--guardar="para mejorar.txt"')
     assert (codigo, err) == (0, "") and 'notepad "para mejorar.txt"' in salida
