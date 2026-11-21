@@ -10038,3 +10038,74 @@ def test_las_correcciones_de_la_revision_de_la_0_5_estan_documentadas():
     assert "Con 'probar' ninguna de las dos toca el disco" in guia
     assert "no se ataja con 'intentar'" in guia and "--guardar=guia.txt" in mate.__doc__
     assert mate.TOPE_DE_FUNCIONES == 48 == len(mate.FUNCIONES) and len(mate.PALABRAS) == 36
+
+
+def test_contrato_deposito_ejecuta_pruebas_y_distingue_silencio():
+    archivo = RAIZ / "ejemplos" / "contrato_deposito.mate"
+    programa = mate.analizar(archivo.read_text(encoding="utf-8"), str(archivo))
+    assert mate.verificar(programa) == []
+    salida = []
+    interprete = mate.Interprete(salida=salida.append, traza=True)
+    pruebas = interprete.correr(programa, pruebas=True)
+    assert len(pruebas) >= 7
+    assert all(error is None for _, error in pruebas), pruebas
+    assert any("Deposito sin respuesta" in linea for linea in salida)
+    assert any('Stock { charla: "demo-A", sku: "cinta_5m", unidades: 0 }' in linea
+               for linea in salida)
+
+
+def test_verificar_rechaza_un_contrato_con_pasos_ambiguos():
+    archivo = RAIZ / "ejemplos" / "contrato_deposito.mate"
+    fuente = archivo.read_text(encoding="utf-8").replace(
+        'sigue: "busca_precio", campos: { sku: "pinza" }',
+        'sigue: "busca_precio", campos: { sku: "cinta" }',
+        1,
+    )
+    errores = mate.verificar(mate.analizar(fuente, str(archivo)))
+    assert any("pasos ambiguos" in mensaje for _, mensaje in errores)
+
+
+
+def test_contrato_distingue_falso_de_cero_al_validar_una_respuesta():
+    archivo = RAIZ / "ejemplos" / "contrato_deposito.mate"
+    fuente = archivo.read_text(encoding="utf-8").replace(
+        'sigue: "confirma_sin_stock", campos: { unidades: 0 }',
+        'sigue: "confirma_sin_stock", campos: { unidades: falso }',
+        1,
+    )
+    error = falla(fuente)
+    assert "no admite respuesta de Deposito a Mostrador con 'Stock'" in error.mensaje
+
+
+def test_contrato_distingue_pasos_con_falso_y_cero():
+    salida, _ = correr("""
+        contrato conversacion {
+            id: "charla", inicio: "inicio",
+            pasos: [
+                { estado: "inicio", evento: "pregunta", origen: "(programa)",
+                  destino: "Agente", mensaje: "Consulta", sigue: "espera_logico",
+                  campos: { valor: falso } },
+                { estado: "inicio", evento: "pregunta", origen: "(programa)",
+                  destino: "Agente", mensaje: "Consulta", sigue: "espera_numero",
+                  campos: { valor: 0 } },
+                { estado: "espera_logico", evento: "respuesta", origen: "Agente",
+                  destino: "(programa)", mensaje: "Respuesta", sigue: "fin",
+                  campos: { clase: "logico" } },
+                { estado: "espera_numero", evento: "respuesta", origen: "Agente",
+                  destino: "(programa)", mensaje: "Respuesta", sigue: "fin",
+                  campos: { clase: "numero" } }
+            ]
+        }
+
+        mensaje Consulta { charla: texto, valor: cualquiera } responde Respuesta
+        mensaje Respuesta { charla: texto, clase: texto }
+        agente Agente {
+            al recibir Consulta como c {
+                responder Respuesta { charla: c.charla, clase: tipo(c.valor) }
+            }
+        }
+        sea a = preguntar Consulta { charla: "A", valor: falso } a Agente
+        sea b = preguntar Consulta { charla: "B", valor: 0 } a Agente
+        mostrar(a.clase, b.clase)
+    """)
+    assert salida == ["logico numero"]

@@ -891,6 +891,12 @@ class Parser:
 
     def sentencia(self, nivel_superior=False):
         tipo, val, ln = self.ver()
+        if tipo == "id" and val == "contrato" and self.es("id", "conversacion", 1):
+            if not nivel_superior:
+                raise ErrorMate("'contrato conversacion' va fuera de agentes, funciones y pruebas", ln)
+            self.tomar()
+            self.tomar()
+            return ("contrato_conversacion", ln, self.expr())
         if tipo == "kw":
             if val in ("sea", "var"):
                 self.tomar()
@@ -2526,6 +2532,11 @@ def verificar(programa, en_consola=False):
     # (una función suelta sí puede usarla: quizá es una ayuda que llaman las pruebas)
     fuera_de_prueba([s for s in programa if s[0] not in ("prueba", "funcion")])
     errores += revisar_nombres(programa, mensajes, veces, en_consola)
+    try:
+        ContratoConversacion.del_programa(programa, {nombre: s[3] for nombre, s in mensajes.items()},
+                                          agentes)
+    except ErrorMate as error:
+        errores.append((error.linea, error.mensaje))
     return sorted(set(errores))
 
 
@@ -4231,6 +4242,110 @@ class Entorno:
 # ───────────────────────────── Intérprete ─────────────────────────────
 
 
+class ContratoConversacion:
+    """Transiciones declaradas, con estado independiente para cada ID de charla."""
+
+    @classmethod
+    def del_programa(cls, programa, mensajes, agentes):
+        contratos = [s for s in programa if s[0] == "contrato_conversacion"]
+        if not contratos:
+            return None
+        if len(contratos) > 1:
+            raise ErrorMate("solo se admite un contrato de conversación por programa", contratos[1][1],
+                            familia="contrato")
+        _, linea, expresion = contratos[0]
+
+        def literal(nodo):
+            tipo, renglon, *datos = nodo
+            if tipo in ("str", "num", "bool"):
+                return datos[0]
+            if tipo == "nada":
+                return None
+            if tipo == "lista":
+                return [literal(item) for item in datos[0]]
+            if tipo == "mapa":
+                mapa = {clave: literal(valor) for clave, valor in datos[0]}
+                if len(mapa) == len(datos[0]):
+                    return mapa
+                raise ErrorMate("el contrato de conversación tiene un campo repetido", renglon,
+                                familia="contrato")
+            raise ErrorMate("el contrato de conversación lleva valores escritos a mano", renglon,
+                            familia="contrato")
+
+        return cls(literal(expresion), mensajes, agentes, linea)
+
+    def __init__(self, datos, mensajes, agentes, linea):
+        def invalido(motivo):
+            raise ErrorMate(f"contrato de conversación: {motivo}", linea, familia="contrato")
+
+        if not isinstance(datos, dict) or set(datos) != {"id", "inicio", "pasos"}:
+            invalido("se espera un mapa con id, inicio y pasos")
+        self.campo, self.inicio, pasos = datos["id"], datos["inicio"], datos["pasos"]
+        if not all(isinstance(v, str) and v.strip() for v in (self.campo, self.inicio)):
+            invalido("id e inicio tienen que ser textos no vacíos")
+        if not isinstance(pasos, list) or not pasos:
+            invalido("pasos tiene que ser una lista con transiciones")
+        self.transiciones = {}
+        self.preguntas = set()
+        self.tipos = set()
+        roles = set(agentes) | {"(programa)"}
+        obligatorios = {"estado", "evento", "origen", "destino", "mensaje", "sigue"}
+        for paso in pasos:
+            if (not isinstance(paso, dict) or not obligatorios <= set(paso)
+                    or set(paso) - obligatorios - {"campos"}
+                    or not all(isinstance(paso[k], str) and paso[k] for k in obligatorios)):
+                invalido("cada paso necesita estado, evento, origen, destino, mensaje y sigue")
+            estado, evento, origen, destino, tipo, sigue = (
+                paso[k] for k in ("estado", "evento", "origen", "destino", "mensaje", "sigue"))
+            if evento not in ("pregunta", "respuesta", "sin_respuesta"):
+                invalido(f"evento desconocido: '{evento}'")
+            if origen not in roles or destino not in roles or tipo not in mensajes:
+                invalido(f"rol o mensaje desconocido en '{estado}'")
+            campos = paso.get("campos", {})
+            declarado = {campo: (tipo_de_campo, opcional)
+                         for campo, tipo_de_campo, opcional in mensajes[tipo]}
+            if declarado.get(self.campo) != ("texto", False):
+                invalido(f"'{tipo}' debe declarar '{self.campo}' como texto obligatorio")
+            if not isinstance(campos, dict) or set(campos) - set(declarado):
+                invalido(f"campos desconocidos en el paso de '{tipo}'")
+            clave = (estado, evento, origen, destino, tipo)
+            alternativas = self.transiciones.setdefault(clave, [])
+            if any(all(igual(campos[k], otro[k]) for k in campos.keys() & otro.keys())
+                   for otro, _ in alternativas):
+                invalido(f"pasos ambiguos en '{estado}' para '{tipo}'")
+            alternativas.append((campos, sigue))
+            self.tipos.add(tipo)
+            if evento == "pregunta":
+                self.preguntas.add(tipo)
+        if not any(clave[0] == self.inicio for clave in self.transiciones):
+            invalido("el estado inicial no tiene pasos")
+
+    def identificador(self, mensaje, linea):
+        valor = mensaje.campos.get(self.campo) if isinstance(mensaje, Registro) else None
+        if not isinstance(valor, str) or not valor.strip():
+            raise ErrorMate(f"falta el ID '{self.campo}' de la conversación", linea, familia="contrato")
+        return valor
+
+    def mismo_id(self, charla, mensaje, linea):
+        recibido = self.identificador(mensaje, linea)
+        if recibido != charla:
+            raise ErrorMate(f"ID de conversación incorrecto: se esperaba '{charla}' y llegó '{recibido}'",
+                            linea, familia="contrato")
+
+    def pasar(self, charlas, charla, evento, origen, destino, mensaje, linea):
+        estado = charlas.get(charla, self.inicio)
+        de = origen.nombre if origen else "(programa)"
+        a = destino.nombre if destino else "(programa)"
+        clave = (estado, evento, de, a, mensaje.tipo)
+        for campos, siguiente in self.transiciones.get(clave, ()):
+            if all(igual(mensaje.campos.get(campo), valor) for campo, valor in campos.items()):
+                charlas[charla] = siguiente
+                return
+        raise ErrorMate(f"contrato de conversación: charla '{charla}' en '{estado}' "
+                        f"no admite {evento} de {de} a {a} con '{mensaje.tipo}'",
+                        linea, familia="contrato")
+
+
 class Interprete:
     def __init__(self, salida=print, traza=False):
         self.salida = salida
@@ -4241,6 +4356,8 @@ class Interprete:
         self.mensajes = {}
         self.responde = {}  # mensaje -> qué se le contesta, si el contrato lo dice
         self.reglas = {}  # mensaje -> {campo: lo que dice de sus valores: desde, hasta...}
+        self.contrato_conversacion = None
+        self.charlas = {}
         self.agentes = {}
         self.decl_agentes = []
         self.copias = {}
@@ -5549,6 +5666,10 @@ class Interprete:
                 e.linea = e.linea or s[1]
                 raise
 
+        contrato = ContratoConversacion.del_programa(programa, self.mensajes, self.agentes)
+        if contrato is not None:
+            self.contrato_conversacion = contrato
+
     def manejadores_de(self, decl):
         """Qué mensajes entiende un agente: queda fijo desde la declaración."""
         return {tipo: (ln, var, cuerpo) for ln, tipo, var, cuerpo in decl[4]}
@@ -5653,7 +5774,7 @@ class Interprete:
         """Cómo quedó el mundo al terminar el programa: las variables de afuera, las copias
         y lo que guardan las funciones."""
         return ([(env, self.copia_de(env)) for env in self.entornos_vivos()],
-                list(self.vivos), dict(self.copias))
+                list(self.vivos), dict(self.copias), dict(self.charlas))
 
     def volver_a(self, foto):
         """Cada prueba empieza limpia: todo como en la foto, y los agentes declarados
@@ -5665,6 +5786,7 @@ class Interprete:
             ag.ocupado = False
             ag.manejadores = self.manejadores_de(ag.decl)
         self.copias = dict(foto[2])
+        self.charlas = dict(foto[3])
         self.reiniciar_agentes()
 
     def crear(self, n, env):
@@ -5750,7 +5872,7 @@ class Interprete:
                 # salvo que alguien le haya hablado antes.
                 if self.agentes[s[2]].env is None:
                     self.instanciar(self.agentes[s[2]])
-            elif s[0] not in ("mensaje", "funcion", "prueba", "usar_python"):
+            elif s[0] not in ("mensaje", "funcion", "prueba", "usar_python", "contrato_conversacion"):
                 self.ejecutar(s, self.glob)
         self.vaciar_cola()
         if not pruebas:
@@ -5896,6 +6018,21 @@ class Interprete:
             raise ErrorMate(
                 f"se superaron {MAX_MENSAJES} mensajes: ¿los agentes entraron en bucle?",
                 clase="limite")
+        contrato = self.contrato_conversacion
+        charla = estado_previo = None
+        if contrato and msg.tipo in contrato.tipos:
+            if msg.tipo not in contrato.preguntas:
+                raise ErrorMate(f"'{msg.tipo}' solo puede viajar como respuesta en este contrato",
+                                linea, familia="contrato")
+            padre = self.contexto[4] if self.contexto else None
+            charla = contrato.identificador(msg, linea)
+            if padre is not None and padre.tipo in contrato.preguntas:
+                contrato.mismo_id(contrato.identificador(padre, linea), msg, linea)
+            if not pregunta:
+                raise ErrorMate("el contrato de conversación requiere 'preguntar'", linea,
+                                familia="contrato")
+            estado_previo = self.charlas.get(charla)
+            contrato.pasar(self.charlas, charla, "pregunta", rem, dest, msg, linea)
         aviso = msg.tipo == AL_FALLAR  # no es un mensaje: es el aviso de que uno falló
         # En la traza cada mensaje lleva su número, y lo que pasa mientras un agente
         # atiende (lo que él pregunta) va con sangría debajo.
@@ -5927,7 +6064,18 @@ class Interprete:
         afuera, self.conversacion = self.conversacion, conversacion
         try:
             respondio, valor = self.atender(rem, dest, msg, pregunta, linea)
-        except ErrorMate as e:
+        except (ErrorMate, KeyboardInterrupt) as e:
+            if charla is not None:
+                if getattr(e, "sin_respuesta", None) is dest:
+                    try:
+                        contrato.pasar(self.charlas, charla, "sin_respuesta", dest, rem, msg, linea)
+                    except ErrorMate:
+                        self.reponer_charla(charla, estado_previo)
+                        raise
+                else:
+                    self.reponer_charla(charla, estado_previo)
+            if isinstance(e, KeyboardInterrupt):
+                raise
             self.cuenta["fallaron"] += 1
             self.anotar_falla(dest, e, msg)
             if self.traza and getattr(e, "sin_respuesta", None) is dest:
@@ -5952,6 +6100,12 @@ class Interprete:
                         f"'preguntar' en vez de 'enviar'): {formato(valor, False)}",
                         visto, hondo)
         return None
+
+    def reponer_charla(self, charla, estado):
+        if estado is None:
+            self.charlas.pop(charla, None)
+        else:
+            self.charlas[charla] = estado
 
     def trazar(self, texto, numero=None, hondo=0):
         """Un renglón de la traza: '  ·  3.    Vendedor responde a Comprador: ...'."""
@@ -6003,6 +6157,11 @@ class Interprete:
                     f"{dest.nombre} respondió {self.no_cumple(valor, esperado)} a "
                     f"'{msg.tipo}', y el contrato dice que a {msg.tipo} se le responde "
                     f"{esperado}", renglon_respuesta, familia="contrato")
+            contrato = self.contrato_conversacion
+            if pregunta and respondio and contrato and msg.tipo in contrato.preguntas:
+                charla = contrato.identificador(msg, linea)
+                contrato.mismo_id(charla, valor, renglon_respuesta)
+                contrato.pasar(self.charlas, charla, "respuesta", dest, rem, valor, renglon_respuesta)
             if pregunta and not respondio:
                 mudo = ErrorMate(f"{dest.nombre} no respondió a '{msg.tipo}': el 'al recibir' "
                                  "terminó sin llegar a un 'responder'", familia="agente")

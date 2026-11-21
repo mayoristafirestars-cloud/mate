@@ -1,0 +1,220 @@
+contrato conversacion {
+    id: "charla",
+    inicio: "inicio",
+    pasos: [
+        { estado: "inicio", evento: "pregunta", origen: "(programa)", destino: "Mostrador",
+          mensaje: "Consulta", sigue: "pide_medida", campos: { sku: "cinta" } },
+        { estado: "pide_medida", evento: "respuesta", origen: "Mostrador", destino: "(programa)",
+          mensaje: "Respuesta", sigue: "espera_medida", campos: { situacion: "aclarar" } },
+        { estado: "espera_medida", evento: "pregunta", origen: "(programa)", destino: "Mostrador",
+          mensaje: "Consulta", sigue: "busca_precio", campos: { sku: "cinta_5m" } },
+        { estado: "inicio", evento: "pregunta", origen: "(programa)", destino: "Mostrador",
+          mensaje: "Consulta", sigue: "busca_precio", campos: { sku: "pinza" } },
+        { estado: "busca_precio", evento: "pregunta", origen: "Mostrador", destino: "Catalogo",
+          mensaje: "Buscar", sigue: "espera_ficha" },
+        { estado: "espera_ficha", evento: "respuesta", origen: "Catalogo", destino: "Mostrador",
+          mensaje: "Ficha", sigue: "busca_stock" },
+        { estado: "busca_stock", evento: "pregunta", origen: "Mostrador", destino: "Deposito",
+          mensaje: "ConsultarStock", sigue: "espera_stock" },
+        { estado: "espera_stock", evento: "respuesta", origen: "Deposito", destino: "Mostrador",
+          mensaje: "Stock", sigue: "confirma_sin_stock", campos: { unidades: 0 } },
+        { estado: "espera_stock", evento: "sin_respuesta", origen: "Deposito", destino: "Mostrador",
+          mensaje: "ConsultarStock", sigue: "confirma_silencio" },
+        { estado: "confirma_sin_stock", evento: "respuesta", origen: "Mostrador", destino: "(programa)",
+          mensaje: "Respuesta", sigue: "fin", campos: { situacion: "sin_stock", unidades: 0 } },
+        { estado: "confirma_silencio", evento: "respuesta", origen: "Mostrador", destino: "(programa)",
+          mensaje: "Respuesta", sigue: "fin", campos: { situacion: "deposito_sin_respuesta", unidades: nada } }
+    ]
+}
+
+
+mensaje Consulta { charla: texto, sku: texto? } responde Respuesta
+mensaje Respuesta {
+    charla: texto,
+    situacion: texto en ["aclarar", "no_encontrado", "sin_stock", "deposito_sin_respuesta", "disponible"],
+    precio: numero?,
+    unidades: numero?
+}
+
+mensaje Buscar { charla: texto, sku: texto } responde Ficha
+mensaje Ficha { charla: texto, sku: texto, precio: numero? }
+mensaje ConsultarStock { charla: texto, sku: texto } responde Stock
+mensaje Stock { charla: texto, sku: texto, unidades: numero desde 0 }
+
+agente Catalogo {
+    estado precios = { cinta_3m: 3100, cinta_5m: 4500, pinza: 6200 }
+
+    al recibir Buscar como pedido {
+        responder Ficha {
+            charla: pedido.charla,
+            sku: pedido.sku,
+            precio: obtener(precios, pedido.sku, nada)
+        }
+    }
+}
+
+agente Deposito {
+    estado existencias = { cinta_3m: 2, cinta_5m: 0, pinza: 4 }
+
+    al recibir ConsultarStock como pedido {
+        # En este caso de prueba, Depósito termina de atender sin responder.
+        si pedido.sku != "pinza" {
+            responder Stock {
+                charla: pedido.charla,
+                sku: pedido.sku,
+                unidades: existencias[pedido.sku]
+            }
+        }
+    }
+}
+
+agente Mostrador {
+    estado pendientes = {}
+
+    al recibir Consulta como pedido {
+        si pedido.sku == "cinta" {
+            pendientes[pedido.charla] = ["cinta_3m", "cinta_5m"]
+            responder Respuesta { charla: pedido.charla, situacion: "aclarar" }
+        }
+
+        si tiene(pendientes, pedido.charla) {
+            si no tiene(pendientes[pedido.charla], pedido.sku) {
+                responder Respuesta { charla: pedido.charla, situacion: "aclarar" }
+            }
+            pendientes = quitar(pendientes, pedido.charla)
+        }
+
+        si pedido.sku == nada {
+            responder Respuesta { charla: pedido.charla, situacion: "no_encontrado" }
+        }
+
+        sea ficha = preguntar Buscar { charla: pedido.charla, sku: pedido.sku } a Catalogo
+        si ficha.precio == nada {
+            responder Respuesta { charla: pedido.charla, situacion: "no_encontrado" }
+        }
+        var stock = nada
+        intentar {
+            stock = preguntar ConsultarStock { charla: ficha.charla, sku: ficha.sku } a Deposito
+        } si falla motivo {
+            si detalle_de(motivo).clase == "contrato" {
+                fallar motivo
+            }
+            responder Respuesta {
+                charla: pedido.charla, situacion: "deposito_sin_respuesta", precio: ficha.precio
+            }
+        }
+        si stock.unidades == 0 {
+            responder Respuesta {
+                charla: pedido.charla, situacion: "sin_stock", precio: ficha.precio, unidades: 0
+            }
+        }
+        responder Respuesta {
+            charla: pedido.charla, situacion: "disponible", precio: ficha.precio, unidades: stock.unidades
+        }
+    }
+}
+
+funcion atender(charla, sku) {
+    devolver preguntar Consulta { charla: charla, sku: sku } a Mostrador
+}
+
+mostrar(atender("demo-A", "cinta"))
+mostrar(atender("demo-B", "pinza"))
+mostrar(atender("demo-A", "cinta_5m"))
+
+prueba "dos charlas intercaladas distinguen falta de stock de falta de respuesta" {
+    sea primera = atender("A", "cinta")
+    asegurar primera.situacion == "aclarar"
+    asegurar largo(mensajes_enviados("Buscar")) == 0
+    asegurar largo(mensajes_enviados("ConsultarStock")) == 0
+
+    sea segunda = atender("B", "pinza")
+    asegurar segunda.charla == "B"
+    asegurar segunda.situacion == "deposito_sin_respuesta"
+    asegurar segunda.precio == 6200
+    asegurar segunda.unidades == nada
+
+    sea tercera = atender("A", "cinta_5m")
+    asegurar tercera.charla == "A"
+    asegurar tercera.situacion == "sin_stock"
+    asegurar tercera.precio == 4500
+    asegurar tercera.unidades == 0
+
+    sea catalogo = mensajes_enviados("Buscar")
+    sea deposito = mensajes_enviados("ConsultarStock")
+    asegurar largo(catalogo) == 2
+    asegurar largo(deposito) == 2
+    asegurar para_caso(catalogo[0], deposito[0], "B", "pinza")
+    asegurar para_caso(catalogo[1], deposito[1], "A", "cinta_5m")
+    asegurar deposito[0].conversacion != deposito[1].conversacion
+}
+
+funcion para_caso(busqueda, consulta_stock, charla, sku) {
+    devolver (busqueda.de == "Mostrador" y busqueda.a == "Catalogo"
+        y consulta_stock.de == "Mostrador" y consulta_stock.a == "Deposito"
+        y busqueda.mensaje.charla == charla y busqueda.mensaje.sku == sku
+        y consulta_stock.mensaje.charla == charla y consulta_stock.mensaje.sku == sku
+        y busqueda.numero < consulta_stock.numero
+        y busqueda.conversacion == consulta_stock.conversacion)
+}
+
+# Devuelve el error para comprobar qué regla falló.
+funcion revisar_turno(charla, sku) {
+    intentar {
+        sea r = atender(charla, sku)
+        devolver ""
+    } si falla motivo {
+        asegurar detalle_de(motivo).clase == "contrato"
+        devolver motivo
+    }
+}
+
+prueba "un turno de aclaración no se puede reasignar a otro ID" {
+    asegurar atender("A", "cinta").situacion == "aclarar"
+    asegurar tiene(revisar_turno("C", "cinta_5m"), "charla 'C' en 'inicio'")
+    asegurar atender("A", "cinta_5m").situacion == "sin_stock"
+}
+
+prueba "el contrato rechaza consultar stock antes del precio" {
+    simular Mostrador al recibir Consulta como entrada {
+        sea r = preguntar ConsultarStock { charla: entrada.charla, sku: entrada.sku } a Deposito
+    }
+    asegurar tiene(revisar_turno("B", "pinza"), "no admite pregunta de Mostrador a Deposito")
+    asegurar largo(mensajes_enviados("ConsultarStock")) == 0
+}
+
+prueba "el contrato rechaza una respuesta con otro ID" {
+    simular Catalogo al recibir Buscar como entrada {
+        responder Ficha { charla: "C", sku: entrada.sku, precio: 6200 }
+    }
+    asegurar tiene(revisar_turno("B", "pinza"), "se esperaba 'B' y llegó 'C'")
+}
+
+prueba "cero unidades no se puede declarar sin recibir Stock" {
+    simular Mostrador al recibir Consulta como entrada {
+        sea ficha = preguntar Buscar { charla: entrada.charla, sku: entrada.sku } a Catalogo
+        responder Respuesta { charla: ficha.charla, situacion: "sin_stock", unidades: 0 }
+    }
+    asegurar tiene(revisar_turno("B", "pinza"), "no admite respuesta de Mostrador")
+}
+
+
+prueba "una pregunta interna conserva el ID del turno" {
+    simular Mostrador al recibir Consulta como entrada {
+        sea ficha = preguntar Buscar { charla: "C", sku: entrada.sku } a Catalogo
+    }
+    asegurar tiene(revisar_turno("B", "pinza"), "se esperaba 'B' y llegó 'C'")
+    asegurar largo(mensajes_enviados("Buscar")) == 0
+}
+
+prueba "el silencio de Depósito no autoriza declarar cero unidades" {
+    simular Mostrador al recibir Consulta como entrada {
+        sea ficha = preguntar Buscar { charla: entrada.charla, sku: entrada.sku } a Catalogo
+        intentar {
+            sea r = preguntar ConsultarStock { charla: ficha.charla, sku: ficha.sku } a Deposito
+        } si falla motivo {
+            responder Respuesta { charla: ficha.charla, situacion: "sin_stock", unidades: 0 }
+        }
+    }
+    asegurar tiene(revisar_turno("B", "pinza"), "en 'confirma_silencio' no admite respuesta")
+}
