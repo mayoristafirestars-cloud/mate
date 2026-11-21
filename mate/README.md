@@ -696,6 +696,33 @@ prueba "cotiza precio por cantidad" {
   ellos, también cuando está adentro de una lista (`"lista de Pedido"`) o de otro mensaje
   (un `Pedido` con `items: lista de Item`); si no cumple el contrato, el error lo dice.
 
+
+### Contrato de conversación
+
+Una declaración de nivel superior `contrato conversacion { ... }` describe el orden
+de las preguntas y respuestas de un protocolo. El mapa declara `id` (el nombre de un
+campo obligatorio de texto en cada mensaje del protocolo), `inicio` y una lista de
+`pasos`. Cada paso indica `estado`, `evento`, `origen`, `destino`, `mensaje` y
+`sigue`. Puede exigir valores concretos mediante el mapa `campos`.
+
+- `pregunta` registra un `preguntar` antes de entregar el mensaje.
+- `respuesta` valida el mensaje devuelto y comprueba que conserva el mismo ID.
+- `sin_respuesta` ocurre si el destinatario termina su turno sin `responder`.
+  El paso usa el tipo de mensaje de la pregunta y como origen al destinatario que no respondió.
+
+El intérprete conserva un estado por ID durante la corrida. Una pregunta interna usa
+el ID del turno que la originó. Un estado final carece de pasos de salida. La
+declaración se revisa con `verificar`, y el orden y los IDs se comprueban al correr.
+Esta versión admite una declaración por programa y cubre los intercambios con
+`preguntar`. El evento de silencio describe un turno terminado sin respuesta.
+
+El ejemplo [Depósito y conversaciones intercaladas](ejemplos/contrato_deposito.mate)
+incluye un contrato completo y sus pruebas. Para ver la traza:
+
+```powershell
+python mate\mate.py correr mate\ejemplos\contrato_deposito.mate --traza
+```
+
 ### Varias copias de un agente
 
 Declarar un `agente` ya crea uno con ese nombre. Con `crear` nacen más, cada uno con su estado:
