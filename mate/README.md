@@ -822,13 +822,25 @@ Lo que hay que saber:
   ```
 
   Solo con un **sí claro, y nada más** ("si", "sí", "dale", "ok", "confirmo", "anotalo"; con
-  "por favor" o "gracias" también vale) le pide a Depósito que lo reserve: recién ahí se
-  descuenta el stock. Con "no" contesta `Listo: no anoté nada.` Con **cualquier otra cosa**
+  "por favor" o "gracias" también vale, y con ninguna otra palabra) le pide a Depósito que
+  lo reserve: recién ahí se descuenta el stock. Con "no" contesta `Listo: no anoté nada.`
+  También es un no el que se dice de otra manera: "dejá", "no, dejá nomás", "mejor no",
+  "cancelalo", y también "ok, dejá", "dale, dejá nomás" o "si, mejor deja", donde el "ok" y
+  el "dale" son una muletilla (lo que contesta quien vio en la pregunta que Ventas entendió
+  mal). "Ok, mejor" o "por confirmar" no son ni sí ni no: no anotan. Con **cualquier otra cosa**
   ("si, pero que sean 5", "si?", "1", "bueno") tampoco anota: avisa `No anoté lo de antes (6 x
   Cerveza rubia): no me contestaste que sí.` y atiende lo que se escribió ahora; si es un
   pedido nuevo, lo trata como pedido nuevo, con su propia pregunta. Un `si` suelto, sin
   ningún pedido esperando (el segundo `si` de un cliente apurado), no anota nada y lo dice.
   Las palabras del sí están en `palabras_de_si()`, arriba en el programa.
+
+  La pregunta deja de esperar con lo primero que se escriba, sea lo que sea: un texto que
+  parece un comando de PowerShell no es un sí (avisa `No anoté lo de antes (...)`), y si la
+  charla se termina con `chau` o `listo` sin haber contestado, lo avisa antes de
+  despedirse: `(Ojo, antes de irte. Ventas: No anoté lo de antes (...): no me contestaste
+  que sí.)` ("listo" cierra la charla: no es un sí). El ingreso que esperaba el `si`
+  hace igual. La única excepción es un **Enter solo**, que no contesta nada: la pregunta
+  sigue en pie y el `si` que venga después la contesta.
 
   Para qué sirve: hay frases que Ventas **entiende mal**, y antes las anotaba y descontaba
   stock sin vuelta atrás. "Quiero un pack x 6 de cerveza" (el cliente quiere **un** pack)
@@ -2321,7 +2333,12 @@ tenes cafe?
   falla, el informe muestra también lo que había contestado a los renglones de antes. Un
   `después:` vale para todas las preguntas que tiene arriba, como una regla, y puede haber
   varios (hasta 10). En el informe el caso se ve así: `quiero 3 yerbas  →  si`. Si el
-  programa termina sin volver a pedir, el caso falla y lo dice.
+  programa termina sin volver a pedir, el caso falla y lo dice. Como las reglas miran el
+  último renglón, los `después:` van **arriba de las reglas**, pegados a la pregunta: un
+  `después:` escrito debajo de una regla no se acepta (parecería que esa regla mira la
+  respuesta de antes, y no es así); para revisar también la respuesta de antes se escribe
+  otro caso con la misma pregunta. Y `después si`, sin los dos puntos, tampoco se acepta:
+  quedaría como otra pregunta.
 - `tiene que decir:` y `no puede decir:` buscan ese texto dentro de la respuesta. Da igual
   con mayúsculas o minúsculas y con tilde o sin tilde (`sin envio` encuentra "Sin envío").
 - Con una barra `|` se dan opciones: `tiene que decir:` se cumple con cualquiera de ellas;

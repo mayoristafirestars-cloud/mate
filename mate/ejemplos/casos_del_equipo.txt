@@ -32,6 +32,7 @@
 #     un pedido, que Ventas repite antes de anotar), va debajo de la pregunta, así:
 #         después: si
 #     Las reglas miran entonces lo que se contesta (y lo que viaja) a ese último renglón.
+#     Por eso los "después:" van arriba de las reglas, pegados a la pregunta.
 #   - Da igual con mayúsculas o minúsculas, y con tilde o sin tilde.
 #   - Con una barra | se dan opciones:   tiene que decir: no hay stock | no queda
 #   - El texto va sin comillas (si copiás una regla del informe, con comillas, vale igual).
@@ -72,6 +73,20 @@ quiero 3 yerbas
 quiero 3 yerbas
     después: si, pero que sean 5
     tiene que decir: no anoté lo de antes
+    no puede decir: anotado
+    no tiene que viajar: Reservar
+
+# Un "no" dicho de otra manera tampoco se toma como sí: al lado de "dejá", el "ok" y el
+# "dale" son una muletilla.
+quiero 3 yerbas
+    después: ok, dejá
+    tiene que decir: no anoté nada
+    no puede decir: anotado
+    no tiene que viajar: Reservar
+
+quiero 3 yerbas
+    después: dale, dejá nomás
+    tiene que decir: no anoté nada
     no puede decir: anotado
     no tiene que viajar: Reservar
 

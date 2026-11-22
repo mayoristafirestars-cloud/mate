@@ -59,10 +59,11 @@
 # enteros. ¿Lo anoto? Contestá si o no.") y lo anota solo si lo que sigue es un "si" (o
 # "sí", "dale", "ok", "confirmo", "anotalo"), y nada más. Con "no", o con cualquier otra
 # cosa, no anota nada; si la otra cosa es un pedido nuevo, lo trata como pedido nuevo, con
-# su propia pregunta. Así, si Ventas entendió mal ("quiero un pack x 6 de cerveza" son 1
-# pack, no 6), el cliente lo ve ANTES de que se descuente el stock. El ingreso de
-# mercadería pregunta igual. El pedido que espera el "si" no se recuerda de una corrida a
-# la otra: si se cierra el programa, no quedó anotado.
+# su propia pregunta. Al sí lo puede acompañar solo "por favor" o "gracias"; "dejá", "ok,
+# dejá" o "dale, dejá nomás" son un no. Así, si Ventas entendió mal ("quiero un pack x 6
+# de cerveza" son 1 pack, no 6), el cliente lo ve ANTES de que se descuente el stock. El
+# ingreso de mercadería pregunta igual. El pedido que espera el "si" no se recuerda de
+# una corrida a la otra: si se cierra el programa, no quedó anotado.
 # Ventas pregunta "¿Lo anoto?" solo si el pedido está CLARO ("quiero 20 azucar", "20
 # azucar", "dame 12 yerbas con envio"). Con una pregunta, un "no", una duda, una palabra
 # que Ventas no conoce ("recibí 10 yerbas", "haceme un descuento en 20 yerbas") o una
@@ -731,47 +732,85 @@ funcion palabras_de_si() {
               "sumalos", "sumalas", "correcto", "exacto"]
 }
 
-# Las que dicen que no ("no", "no, gracias", "mejor no", "no, dejá"): no se anota nada.
+# Las que dicen que no ("no", "no, gracias", "mejor no", "no, dejá", "dejá"): no se anota
+# nada.
 funcion palabras_de_no() {
-    devolver ["no", "nop", "noo", "nooo", "cancela", "cancelalo", "cancelala", "anula",
-              "anulalo", "anulala", "dejalo", "dejala"]
+    devolver ["no", "nop", "noo", "nooo"] + palabras_de_dejar()
 }
 
-# Las que pueden acompañar al sí o al no, y solas no dicen nada: "si, por favor", "dale,
-# gracias", "mejor no", "no, dejá".
+# Las que dicen que no sin la palabra "no": "dejá", "cancelalo", "anulalo".
+funcion palabras_de_dejar() {
+    devolver ["cancela", "cancelalo", "cancelala", "anula", "anulalo", "anulala", "deja",
+              "dejalo", "dejala"]
+}
+
+# Las de cortesía, que pueden acompañar al sí o al no y solas no dicen nada: "si, por
+# favor", "dale, gracias", "no, muchas gracias". Son SOLO estas: al lado de un sí,
+# cualquier otra palabra hace que ya no sea un sí.
 funcion palabras_de_cortesia() {
-    devolver ["por", "favor", "porfa", "gracias", "muchas", "nomas", "mejor", "deja"]
+    devolver ["porfa", "gracias"]
 }
 
-# ¿Lo que contestó es alguna de esas palabras fuertes, y todo lo demás es cortesía?
+# Las que acompañan SOLO al no: "mejor no", "no, dejá nomás". Al lado de un sí lo
+# desdicen: "ok, mejor" o "dale, nomás" no anotan nada.
+funcion palabras_que_van_con_el_no() {
+    devolver ["mejor", "nomas"]
+}
+
+# ¿Lo que contestó es alguna de esas palabras fuertes, y todo lo demás es de las que la
+# pueden acompañar? "por" vale solo adelante de "favor" y "muchas" solo adelante de
+# "gracias": "por confirmar" no es un sí.
 # (Con un signo de pregunta no: "si?" o "¿dale?" preguntan, no confirman.)
-funcion contesta_solo_con(dicho, fuertes) {
+funcion contesta_solo_con(dicho, fuertes, acompanan) {
     si tiene(dicho, "?") o tiene(dicho, "¿") o tiene(dicho, "？") {
         devolver falso
     }
     var hay_una = falso
+    # (la palabra que tiene que venir ahora, si la de antes fue "por" o "muchas")
+    var tiene_que_seguir = ""
     para palabra en palabras_de(dicho) {
+        si tiene_que_seguir != "" {
+            si palabra != tiene_que_seguir {
+                devolver falso
+            }
+            tiene_que_seguir = ""
+            continuar
+        }
+        si palabra == "por" {
+            tiene_que_seguir = "favor"
+            continuar
+        }
+        si palabra == "muchas" {
+            tiene_que_seguir = "gracias"
+            continuar
+        }
         si tiene(fuertes, palabra) {
             hay_una = verdadero
             continuar
         }
-        si no tiene(palabras_de_cortesia(), palabra) {
+        si no tiene(acompanan, palabra) {
             devolver falso
         }
     }
-    devolver hay_una
+    devolver hay_una y tiene_que_seguir == ""
 }
 
-# ¿Es un "si" claro, y nada más? Es lo ÚNICO que anota un pedido o suma un ingreso. ("si
-# no" o "no, si" no lo son: "no" no está entre las palabras de sí ni entre las de cortesía.)
+# ¿Es un "si" claro, y nada más? Es lo ÚNICO que anota un pedido o suma un ingreso. Al
+# sí lo puede acompañar solo la cortesía: con una palabra de no al lado ("si no", "no,
+# si", "ok, dejá", "dale, dejá nomás", "si, mejor deja") NO es un sí.
 funcion es_un_si(dicho) {
-    devolver contesta_solo_con(dicho, palabras_de_si())
+    devolver contesta_solo_con(dicho, palabras_de_si(), palabras_de_cortesia())
 }
 
 # ¿Es un "no", y nada más? (Con cualquier otra cosa tampoco se anota: esto solo elige qué
-# se le contesta.)
+# se le contesta.) A "dejá", "cancelalo" y parecidas las puede acompañar una palabra de
+# sí, que ahí es una muletilla: "ok, dejá", "dale, dejá nomás" y "si, mejor deja" son un no.
 funcion es_un_no(dicho) {
-    devolver contesta_solo_con(dicho, palabras_de_no())
+    sea con_el_no = palabras_de_cortesia() + palabras_que_van_con_el_no()
+    si contesta_solo_con(dicho, palabras_de_no(), con_el_no) {
+        devolver verdadero
+    }
+    devolver contesta_solo_con(dicho, palabras_de_dejar(), palabras_de_si() + con_el_no)
 }
 
 # Una palabra en plural, para decir los bultos: "caja" → "cajas", "bolsón" → "bolsones",
@@ -1019,6 +1058,22 @@ funcion mostrar_lo_que_falta() {
     }
 }
 
+# Cuando lo que se escribió no llega a contestar la pregunta (un comando, o se van de
+# la charla): el pedido que Ventas tenía esperando el "si" deja de esperar; lo mismo el
+# ingreso (habia_ingreso: si había uno esperando). Devuelve los avisos de lo que no
+# quedó anotado, para mostrarlos: una lista vacía si nadie esperaba nada.
+funcion lo_que_no_quedo(habia_ingreso) {
+    var avisos = []
+    sea dejado = preguntar DejarDeEsperar {} a Ventas
+    si dejado.aviso != "" {
+        avisos = agregar(avisos, "Ventas: {dejado.aviso}")
+    }
+    si habia_ingreso {
+        avisos = agregar(avisos, "Depósito: No sumé el ingreso de antes: no me contestaste que sí.")
+    }
+    devolver avisos
+}
+
 # La charla por teclado: termina con chau. Devuelve cuántos renglones del cliente atendió
 # Ventas (el "si" o el "no" a un pedido es un renglón más; lo de un ingreso no cuenta).
 funcion charlar_con_el_equipo(tabla) {
@@ -1027,16 +1082,27 @@ funcion charlar_con_el_equipo(tabla) {
     var ingreso_pendiente = nada
     mientras verdadero {
         sea dicho = leer("Cliente:", "chau")
-        # Un Enter solo no es una consulta.
+        # Un Enter solo no es una consulta (ni contesta nada: si había una pregunta
+        # esperando el "si", sigue esperando).
         si dicho == "" {
             continuar
         }
         si tiene(["chau", "salir", "listo", "nada más"], minusculas(dicho)) {
+            # Se va sin haber contestado que sí ("listo" no es un sí): se le avisa que lo
+            # que esperaba no quedó anotado.
+            para aviso en lo_que_no_quedo(ingreso_pendiente != nada) {
+                mostrar("   (Ojo, antes de irte. {aviso})")
+            }
             romper
         }
         si parece_comando(dicho) {
             mostrar("   (Eso parece un comando de PowerShell, no una consulta: no lo tomé.")
             mostrar("    Seguís dentro de la charla. Para salir, escribí chau y apretá Enter.)")
+            # Tampoco es un "si": lo que esperaba la confirmación deja de esperarla.
+            para aviso en lo_que_no_quedo(ingreso_pendiente != nada) {
+                mostrar(aviso)
+            }
+            ingreso_pendiente = nada
             continuar
         }
         # ¿Había un ingreso esperando el "si"? Solo un "si" claro lo suma. Con "no" no se
@@ -1684,6 +1750,59 @@ prueba "el 'si' se puede decir de varias maneras, pero tiene que ser lo único q
     asegurar es_un_si("si") y es_un_si("  Sí, dale ") y no es_un_si("") y no es_un_si("gracias") y no es_un_si("por favor")
     asegurar no es_un_si("si?") y no es_un_si("¿si?") y no es_un_si("si pero no") y no es_un_si("no") y no es_un_si("si 2")
     asegurar es_un_no("no") y es_un_no("No, gracias") y es_un_no("mejor no") y no es_un_no("no se") y no es_un_no("si")
+}
+
+prueba "un 'no' dicho de otra manera no se toma como sí: 'ok, dejá' no anota" {
+    abrir_el_negocio(lista)
+    simular_ia("Decime qué producto querés y cuántas unidades.")
+    # Es lo que contesta quien vio en la pregunta que Ventas entendió mal. Al lado de
+    # "dejá" o "cancelalo", el "ok" o el "dale" son una muletilla: es un no.
+    para dicho en ["ok, dejá", "dale, dejá nomás", "si, mejor deja", "dejá", "no, dejá", "mejor no",
+                   "no, dejá nomás", "ok, cancelalo", "no, muchas gracias", "No, gracias"] {
+        asegurar empieza_con(consultar_a_ventas("pide y contesta: {dicho}", "quiero 6 yerbas"), "Entendí: 6 x Yerba mate"), dicho
+        asegurar consultar_a_ventas(dicho, dicho) == "Listo: no anoté nada.", dicho
+        asegurar no es_un_si(dicho) y es_un_no(dicho), dicho
+        # (y el pedido dejó de esperar: un "si" tardío no lo anota)
+        asegurar consultar_a_ventas("si, después de: {dicho}", "si") == respuesta_sin_pedido(), dicho
+    }
+    # Al sí lo acompaña solo la cortesía ("por favor", "gracias"): con cualquier otra
+    # palabra al lado ya no es un sí, aunque tampoco diga que no.
+    para dicho en ["ok mejor", "por confirmar", "dale nomás", "si, mejor", "si por", "si, muchas",
+                   "si favor", "ok, mejor mañana", "por favor", "muchas gracias", "si no", "no si"] {
+        asegurar empieza_con(consultar_a_ventas("pide y sigue: {dicho}", "quiero 6 yerbas"), "Entendí: 6 x Yerba mate"), dicho
+        sea contestado = consultar_a_ventas(dicho, dicho)
+        asegurar empieza_con(contestado, "No anoté lo de antes (6 x Yerba mate): no me contestaste que sí. "), dicho
+        asegurar no tiene(contestado, "Anotado") y no es_un_si(dicho) y no es_un_no(dicho), dicho
+        asegurar consultar_a_ventas("si, después de: {dicho}", "si") == respuesta_sin_pedido(), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
+    asegurar es_un_si("si, por favor") y es_un_si("dale, muchas gracias") y es_un_si("ok porfa") y es_un_si("Sí, gracias")
+    # Con el ingreso, igual: nada de esto lo suma. (Los dos renglones que no son ni sí ni
+    # no, "si" y "por confirmar", van a Ventas como consultas.)
+    simular_teclado(["ingreso 30 azucar", "ok, dejá", "si", "ingreso 30 azucar", "dale, dejá nomás",
+                     "ingreso 30 azucar", "si, mejor deja", "ingreso 30 azucar", "por confirmar", "chau"])
+    asegurar charlar_con_el_equipo(lista) == 2
+    asegurar largo(mensajes_enviados("Ingreso")) == 0 y largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 25
+}
+
+prueba "lo que espera el 'si' no sobrevive a un comando ni a irse de la charla" {
+    abrir_el_negocio(lista)
+    # Un texto que parece un comando de PowerShell no es un "si": el pedido (y el ingreso)
+    # deja de esperar, y el "si" que venga después no anota nada. Irse con "listo" tampoco.
+    # Un Enter solo, en cambio, no contesta nada: la pregunta sigue en pie (el pedido del
+    # medio es el único que se anota).
+    simular_teclado(["quiero 6 yerbas", "Get-ChildItem", "si",
+                     "ingreso 30 azucar", "Get-ChildItem", "si",
+                     "quiero 6 yerbas", "", "si",
+                     "quiero 6 yerbas", "listo"])
+    asegurar charlar_con_el_equipo(lista) == 6
+    asegurar largo(mensajes_enviados("Reservar")) == 1 y largo(mensajes_enviados("Ingreso")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40 - 6
+    # (se fue con "listo" sin contestar: Ventas ya no espera nada)
+    asegurar consultar_a_ventas("a", "si") == respuesta_sin_pedido()
+    asegurar largo(mensajes_enviados("Reservar")) == 1
 }
 
 prueba "las frases que Ventas entendía mal ya no descuentan stock: se ven en la pregunta" {

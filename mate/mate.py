@@ -9916,6 +9916,8 @@ _ENCABEZADO_DEL_EQUIPO = """\
 #     con cualquier otra cosa, no anota nada; si la otra cosa es un pedido nuevo, lo
 #     trata como pedido nuevo, con su propia pregunta. Así, si Ventas entendió mal, se ve
 #     ANTES de descontar el stock. (Las palabras del sí están en palabras_de_si().)
+#     Al sí lo puede acompañar solo "por favor" o "gracias". "Dejá", "ok, dejá" o "dale,
+#     dejá nomás" son un no. Y si te vas con chau sin contestar, avisa que no anotó.
 #     Pregunta "¿Lo anoto?" solo con los pedidos CLAROS: con una pregunta ("cuanto salen
 #     12 azucar"), un "no", una duda, una palabra que no conoce ("recibí 10 yerbas") o
 #     una frase que habla de un pedido que YA está hecho ("retiro el pedido de 5 azucar",
@@ -10394,6 +10396,59 @@ prueba "nada se anota sin un 'si': Ventas repite el pedido, con los bultos, y es
     asegurar es_un_no("No, gracias") y es_un_no("mejor no") y no es_un_no("no se") y no es_un_no("si")
 }
 
+prueba "un 'no' dicho de otra manera no se toma como sí: 'ok, dejá' no anota" {
+    abrir_el_negocio(lista_de_prueba())
+    simular_ia("Decime qué producto querés y cuántas unidades.")
+    # Es lo que contesta quien vio en la pregunta que Ventas entendió mal. Al lado de
+    # "dejá" o "cancelalo", el "ok" o el "dale" son una muletilla: es un no.
+    para dicho en ["ok, dejá", "dale, dejá nomás", "si, mejor deja", "dejá", "no, dejá", "mejor no",
+                   "no, dejá nomás", "ok, cancelalo", "no, muchas gracias", "No, gracias"] {
+        asegurar empieza_con(consultar_a_ventas("pide y contesta: {dicho}", "quiero 6 yerbas"), "Entendí: 6 x Yerba mate"), dicho
+        asegurar consultar_a_ventas(dicho, dicho) == "Listo: no anoté nada.", dicho
+        asegurar no es_un_si(dicho) y es_un_no(dicho), dicho
+        # (y el pedido dejó de esperar: un "si" tardío no lo anota)
+        asegurar consultar_a_ventas("si, después de: {dicho}", "si") == respuesta_sin_pedido(), dicho
+    }
+    # Al sí lo acompaña solo la cortesía ("por favor", "gracias"): con cualquier otra
+    # palabra al lado ya no es un sí, aunque tampoco diga que no.
+    para dicho en ["ok mejor", "por confirmar", "dale nomás", "si, mejor", "si por", "si, muchas",
+                   "si favor", "ok, mejor mañana", "por favor", "muchas gracias", "si no", "no si"] {
+        asegurar empieza_con(consultar_a_ventas("pide y sigue: {dicho}", "quiero 6 yerbas"), "Entendí: 6 x Yerba mate"), dicho
+        sea contestado = consultar_a_ventas(dicho, dicho)
+        asegurar empieza_con(contestado, "No anoté lo de antes (6 x Yerba mate): no me contestaste que sí. "), dicho
+        asegurar no tiene(contestado, "Anotado") y no es_un_si(dicho) y no es_un_no(dicho), dicho
+        asegurar consultar_a_ventas("si, después de: {dicho}", "si") == respuesta_sin_pedido(), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+    asegurar es_un_si("si, por favor") y es_un_si("dale, muchas gracias") y es_un_si("ok porfa") y es_un_si("Sí, gracias")
+    # Con el ingreso, igual: nada de esto lo suma. (Los dos renglones que no son ni sí ni
+    # no, "si" y "por confirmar", van a Ventas como consultas.)
+    simular_teclado(["ingreso 1 yerba", "ok, dejá", "si", "ingreso 1 yerba", "dale, dejá nomás",
+                     "ingreso 1 yerba", "si, mejor deja", "ingreso 1 yerba", "por confirmar", "chau"])
+    asegurar charlar_con_el_equipo(lista_de_prueba()) == 2
+    asegurar largo(mensajes_enviados("Ingreso")) == 0 y largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+}
+
+prueba "lo que espera el 'si' no sobrevive a un comando ni a irse de la charla" {
+    abrir_el_negocio(lista_de_prueba())
+    # Un texto que parece un comando de PowerShell no es un "si": el pedido (y el ingreso)
+    # deja de esperar, y el "si" que venga después no anota nada. Irse con "listo" tampoco.
+    # Un Enter solo, en cambio, no contesta nada: la pregunta sigue en pie (el pedido del
+    # medio es el único que se anota).
+    simular_teclado(["quiero 6 yerbas", "Get-ChildItem", "si",
+                     "ingreso 1 yerba", "Get-ChildItem", "si",
+                     "quiero 6 yerbas", "", "si",
+                     "quiero 6 yerbas", "listo"])
+    asegurar charlar_con_el_equipo(lista_de_prueba()) == 6
+    asegurar largo(mensajes_enviados("Reservar")) == 1 y largo(mensajes_enviados("Ingreso")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000 - 6
+    # (se fue con "listo" sin contestar: Ventas ya no espera nada)
+    asegurar consultar_a_ventas("a", "si") == respuesta_sin_pedido()
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+}
+
 prueba "las frases que Ventas entendía mal ya no descuentan stock: se ven en la pregunta" {
     # La lista de las pruebas y, además, presentaciones con la cuenta adentro ("pack x 6").
     sea propia = lista_de_prueba() + [{ producto: "Cerveza rubia", presentacion: "pack x 6", precio: 7200, stock: 100000 },
@@ -10778,6 +10833,10 @@ _EL_PROGRAMA = "(programa)"  # así figura en la traza lo que manda el programa,
 # Las reglas miran lo que el programa contesta (y lo que viaja) desde el ÚLTIMO renglón.
 _SIGUE_DE_CASO = re.compile(
     r"(?is)(?:[-*•·]\s*)?(?:y\s+)?despu[eé]s(?:\s+(?:escribe|contesta|dice|responde))?\s*:(.*)")
+# "después si", debajo de una pregunta y sin los dos puntos: quedaría como otra pregunta.
+_SIGUE_SIN_DOS_PUNTOS = re.compile(
+    r"(?i)(?:[-*•·]\s*)?(?:y\s+)?despu[eé]s(?:\s+(?:escribe|contesta|dice|responde))?\s+"
+    r"[\"'“”«»]?(?:s[ií]|no|dale|ok)[\"'“”«»]?\.?")
 MAX_SIGUEN = 10  # renglones 'después:' en un caso
 COMO_VA_LO_QUE_SIGUE = ('Lo que el cliente escribe después, en la misma charla, va debajo '
                         'de la pregunta, así:  después: si')
@@ -11095,6 +11154,15 @@ def casos_de_archivo(ruta):
             if not dicho:
                 raise ErrorMate(f"{ruta}:{numero}: a este 'después:' le falta lo que escribe "
                                 "el cliente, después de los dos puntos. " + COMO_VA_LO_QUE_SIGUE)
+            if not sin_reglas(grupo):
+                # Las reglas miran la respuesta al ÚLTIMO renglón: una regla escrita arriba
+                # de un 'después:' parece mirar la respuesta anterior, y no lo hace.
+                raise ErrorMate(
+                    f"{ruta}:{numero}: este 'después:' está debajo de una regla. Las reglas "
+                    "de un caso miran lo que el programa contesta al ÚLTIMO renglón, así "
+                    "que los 'después:' van todos arriba, pegados a la pregunta, y las "
+                    "reglas debajo. Para revisar también la respuesta de antes, escribí "
+                    "otro caso con la misma pregunta y sin ese 'después:'")
             if len(grupo[0]["siguen"]) >= MAX_SIGUEN:
                 raise ErrorMate(f"{ruta}:{numero}: un caso lleva hasta {MAX_SIGUEN} renglones "
                                 "'después:'")
@@ -11108,6 +11176,10 @@ def casos_de_archivo(ruta):
         except ErrorMate as e:
             raise ErrorMate(f"{ruta}:{numero}: {e.mensaje}")
         if regla is None:
+            if grupo and _SIGUE_SIN_DOS_PUNTOS.fullmatch(renglon):
+                raise ErrorMate(f"{ruta}:{numero}: a este 'después' le faltan los dos puntos "
+                                "(así queda como otra pregunta del cliente). "
+                                + COMO_VA_LO_QUE_SIGUE)
             if con_reglas:  # las reglas de arriba cerraron el grupo: acá empieza otro
                 if sin_reglas(grupo):  # (tenía un 'después:' y ninguna regla)
                     raise ErrorMate(
