@@ -2817,7 +2817,208 @@ Se sumó un solo punto, el de la orden `buzon` sola.
   un envío (P156); una "junction" de Windows en Python 3.10 y 3.11 (P160); y nada de esto se
   corrió en una Windows de verdad (P149).
 
+**Agregado en la revisión externa (pull request 3)**, cotejado por el integrador contra
+`mate/mate.py` sobre `d088d03`. Los puntos de arriba quedan como estaban al cerrar la 0.7; donde
+uno de estos los cambia, vale este:
+
+- **El candado de la memoria (nuevo, C1).** Un programa con `estado recordado` se corre de a
+  una ventana: `correr` toma `<programa>.memoria.candado` (al lado del programa, archivo de 0
+  bytes, sin permiso de ejecución; `flock` en Linux, `msvcrt.locking` en Windows) y lo tiene
+  **toda la charla**. La segunda ventana avisa "ya hay otra ventana abierta con ...", sale con
+  2 y no toca nada; `--olvidar` se procesa después de tomarlo. El sistema lo suelta si el
+  proceso muere; al soltarlo el archivo se borra (después de un `kill -9` queda el archivo,
+  sin candado, y la corrida siguiente arranca y lo borra). También cuenta un agente con estado
+  recordado traído con `usar`. `probar`, `verificar`, `ensayar`, `corregir`, `lecciones`,
+  `bitacora` y la orden `buzon` no lo piden. Un programa sin estado recordado sigue corriendo
+  en dos ventanas, y ahí el buzón lo atiende una sola (el `candado` del buzón, como arriba).
+- **Tres resultados al pedir un candado, no dos.** `tomar_candado` devuelve el candado, `None`
+  solo si lo tiene otro (EAGAIN, EWOULDBLOCK, EACCES, EDEADLK), o `SinCandado`: `'sistema'` si
+  el sistema no da candados (ENOLCK en algunas carpetas de red) y `'carpeta'` si el archivo no
+  existe y no se pudo crear. Con `SinCandado('sistema')` el programa corre igual, con un
+  `aviso:` de una línea, y no deja el archivo; el buzón avisa que sin candado no atiende y los
+  mensajes quedan. Si con el nombre del candado hay algo que no se puede tomar (una carpeta,
+  una tubería, un archivo sin permiso) `correr` **no arranca**: dice qué borrar y sale con 2.
+  Un candado que creó otro usuario del sistema se abre para leer y se toma igual. Solo se
+  sigue sin candado y sin aviso donde no se puede escribir en la carpeta (ahí la memoria
+  tampoco se guarda).
+- **"Por salir" se recupera con el candado de la memoria tomado (C5).** La recuperación lee la
+  memoria de nuevo adentro del candado y guarda la de ese momento, no la leída al arrancar; el
+  cierre con buzón va con el mismo candado. Los candados se piden sin esperar o con tope (2 s
+  al arrancar, 10 s al cerrar). Si no se puede tomar, no se recupera sin candado: se avisa una
+  vez y lo pendiente sale al terminar.
+- **Provisorios con nombre propio.** El provisorio ya no es un `.tmp` compartido: lleva el
+  número de proceso y 8 letras hexadecimales (`.PID-8hex.tmp` o `.PID-8hex.json.tmp`) y se crea
+  en modo exclusivo, así dos corridas no se lo borran. `escribir_entero` limpia, una vez por
+  carpeta y por corrida, los de ese nombre exacto con más de un día (de un acceso directo saca
+  el acceso, no el destino). Ojo: eso corre en **cualquier** carpeta donde Mate escriba,
+  también la de un `escribir_archivo` del programa.
+- **Un sobre se lee sin seguir enlaces (C4).** `leer_sobre` abre una sola vez con `O_NOFOLLOW`
+  y `O_NONBLOCK`, controla con `fstat` sobre ese archivo abierto y lee de ahí: un sobre
+  cambiado por un acceso directo entre mirarlo y leerlo no se lee, y una tubería con nombre de
+  sobre no cuelga al programa. Donde no hay `O_NOFOLLOW` (Windows), `abrir_sin_seguir` exige
+  que el archivo abierto sea el que está en la carpeta con ese nombre (`fstat` contra `lstat`).
+  Un sobre así (enlace, tubería, carpeta) se ignora **sin aviso** y queda en la carpeta.
+- **Lo abierto, corregido.** P156 (con varias ventanas del mismo programa se puede perder un
+  envío) queda **resuelto para los programas con estado recordado** (no hay dos ventanas) y
+  para la recuperación de "por salir" (C5). Se suman: nada de lo de este agregado se corrió en
+  una Windows de verdad (sigue P149), y `corregir`, `lecciones` y `proponer` reescriben la
+  memoria sin tomar el candado.
+
+## Revisión externa de la 0.7 (pull request 3)
+
+Con la 0.7 cerrada (`ab55d29`) la rama se abrió como pull request 3 y la leyó un revisor de
+afuera del equipo. Dejó ocho hallazgos, C1 a C8. Se trabajaron en dos vueltas, todo en commits
+locales sobre `equipo/mate-0.7`, sin subir nada y sin tocar `main`:
+
+- **Vuelta 1**: `b936118` (C6) y `ec1c62d` (C1, C2, C4, C5, C7 y C8; C3 documentado). No cerró:
+  quedaron dos problemas medios en el candado nuevo de la memoria (decía "ya hay otra ventana"
+  para siempre donde el sistema no da candados, y seguía sin candado y callado si con ese
+  nombre había una carpeta, una tubería o un archivo sin permiso). De esa vuelta no quedó
+  otro registro que este.
+- **Vuelta 2**: `d088d03`. Arregla esos dos medios y suma: el candado de otro usuario, la
+  recuperación de "por salir" cuando el candado no se puede tomar, la limpieza de provisorios
+  huérfanos, la lectura de sobres donde no hay `O_NOFOLLOW` y el cliente con espacios.
+  **APROBADA** por el revisor (R), el agente de pruebas (P) y el especialista en seguridad
+  (S), sin problemas altos ni medios.
+
+Este registro lo escribe el integrador sobre `d088d03`. El integrador no tocó código ni
+pruebas: corrió las tres corridas (números en "Estado final de la 0.7") y armó la tabla con lo
+que informaron el implementador, R, P y S. Lo que dice "reproducido" lo reprodujeron ellos, en
+copias propias; el integrador no lo repitió a mano. El texto original de los hallazgos está en
+el pull request; acá va resumido, y el de C7 y C8 sale del mensaje de `ec1c62d`.
+
+**Hallazgos del revisor externo**
+
+| | Hallazgo | ¿Se confirmó? | Qué se hizo | Con qué prueba |
+|---|---|---|---|---|
+| C1 | Dos ventanas del mismo programa con `estado recordado` se pisan la memoria: las dos venden la misma última unidad | **Sí.** Sobre `ab55d29` la segunda ventana salía con 0 y dos procesos vendían la misma unidad (R) | El candado de la memoria: `correr` toma `<programa>.memoria.candado` toda la charla; la segunda avisa, sale con 2 y no toca nada (`ec1c62d`). En `d088d03`: no falla abierto ni cerrado de más (ver "Diseño del buzón", agregado) | `test_dos_ventanas_del_mismo_programa_no_venden_la_misma_ultima_unidad`, `test_dos_procesos_del_mismo_programa_y_el_candado_se_suelta_si_el_primero_muere`, `test_con_una_ventana_abierta_probar_verificar_ensayar_y_corregir_no_se_traban`, y las del candado de la vuelta 2 (`test_donde_el_sistema_no_da_candados_...`, `test_si_el_candado_de_la_memoria_no_se_puede_tomar_...`, `test_el_candado_que_creo_otro_usuario_...`). A mano: R, 25 tandas de 6 procesos con stock 5, exactamente 5 ventas; P, 96 arranques, 79 corrieron y el total guardado fue 79; S, 45154 tomas sin solaparse |
+| C2 | En el equipo, el "si" de un cliente confirma el pedido que dejó otro | **Sí.** La prueba falla sobre `ab55d29` en el equipo creado (R y P) | `ConsultaDeCliente` y `DejarDeEsperar` llevan `cliente`; Ventas guarda un pendiente por cliente; el teclado es el cliente fijo "teclado" (`ec1c62d`). El nombre vale sin los espacios de alrededor (`d088d03`). En el ejemplo 13 y en lo que crea `nuevo equipo` | `test_el_si_de_un_cliente_no_confirma_el_pedido_de_otro` (ejemplo y equipo creado), `test_en_la_charla_por_teclado_el_cliente_es_uno_solo_y_siempre_el_mismo`, `test_el_cliente_es_el_mismo_con_o_sin_espacios_alrededor`. P: programa propio de dos clientes, 27 de 27 (equipo) y 42 de 42 (ejemplo 13) |
+| C3 | "ok" y "dale" confirman un pedido igual que "si" | **Sí, es así, y se deja así**: decisión de diseño de la vuelta de cierre. No se tomó como defecto | Sin cambio de código. El README lo dice con todas las letras, también en "Límites de la versión 0.7" | `test_el_manual_dice_lo_que_cambio_con_la_revision_externa`. Para decidir el dueño si alcanza |
+| C4 | Un sobre del buzón se mira y después se vuelve a abrir por nombre: si en el medio lo cambian por un acceso directo, se lee el archivo de afuera | **Sí.** Sobre `ab55d29`: S, 2152 lecturas del de afuera en 16566 pasadas; P, 2 de 150 corridas | `leer_sobre` abre una vez, sin seguir enlaces, controla con `fstat` y lee de ahí; una tubería ya no cuelga (`ec1c62d`). Sin `O_NOFOLLOW` (Windows) compara `fstat` contra `lstat` (`d088d03`) | `test_buzon_un_sobre_cambiado_por_un_acceso_directo_despues_de_mirarlo_no_se_lee`, `test_buzon_leer_sobre_abre_una_vez_y_no_sigue_accesos_directos`, `test_buzon_leer_sobre_no_se_queda_esperando_una_tuberia`, `test_buzon_sin_o_nofollow_un_sobre_cambiado_por_un_enlace_tampoco_se_lee`. Con el código nuevo: S, 0 de 11717; P, 0 de 350 |
+| C5 | Dos corridas que arrancan juntas recuperan lo "por salir" dos veces, se pisan la memoria y se borran el `.tmp` | **Sí.** Sobre `ab55d29` dos arranques reparten dos veces y el provisorio compartido da `FileNotFoundError` (R); con procesos de verdad se perdió un sobre en 1 de 25 rondas (P) | La recuperación va con el candado de la memoria tomado y relee la memoria adentro; provisorios con número de proceso (`ec1c62d`). No se recupera sin candado; limpieza de provisorios viejos (`d088d03`) | `test_buzon_dos_arranques_a_la_vez_no_pisan_la_memoria_ni_reparten_dos_veces`, `test_escribir_entero_dos_a_la_vez_no_se_borran_el_provisorio`, `test_buzon_la_recuperacion_no_se_hace_sin_candado_si_no_se_puede_tomar`. P: 100 rondas, el sobre salió una vez en todas. Ojo: `test_buzon_varios_procesos_que_arrancan_juntos_...` pasa también con el código viejo (P185) |
+| C6 | Con un paso intermedio fuera del `contrato conversacion`, el ID de conversación cruzado no se rechaza | **Sí.** Sobre `ab55d29` dejaba pasar (R y P) | El ID se hereda a través de la pregunta intermedia; lo que sale de la cola no hereda nada (`b936118`) | `test_contrato_el_id_cruzado_se_rechaza_igual_con_una_llamada_intermedia`, `test_contrato_el_id_no_se_hereda_a_lo_que_sale_de_la_cola`. P: programa propio con dos pasos intermedios |
+| C7 | Faltaban pruebas de lo anterior con dos clientes, dos ventanas y dos arranques a la vez | **Sí.** No había ninguna; las nuevas fallan sobre `ab55d29` (R: 29 de 36; las 7 que pasan son de lo que no debía cambiar, más la de P185) | Pruebas en el mismo proceso y con procesos de verdad, incluido matar al primero (`ec1c62d`); 18 más en `d088d03` | Las de C1, C2 y C5 de arriba. `test_mate.py` pasó de 676 a 708 pruebas; ninguna se sacó ni se debilitó (R y P miraron las líneas quitadas) |
+| C8 | La prueba "un sobre no se deja a través de un acceso directo" no cubría el cambio entre mirar y leer, ni el nombre final ni la carpeta | **Sí** | Prueba del cambio entre mirar y leer, y una aparte para el nombre final y la carpeta (`ec1c62d`) | `test_buzon_un_sobre_cambiado_por_un_acceso_directo_despues_de_mirarlo_no_se_lee`, `test_buzon_un_sobre_no_se_deja_a_traves_de_un_acceso_directo_en_el_nombre_final_ni_en_la_carpeta` |
+
+Hallazgos no confirmados: ninguno. Cambiaron por esto, sin debilitarse: la prueba de dos
+ventanas de Depósito (ahora exige código 2 y que no se toque nada; el caso viejo sigue en
+`test_buzon_dos_ventanas_de_un_programa_sin_estado_recordado_a_la_vez`), los conteos del
+ejemplo 13 (39 a 40) y del equipo creado (24 a 25) y la traza, que muestra `cliente: "teclado"`.
+
+**Veredictos de la vuelta 2, sobre `d088d03`**
+
+| Quién | Veredicto | Qué corrió | Problemas que dejó |
+|---|---|---|---|
+| Revisor (R) | **aprueba** | diff `ab55d29..HEAD` entero; batería completa en Python 3.13 y 3.14 (1163) y 3.10 (1162 y 1 salteada, de antes, marcada para Python menor que 3.12); pruebas nuevas contra `ab55d29`; C1 con procesos reales, `kill -9`, Ctrl+C y error del programa; Windows simulado en Linux | 6 bajos: P179, P180, P181 a P183, P184, P185, y que este archivo estaba viejo |
+| Agente de pruebas (P) | **aprueba** | las tres corridas (1163 / 114 / 37); `probar mate/ejemplos` en 3.11 y 3.12; C1, C2, C4, C5 y C6 con procesos y programas propios, y contra `ab55d29` | 3 bajos: P185, P186 y P152 (de antes) |
+| Seguridad (S) | **aprueba** | las tres corridas; el candado contra enlaces (a archivo, colgante, a carpeta, a `/dev/null`, enlace duro), carpeta y tubería; dos usuarios con `setpriv`; exclusión con 12 procesos; C4 contra `ab55d29`. C2 y C6, solo por la batería | 4 bajos: P181, P180 (segunda parte), P179, P184 |
+
+Con esto queda saldado el pendiente del cierre "los commits posteriores a `e3d228e` no pasaron
+por el especialista" **solo para lo que tocó la revisión externa** (candado, memoria, buzón,
+provisorios): S miró el diff `ab55d29..d088d03`, no los commits anteriores.
+
+**Problemas que quedan** (todos bajos; ninguno frena)
+
+| | Problema | Quién | ¿Ya estaba? |
+|---|---|---|---|
+| P179 | Nada de lo nuevo se corrió en una Windows de verdad: la rama `msvcrt` de `tomar_candado` (con `os.open` y, si hace falta, abierto solo para leer), el borrado del candado al soltar, y `fstat` contra `lstat` en `abrir_sin_seguir`. Si en algún sistema de archivos dieran identificadores distintos para el mismo archivo, el buzón dejaría todos los sobres sin leer (no se pierden ni se borran). **Es lo primero a mirar en Windows**, con Python 3.10 y 3.14. Se suma a P149 | R, S, implementador | nuevo |
+| P180 | El candado de la memoria se salta desde adentro de la carpeta: borrando a mano el `.memoria.candado` con la ventana abierta (dicho en el README) o cambiándolo por un acceso directo (no dicho). Y con una falla sostenida al crearlo (disco lleno, cuota) `SinCandado('carpeta')` deja correr sin candado y sin aviso. Hace falta poder escribir en la carpeta, y quien puede eso ya puede tocar la memoria | R, S | nuevo |
+| P181 | `corregir`, `lecciones`, `proponer` y aprobar propuestas reescriben la memoria sin tomar el candado: si una ventana cierra y guarda justo en el medio, se pierde esa venta (S lo reprodujo forzando el momento). Es el mismo daño de C1 por otra puerta, en una ventana de milisegundos. No se cambió porque `corregir` tiene que poder usarse con una charla abierta: **hace falta decidir el diseño**. En los límites del README | R, S | sí |
+| P182 | Otro usuario de la máquina que pueda leer la carpeta puede retener el candado (o dejar uno ilegible) y el programa no arranca; el aviso dice qué borrar. Solo documentado | R | sí |
+| P183 | Los pendientes por cliente de Ventas no caducan ni tienen tope dentro de una corrida. Solo documentado | R, implementador | nuevo (viene con C2) |
+| P184 | La limpieza de provisorios corre en cualquier carpeta donde Mate escriba, también la de un `escribir_archivo` del programa: borra lo que tenga más de un día y termine en `.NÚMERO-8hex.tmp` o `.NÚMERO-8hex.json.tmp`. Nadie encontró una forma realista de que borre algo ajeno. Dicho en el README | R, S | nuevo |
+| P185 | `test_buzon_varios_procesos_que_arrancan_juntos_recuperan_lo_por_salir_una_vez` pasa también con el código viejo: no cuida C5 (lo cuida la de dos arranques). Y `test_buzon_leer_sobre_no_se_queda_esperando_una_tuberia` contra un código roto no falla: se cuelga, hace falta un tope de tiempo | R, P | nuevo |
+| P186 | Un sobre que es un acceso directo, una tubería o una carpeta se ignora sin aviso y queda en la carpeta `.buzon` para siempre: no va a `rechazados` y el dueño no se entera | P | sí |
+| P187 | En una carpeta donde no se puede escribir, `correr` sigue sin candado y sin un aviso propio del candado (sí avisa que no pudo guardar la memoria) | implementador | nuevo |
+| P152 | Con Ctrl+C se pierden los `enviar` que estaban en la cola sin atender. Igual que antes; el candado se suelta bien | P | sí |
+
+Lo que **no** se hizo en esta revisión: correr algo en Windows; `pytest` completo en 3.11 y
+3.12 (ahí solo `probar mate/ejemplos`, 114 de 114); probar con una IA de verdad; y subir nada.
+
 ## Estado final de la 0.7
+
+**Estado de hoy** (integrador, después de la revisión externa del pull request 3; rama
+`equipo/mate-0.7`, sobre `d088d03` más el commit que trae este registro; todo en commits
+locales, sin subir nada y sin tocar `main`). Desde el cierre (`ab55d29`) hubo tres commits de
+código del implementador (`b936118`, `ec1c62d` y `d088d03`), por los ocho hallazgos del revisor
+externo. El detalle está en "Revisión externa de la 0.7 (pull request 3)", arriba. Los estados
+anteriores quedan más abajo, como historia.
+
+**La 0.7 sigue CERRADA y la revisión externa queda atendida: la vuelta 2 está APROBADA** por
+el revisor, el agente de pruebas y el especialista en seguridad, sin problemas altos ni medios.
+C1, C2, C4, C5 y C6 se confirmaron y se arreglaron; C7 y C8 (pruebas que faltaban) se
+cubrieron; C3 ("ok" y "dale" valen como sí) se dejó como está, a propósito, y quedó dicho en el
+README. `VERSION` sigue en `"0.7"`: no hay palabras ni funciones incluidas nuevas. Aprobada
+quiere decir revisada y probada en Linux con IA simulada. **No** quiere decir probada en
+Windows (lo nuevo del candado y de la lectura de sobres tiene un camino propio de Windows que
+nadie corrió: P179), ni con una IA de verdad, ni subida: los tres commits y este registro
+están solo en esta máquina, y el pull request 3 todavía muestra lo de antes.
+
+| Qué | Estado | Quién aprobó | Qué queda |
+|---|---|---|---|
+| Cambios 1, 2 y 3 de la 0.7 | **aprobados** (como en el cierre, abajo) | R y P | los bajos del cierre, menos P156 |
+| Revisión externa, vuelta 1 (`b936118`, `ec1c62d`) | NO cerrada | — | dos medios en el candado nuevo, arreglados en la vuelta 2 |
+| Revisión externa, vuelta 2 (`d088d03`) | **APROBADA** | R, P y S | bajos: P179 a P187 |
+| Seguridad | **aprobado sobre `d088d03`**, para el diff `ab55d29..d088d03` | especialista en seguridad | P179, P180, P181, P184; y P160 y P161 de antes. Los commits entre `e3d228e` y `ab55d29` siguen sin pasar por el especialista |
+| Versión | **0.7** | — | sin cambio |
+
+**Números de las pruebas** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`, sobre
+`d088d03`)
+
+| Comando | Hoy (`d088d03`) | Cierre de la 0.7 (`ab55d29`) | Punto de partida de la 0.7 (`e78f2e9`) |
+|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1163 pasan, 0 fallan (287 s) | 1127 pasan, 0 fallan | 883 pasan, 0 fallan |
+| `python3 mate/mate.py probar mate/ejemplos` | 114 de 114, en 22 archivos | 113 de 113, en 22 archivos | 66 de 66, en 18 archivos |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37, en 26 archivos | 30 de 30, en 24 archivos |
+
+El implementador, R, P y S dieron los mismos tres números, cada uno en su copia. Después de las
+tres corridas del integrador `git status --short` quedó vacío y en `mate/ejemplos` no quedó
+ninguna memoria, candado ni carpeta `.buzon`. El ejemplo 13 da 40 de 40 (antes 39) y el equipo
+creado con `nuevo equipo`, `probar` 25 de 25 (antes 24) y `ensayar --ia-simulada` 22 de 22. En
+otras versiones: R corrió la batería completa en 3.14 (1163) y 3.10 (1162 y 1 salteada, de
+antes); en 3.11 y 3.12 solo se corrió `probar mate/ejemplos` (114 de 114). La batería tarda
+cerca de 290 s: hay que darle un tope largo (P148, P172).
+
+**Lo que cambia para quien usa Mate**
+- Un programa con `estado recordado` se corre de a una ventana. La segunda dice "ya hay otra
+  ventana abierta con ..." y sale sin tocar nada. Si quedó un `.memoria.candado` de un corte,
+  la corrida siguiente arranca igual y lo borra.
+- En el equipo, el pedido que espera el "si" es de un cliente; por teclado no cambia nada.
+- Un equipo creado antes de `d088d03` es una copia fija: hay que crearlo de nuevo.
+
+**Pendientes, por gravedad**
+
+Altos: ninguno. Medios: ninguno.
+
+Para decidir el dueño (se suma a lo del cierre, que sigue abajo):
+- Si `corregir` y las órdenes que reescriben la memoria tienen que tomar el candado, y cómo,
+  dado que `corregir` se usa con una charla abierta (P181).
+- Si alcanza con dejar dicho que "ok" y "dale" valen como sí (C3).
+- Si alcanza con documentar que otro usuario de la máquina puede retener el candado (P182) y
+  que el pendiente por cliente no caduca (P183).
+
+Bajos nuevos, en el orden en que conviene mirarlos: P179 (Windows, **antes de subir**), P181,
+P180, P186, P185, P184, P183, P182, P187. Están en la tabla de "Revisión externa". De los bajos
+del cierre siguen todos menos P156, resuelto para los programas con estado recordado y para la
+recuperación de "por salir"; de P152 sigue lo de Ctrl+C.
+
+**Lo que no se pudo probar**: Windows de verdad (ahora con más para mirar: P179), Ollama y
+Claude de verdad, `pytest` completo en 3.11 y 3.12, y cerrar la ventana con la X.
+
+**Para el dueño, en Windows**: lo del cierre, abajo, con `probar mi_negocio.mate` en 25 de 25.
+Y lo nuevo: correr `py -m pytest mate\pruebas` (sobre todo las `test_buzon_*` y las del
+candado); el recorrido ventas a depósito del README del buzón, mirando que `correr
+deposito.mate` atienda el sobre; y abrir dos ventanas de `mi_negocio.mate`: la segunda tiene
+que decir "ya hay otra ventana abierta" y, al cerrar la primera, tiene que poder arrancar.
+
+**Lo que sigue**: que el dueño decida si sube estos commits al pull request 3 (nada se subió
+ni se mezcló con `main`) y lo pruebe en Windows. Después P181, y los bajos del cierre
+empezando por P171 y P173. Para B: primero P161 (1).
+
+### Estado anterior, sobre `ab55d29` (historia: el cierre de la 0.7, antes de la revisión externa)
+
+Lo que sigue se escribió al cerrar la 0.7. Donde dice "hoy" es ese día: los números (1127 /
+113 / 37; 24 de 24; 39 de 39) y la fila de seguridad son los de entonces.
 
 **Estado de hoy** (integrador de cierre; rama `equipo/mate-0.7`, sobre `68bccc9` más el commit
 de cierre que trae este registro; todo en commits locales, sin subir nada y sin tocar `main`).
