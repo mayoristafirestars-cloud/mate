@@ -183,12 +183,41 @@ funcion una_es_plural(p, q) {
     devolver p == q o p + "s" == q o p + "es" == q o q + "s" == p o q + "es" == p
 }
 
-# ¿La palabra es alguna de las del nombre del producto, en singular o en plural?
-funcion es_del_nombre(del_nombre, palabra) {
-    para parte en del_nombre {
-        # ("yerbas" es del nombre "Yerba mate")
-        si misma_palabra(palabra, parte) {
-            devolver verdadero
+# Las palabras que dicen que no ("sin envío", "ni loco", "tampoco me lo manden").
+funcion las_que_niegan() {
+    devolver ["sin", "ni", "tampoco", "nunca", "jamas", "nadie", "ningun", "ninguna",
+              "deja", "dejalo", "dejala", "dejalos", "dejalas"]
+}
+
+# ¿La palabra puede ser un "no"? (Si lo es de verdad, según lo que la rodea, lo dice niega().)
+funcion puede_negar(palabra) {
+    devolver palabra == "no" o palabra == "nada" o empieza_con(palabra, "olvid") o tiene(las_que_niegan(), palabra)
+}
+
+# ¿La palabra número i de la frase es la palabra número p del nombre del producto (en
+# singular o en plural)? Ojo con los nombres que traen un "sin" o un "no" ("Yerba sin
+# palo", "Galletitas sin sal"): ese "sin" vale como parte del nombre solo si atrás viene
+# la palabra que le sigue en el nombre ("sin palo"). Si no, lo dijo el cliente por otra
+# cosa ("12 yerbas sin envio") y no se puede perder.
+funcion dicha_del_nombre(frase, i, nombre, p) {
+    si no misma_palabra(frase[i], nombre[p]) {
+        devolver falso
+    }
+    si no puede_negar(nombre[p]) {
+        devolver verdadero
+    }
+    devolver p + 1 < largo(nombre) y i + 1 < largo(frase) y misma_palabra(frase[i + 1], nombre[p + 1])
+}
+
+# ¿La palabra número i de la frase es del nombre de alguno de los productos nombrados?
+# (nombres: una lista de palabras por producto)
+funcion es_del_nombre(nombres, frase, i) {
+    para nombre en nombres {
+        para p en rango(largo(nombre)) {
+            # ("yerbas" es del nombre "Yerba mate")
+            si dicha_del_nombre(frase, i, nombre, p) {
+                devolver verdadero
+            }
         }
     }
     devolver falso
@@ -234,9 +263,13 @@ funcion numero_de(palabra) {
 # como "$ 5.000") y si pide envío.
 funcion entender(tabla, dicho) {
     sea palabras = palabras_de(dicho)
+    # (la frase con las marcas "|": dice qué palabra viene atrás de cuál)
+    sea frase = palabras_y_cortes(dicho)
     # 1. Los productos: los que tienen la primera palabra de su nombre en la frase.
     var nombrados = []
     var del_nombre = []
+    # (los nombres de los productos nombrados, cada uno como lista de palabras)
+    var nombres = []
     para fila en tabla {
         sea nombre = palabras_de(texto(fila.producto))
         # ¿Alguna palabra de la frase es la primera del nombre (o su plural)?
@@ -250,11 +283,11 @@ funcion entender(tabla, dicho) {
             # Cuántas palabras del nombre dijo: sirve para desempatar "Harina 000" y
             # "Harina 0000" (dos productos que empiezan igual).
             var aciertos = 0
-            para parte en nombre {
+            para p en rango(largo(nombre)) {
                 # (cada palabra del nombre vale una vez, en singular o en plural)
                 var dicha = falso
-                para palabra en palabras {
-                    si misma_palabra(palabra, parte) {
+                para i en rango(largo(frase)) {
+                    si dicha_del_nombre(frase, i, nombre, p) {
                         dicha = verdadero
                     }
                 }
@@ -267,6 +300,7 @@ funcion entender(tabla, dicho) {
             nombrados = agregar(nombrados, { fila: fila, clave: nombre[0], aciertos: aciertos,
                                              entero: aciertos == largo(nombre) })
             del_nombre = del_nombre + nombre
+            nombres = agregar(nombres, nombre)
         }
     }
     # 2. Los números. Lo que sigue al número dice qué es: "12 yerbas" es una cantidad;
@@ -301,10 +335,13 @@ funcion entender(tabla, dicho) {
     }
     # 3. Lo que queda sacando los números y el nombre del producto (también en plural: en
     #    "12 mandiocas" no hay ningún "mand..." de mandar). Ahí se busca si pide envío. Las
-    #    marcas "|" se dejan: dicen dónde corta la frase.
+    #    marcas "|" se dejan: dicen dónde corta la frase. Un "sin" o un "no" se sacan solo
+    #    si de verdad son del nombre: con "Yerba sin palo" en la lista, el "sin" de
+    #    "12 yerbas sin envio" es del cliente y se queda.
     var sin_nombre = []
-    para palabra en palabras_y_cortes(dicho) {
-        si palabra == "|" o (numero_de(palabra) == nada y palabra != "$" y no es_del_nombre(del_nombre, palabra)) {
+    para i en rango(largo(frase)) {
+        sea palabra = frase[i]
+        si palabra == "|" o (numero_de(palabra) == nada y palabra != "$" y no es_del_nombre(nombres, frase, i)) {
             sin_nombre = agregar(sin_nombre, palabra)
         }
     }
@@ -376,8 +413,7 @@ funcion niega(palabras, i) {
         devolver verdadero
     }
     # Las demás valen siempre.
-    devolver tiene(["sin", "ni", "tampoco", "nunca", "jamas", "nadie", "ningun", "ninguna",
-                    "deja", "dejalo", "dejala", "dejalos", "dejalas"], palabra)
+    devolver tiene(las_que_niegan(), palabra)
 }
 
 # ¿Qué dice del envío? "si" si pide que se lo manden, "no" si dice que NO lo quiere ("sin
@@ -635,7 +671,37 @@ funcion revisar_planilla(tabla) {
             devolver "A la planilla precios.csv le falta la columna '{columna}'. {como_tiene_que_ser}"
         }
     }
+    # Cada producto con su precio y su stock en números: con una celda vacía o con un
+    # texto ("consultar") no se puede hacer la cuenta ni armar la lista para la IA.
+    sea mal = celdas_mal_cargadas(tabla)
+    si largo(mal) > 0 {
+        var aviso = unir(porcion(mal, 0, 5), " ")
+        si largo(mal) > 5 {
+            aviso += " Y hay {largo(mal) - 5} más así."
+        }
+        devolver "{aviso} El precio y el stock van solo con números (un precio se escribe 9.800,50; si de algo no hay stock, poné 0). Arreglalo en la planilla, guardala y volvé a arrancar el mostrador."
+    }
     devolver nada
+}
+
+# Los precios y los stocks de la planilla que no son un número: un aviso por cada uno, que
+# dice de qué producto es, en qué lugar de la lista está y qué tiene escrito.
+funcion celdas_mal_cargadas(tabla) {
+    var avisos = []
+    para i en rango(largo(tabla)) {
+        sea fila = tabla[i]
+        para columna en ["precio", "stock"] {
+            sea valor = fila[columna]
+            si tipo(valor) != "numero" {
+                var dice = "dice '{valor}'"
+                si texto(valor) == "" {
+                    dice = "está vacío"
+                }
+                avisos = agregar(avisos, "En precios.csv, el {columna} de '{fila.producto}' no es un número: {dice} (es el producto número {i + 1} de la lista).")
+            }
+        }
+    }
+    devolver avisos
 }
 
 # Los productos que conviene escribir de otra forma en la planilla: los que empiezan con
@@ -890,4 +956,58 @@ prueba "si a la planilla le falta una columna, avisa antes de atender" {
     sea con_te = [{ producto: "Té en saquitos", presentacion: "caja", precio: 500, stock: 9 },
                   { producto: "Sal fina", presentacion: "bolsa", precio: 300, stock: 9 }]
     asegurar nombres_muy_cortos(con_te) == ["Té en saquitos"] y nombres_muy_cortos(precios) == []
+}
+
+prueba "un 'sin' o un 'no' en el nombre de un producto no tapa el 'sin envío' del cliente" {
+    sea almacen = [{ producto: "Yerba mate", presentacion: "bolsón", precio: 1000, stock: 100 },
+                   { producto: "Yerba sin palo", presentacion: "bolsón", precio: 2000, stock: 100 },
+                   { producto: "Galletitas sin sal", presentacion: "caja", precio: 500, stock: 100 },
+                   { producto: "Arroz no se pasa", presentacion: "bolsa", precio: 300, stock: 100 }]
+    # El "sin" es del cliente, no del producto: va solo el total, sin confirmar un envío.
+    asegurar responder_pedido(almacen, "12 yerba mate sin envio") == "12 x Yerba mate (bolsón) a $ 1.000,00 cada uno: total $ 12.000,00."
+    asegurar responder_pedido(almacen, "12 yerba sin palo sin flete") == "12 x Yerba sin palo (bolsón) a $ 2.000,00 cada uno: total $ 24.000,00."
+    para dicho en ["12 galletitas sin envio", "12 galletitas sin sal sin envio", "12 galletitas, no me las mandes",
+                   "12 galletitas sin sal, ni se te ocurra mandarlas", "12 galletitas nada de envio"] {
+        asegurar responder_pedido(almacen, dicho) == "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."
+    }
+    para dicho en ["12 arroz no me lo mandes", "12 arroz no se pasa, no me lo mandes", "12 arroz sin envio"] {
+        asegurar responder_pedido(almacen, dicho) == "12 x Arroz no se pasa (bolsa) a $ 300,00 cada uno: total $ 3.600,00."
+    }
+    # "12 yerbas sin envio" no dice cuál de las dos yerbas: pregunta, y no habla de envío.
+    asegurar responder_pedido(almacen, "12 yerbas sin envio") == "Tengo más de uno: Yerba mate (bolsón); Yerba sin palo (bolsón). Decime cuál, con el nombre completo."
+    # Con una sola yerba en la lista no hay duda: es esa, y sin envío.
+    sea una_yerba = [{ producto: "Yerba sin palo", presentacion: "bolsón", precio: 2000, stock: 100 }]
+    para dicho en ["12 yerbas sin envio", "12 yerba sin palo, no me lo mandes", "12 yerbas no me las mandes"] {
+        asegurar responder_pedido(una_yerba, dicho) == "12 x Yerba sin palo (bolsón) a $ 2.000,00 cada uno: total $ 24.000,00."
+    }
+    # Y el "sin" que SÍ es del nombre no apaga un envío pedido.
+    asegurar termina_con(responder_pedido(almacen, "12 yerba sin palo con envio"), "total $ 24.000,00. Con envío: sí, va con envío.")
+    asegurar termina_con(responder_pedido(almacen, "mandame 12 galletitas sin sal"), "total $ 6.000,00. Con envío: sí, va con envío.")
+    asegurar termina_con(responder_pedido(almacen, "12 arroz no se pasa con envio"), "total $ 3.600,00. Con envío: sí, va con envío.")
+    asegurar termina_con(responder_pedido(almacen, "5 yerba sin palo con envio"), "Podés retirarlo en el local o sumar 5 más.")
+}
+
+prueba "un precio o un stock vacío o con texto se avisa antes de atender, diciendo de qué producto" {
+    # Lo que deja leer_tabla() cuando la celda está vacía ("") o tiene un texto.
+    sea rota = [{ producto: "Yerba mate", presentacion: "bolsón", precio: 35000, stock: 40 },
+                { producto: "Azúcar", presentacion: "bolsa", precio: "", stock: 25 },
+                { producto: "Harina", presentacion: "bolsa", precio: 14500, stock: "poco" }]
+    asegurar celdas_mal_cargadas(rota) == [
+        "En precios.csv, el precio de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista).",
+        "En precios.csv, el stock de 'Harina' no es un número: dice 'poco' (es el producto número 3 de la lista)."]
+    # revisar_planilla() lo junta con cómo se arregla: con eso el mostrador no atiende.
+    sea aviso = revisar_planilla(rota)
+    asegurar empieza_con(aviso, "En precios.csv, el precio de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista).")
+    asegurar tiene(aviso, "el stock de 'Harina' no es un número: dice 'poco' (es el producto número 3 de la lista).")
+    asegurar termina_con(aviso, "El precio y el stock van solo con números (un precio se escribe 9.800,50; si de algo no hay stock, poné 0). Arreglalo en la planilla, guardala y volvé a arrancar el mostrador.")
+    # Con muchos renglones mal muestra los cinco primeros y dice cuántos más hay.
+    var muchas = []
+    para n en rango(8) {
+        muchas = agregar(muchas, { producto: "Cosa {n}", presentacion: "caja", precio: "a confirmar", stock: 1 })
+    }
+    asegurar tiene(revisar_planilla(muchas), "el precio de 'Cosa 4'") y no tiene(revisar_planilla(muchas), "el precio de 'Cosa 5'")
+    asegurar tiene(revisar_planilla(muchas), " Y hay 3 más así. ")
+    # La planilla de muestra y un stock en 0 están bien.
+    asegurar celdas_mal_cargadas(precios) == []
+    asegurar revisar_planilla([{ producto: "Pan", presentacion: "bolsa", precio: 500, stock: 0 }]) == nada
 }

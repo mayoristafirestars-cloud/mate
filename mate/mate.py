@@ -39,7 +39,7 @@ import types
 import unicodedata
 from collections import deque
 
-VERSION = "0.5"
+VERSION = "0.6"
 
 # El tope para que Mate siga siendo chico (mejora 90): no puede haber más palabras propias
 # ni más funciones incluidas que estas. Para agregar una hay que sacar otra, o discutir el
@@ -8519,10 +8519,15 @@ _ENCABEZADO_DEL_MOSTRADOR = """\
 #   Para ensayarlo: Mate le hace las preguntas anotadas en «CASOS» (se abre con el Bloc
 #   de notas) y dice cuáles contestó bien. Sirve para saber si una lección funcionó:
 #          «ORDEN» ensayar «PROGRAMA» «CASOS» --ia-simulada
+#   OJO: los casos que vienen en «CASOS» son de muestra, escritos para la planilla de
+#   muestra (yerba, azúcar, fideos). Cuando pongas tus productos en la planilla, cambiá
+#   también los casos: si no, fallan los que nombran un producto que ya no está.
 #
 # Las pruebas del final usan una lista fija, no tu planilla: siguen pasando aunque cambies
 # los productos, los precios o el número del envío. Una sola mira tu planilla, para
 # avisarte si quedó algo mal cargado.
+# Si en la planilla queda un precio o un stock vacío o con letras, el mostrador no atiende:
+# al arrancar dice de qué producto es y cómo arreglarlo.
 """
 
 _PRUEBAS_DEL_MOSTRADOR = """\
@@ -8540,12 +8545,11 @@ funcion lista_de_prueba() {
 
 prueba "tu planilla está bien cargada" {
     # La única prueba que mira «PLANILLA»: si falla, el texto dice qué arreglar.
+    # Es lo mismo que el mostrador revisa al arrancar: los títulos, y que cada producto
+    # tenga su precio y su stock en números (una celda vacía no es un número).
     sea a_corregir = revisar_planilla(precios)
-    asegurar a_corregir == nada, texto(a_corregir)
-    # Cada producto con su precio y su stock en números (una celda vacía no es un número).
-    para fila en precios {
-        asegurar tipo(fila.precio) == "numero", "En «PLANILLA», el precio de '{fila.producto}' no es un número: dice '{fila.precio}'."
-        asegurar tipo(fila.stock) == "numero", "En «PLANILLA», el stock de '{fila.producto}' no es un número: dice '{fila.stock}'. Si no hay, poné 0."
+    si a_corregir != nada {
+        fallar(a_corregir)
     }
 }
 
@@ -8573,6 +8577,12 @@ prueba "si dice que NO quiere envío, no se le confirma un envío" {
         # (va solo el total: la respuesta no habla de envío)
         asegurar termina_con(atender(lista_de_prueba(), dicho), "total {pesos(n * 9800.5)}.")
     }
+    # Tampoco si el producto tiene un "sin" en el nombre: el "sin envío" es del cliente.
+    sea sin_palo = [{ producto: "Yerba sin palo", presentacion: "bolsón", precio: 2000, stock: 100000 }]
+    para dicho en ["{n} yerbas sin envio", "{n} yerba sin palo sin flete", "{n} yerbas, no me las mandes"] {
+        asegurar termina_con(atender(sin_palo, dicho), "total {pesos(n * 2000)}.")
+    }
+    asegurar termina_con(atender(sin_palo, "{n} yerba sin palo con envio"), "Con envío: sí, va con envío.")
     asegurar largo(consultas_ia()) == 0
 }
 
@@ -8646,7 +8656,11 @@ def archivos_del_mostrador(nombre, orden, carpeta_de_mate=None, fin_de_renglon=N
     corte = de_muestra.find(_CASOS_DESDE)
     de_muestra = (f"# Casos para ensayar {programa}: lo que pregunta un cliente y lo que la "
                   "respuesta\n# tiene que decir (o no puede decir). Es tuyo: cambialos y "
-                  "agregá los que quieras.\n#\n# Cómo se usa, en PowerShell, parado en "
+                  "agregá los que quieras.\n# OJO: los casos que vienen acá son de muestra, escritos "
+                  f"para la planilla de muestra\n# (yerba, azúcar, fideos). Si cambiás "
+                  f"los productos de {planilla}, cambiá\n# también estos casos: si no, "
+                  "fallan los que nombran un producto que ya no está.\n"
+                  "#\n# Cómo se usa, en PowerShell, parado en "
                   "la carpeta donde está este archivo:\n"
                   f"#     {orden} ensayar {programa} {casos} --ia-simulada\n"
                   "# (sin --ia-simulada contesta la IA de verdad: así se ve si una lección "
@@ -8755,6 +8769,10 @@ def orden_nuevo(args, avisar, mostrar=print):
             f"  5. Ensayarlo: Mate le hace las preguntas de {casos} y dice cuáles",
             "     contestó bien (sin --ia-simulada contesta la IA de verdad):",
             f"       {orden} ensayar {programa} {casos} --ia-simulada",
+            "     Ojo: esos casos son de muestra, escritos para la planilla de muestra. Si",
+            "     cambiaste los productos (paso 3), cambiá también los casos, o van a fallar",
+            "     los que nombran un producto que ya no está. Para abrirlos:",
+            f"       notepad {casos}",
             "",
             f"Arriba de todo, {programa} dice qué más se puede cambiar (desde cuántas "
             "unidades",

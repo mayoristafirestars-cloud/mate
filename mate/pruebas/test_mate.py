@@ -3529,17 +3529,38 @@ def test_la_orden_consola(capsys, monkeypatch):
     assert "¿quisiste decir 'consola'?" in capsys.readouterr().err
 
 
-# Mejora 89: versión 0.3 (después 0.4: agentes que recuerdan y aprenden; y ahora 0.5: más
-# rápido y con puente a Python)
+# Mejora 89: versión 0.3 (después 0.4: agentes que recuerdan y aprenden; 0.5: más rápido y
+# con puente a Python; y ahora 0.6: el mostrador con reglas, 'nuevo mostrador' y 'ensayar')
 
-def test_version_0_5_y_el_readme_lo_dice(capsys):
-    assert mate.VERSION == "0.5"
+def test_version_0_6_y_el_readme_lo_dice(capsys):
+    assert mate.VERSION == "0.6"
     leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
-    assert "Versión 0.5." in leeme and "## Límites de la versión 0.5" in leeme
-    assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.5", "")
-    assert "desde la versión 0.2 hasta la 0.5" in leeme and "versión 0.3" not in leeme
+    assert "Versión 0.6." in leeme and "## Límites de la versión 0.6" in leeme
+    assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.6", "")
+    assert "desde la versión 0.2 hasta la 0.6" in leeme and "versión 0.3" not in leeme
+    # el número viejo no quedó en ningún título ni enlace que hable de "esta versión"
+    assert "Versión 0.5." not in leeme and "Límites de la versión 0.5" not in leeme
+    assert "hasta la 0.5 (" not in leeme
+    assert "[Qué cambió en la 0.6](#qué-cambió-en-la-06)" in leeme
+    assert "[Límites de la versión 0.6](#límites-de-la-versión-06)" in leeme
+    titulos = re.findall(r"(?m)^## (.+)$", leeme)
+    assert titulos.index("Qué cambió en la 0.6") + 1 == titulos.index("Qué cambió en la 0.5")
+    # lo de la 0.6 está en su sección, y sus enlaces llevan a títulos que existen
+    novedades = leeme.split("## Qué cambió en la 0.6")[1].split("\n## ")[0]
+    for frase in ["12_mostrador_con_reglas.mate", "`nuevo mostrador mi_negocio`", "`ensayar ",
+                  "`py mate\\mate.py ...`", "títulos está repetido", "un precio o un stock",
+                  "igual\nque en la 0.5", "mejoras 121 a 123"]:
+        assert frase in novedades, frase
+    anclas = re.findall(r"\]\(#([^)]+)\)", novedades)
+    assert len(anclas) >= 7
+    for ancla in anclas:
+        assert any(ancla == re.sub(r"[^\w\- ]", "", t.lower()).replace(" ", "-")
+                   for t in re.findall(r"(?m)^#{2,3} (.+)$", leeme)), ancla
     assert mate.main(["--version"]) == 0
-    assert capsys.readouterr().out.startswith("Mate 0.5 ")
+    assert capsys.readouterr().out.startswith("Mate 0.6 ")
+    # la página de presentación dice el mismo número
+    pagina = (RAIZ.parent / "docs" / "index.html").read_text(encoding="utf-8")
+    assert '<span class="marca">Mate 0.6</span>' in pagina and "Mate 0.5" not in pagina
 
 
 # Mejora 90: el tope para que Mate siga siendo chico
@@ -6698,7 +6719,7 @@ def test_informe_resume_el_registro(tmp_path, con_registro):
     renglones = out.splitlines()
     assert renglones[0] == "Informe de errores de uso de Mate"
     assert re.fullmatch(r"Hay 6 error\(es\) de uso anotado\(s\), del \d\d/\d\d/\d{4} \d\d:\d\d "
-                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.5\)\.", renglones[1])
+                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.6\)\.", renglones[1])
     assert renglones[3:6] == [
         "Los más frecuentes:",
         "    4 veces  antes de correr: no existe '<nombre>'",
@@ -9440,7 +9461,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
         "Qué cambió y puede frenar un programa viejo")
     primer_pantallazo = leeme[:leeme.index("## Por dónde empezar")]
     for frase in ["Mate es un lenguaje de programación chico, con palabras en castellano",
-                  "Versión 0.5", "Add python.exe to PATH", "instalar.bat", "mate --version",
+                  "Versión 0.6", "Add python.exe to PATH", "instalar.bat", "mate --version",
                   "No toca el PATH ni el registro", ".\\mate\\instalar.bat quitar",
                   "Todavía no se probó en una Windows de verdad", "python mate\\mate.py curso"]:
         assert frase in primer_pantallazo, frase
@@ -9478,7 +9499,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
     ayuda = mate.texto_de_ayuda()
     assert "  curso  " in ayuda and "  curso 1  " in ayuda
     assert max(len(r) for r in ayuda.splitlines()) <= 100
-    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.5"
+    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.6"
 
 
 # ───────────────────── Correcciones de la revisión de la 0.5 (mejora 120) ─────────────────────
@@ -10258,7 +10279,7 @@ def test_el_ejemplo_12_resuelve_los_pedidos_sin_consultar_a_la_ia(tmp_path, caps
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["probar", ruta]) == 0
     salida = capsys.readouterr().out
-    assert "20 de 20 pruebas pasaron" in salida
+    assert "22 de 22 pruebas pasaron" in salida
     assert "✓ los dos pedidos que una IA contestó mal: total exacto, envío bien y sin IA" in salida
     assert sorted(p.name for p in tmp_path.iterdir()) == [nombre, "precios.csv"]  # probar no deja nada
     # corrido de verdad, con el teclado: el pedido lo contesta el programa aunque la IA
@@ -10553,6 +10574,145 @@ def charla_con(ruta, capsys, monkeypatch, *renglones):
             if "Cliente: Mostrador: " in r]
 
 
+PLANILLA_CON_SIN = ("producto;presentacion;precio;stock\n"
+                    "Yerba mate;bolsón;35.000;40\n"
+                    "Yerba sin palo;bolsón;40.000;40\n"
+                    "Galletitas sin sal;caja;500;50\n"
+                    "Arroz no se pasa;bolsa;300;50\n"
+                    "Azúcar;bolsa de 10 kg;9.800,50;25\n")
+# (lo que dice el cliente, y cómo tiene que terminar la respuesta: nunca "Con envío: sí")
+SIN_ENVIO_CON_PRODUCTOS_SIN = [
+    ("12 yerba mate sin envio", "12 x Yerba mate (bolsón) a $ 35.000,00 cada uno: total $ 420.000,00."),
+    ("12 yerba sin palo sin flete",
+     "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00."),
+    ("12 yerba sin palo, no me lo mandes",
+     "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00."),
+    ("12 galletitas sin envio", "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 galletitas sin sal sin envio",
+     "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 galletitas no me las mandes",
+     "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 galletitas, nada de envio", "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 galletitas ni se te ocurra mandarlas",
+     "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 arroz no me lo mandes", "12 x Arroz no se pasa (bolsa) a $ 300,00 cada uno: total $ 3.600,00."),
+    ("12 arroz no se pasa sin envio",
+     "12 x Arroz no se pasa (bolsa) a $ 300,00 cada uno: total $ 3.600,00."),
+    # la planilla tiene dos yerbas y no dijo cuál: pregunta (antes cotizaba la "sin palo")
+    ("12 yerbas sin envio",
+     "Tengo más de uno: Yerba mate (bolsón); Yerba sin palo (bolsón). Decime cuál, con el nombre "
+     "completo."),
+    ("12 azucar sin envio", "12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."),
+]
+# (y el "sin" o el "no" que SÍ son del nombre no apagan un envío pedido)
+CON_ENVIO_CON_PRODUCTOS_SIN = [
+    ("12 yerba sin palo con envio", "total $ 480.000,00. Con envío: sí, va con envío."),
+    ("mandame 12 galletitas sin sal", "total $ 6.000,00. Con envío: sí, va con envío."),
+    ("12 arroz no se pasa con envio", "total $ 3.600,00. Con envío: sí, va con envío."),
+    ("me mandas 12 yerba mate?", "total $ 420.000,00. Con envío: sí, va con envío."),
+    ("5 galletitas sin sal a domicilio", "Sin envío: hacemos envíos desde 10 unidades y pedís 5. "
+                                         "Podés retirarlo en el local o sumar 5 más."),
+]
+
+
+def test_el_ejemplo_12_no_confirma_un_envio_negado_si_el_producto_tiene_sin_en_el_nombre(
+        tmp_path, capsys, monkeypatch):
+    # P22: con "Yerba sin palo" o "Galletitas sin sal" en la planilla, el "sin" de "sin
+    # envío" se iba de la frase junto con el nombre del producto y contestaba "Con envío: sí"
+    import shutil
+    nombre = "12_mostrador_con_reglas.mate"
+    ruta = str(shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre))
+    (tmp_path / "precios.csv").write_text(PLANILLA_CON_SIN, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    dicho = charla_con(ruta, capsys, monkeypatch, *[d for d, _ in SIN_ENVIO_CON_PRODUCTOS_SIN])
+    assert len(dicho) == len(SIN_ENVIO_CON_PRODUCTOS_SIN)
+    for (pregunta, esperado), respuesta in zip(SIN_ENVIO_CON_PRODUCTOS_SIN, dicho):
+        assert respuesta == esperado, pregunta
+        assert "nvío" not in respuesta, pregunta
+    dicho = charla_con(ruta, capsys, monkeypatch, *[d for d, _ in CON_ENVIO_CON_PRODUCTOS_SIN])
+    assert len(dicho) == len(CON_ENVIO_CON_PRODUCTOS_SIN)
+    for (pregunta, final), respuesta in zip(CON_ENVIO_CON_PRODUCTOS_SIN, dicho):
+        assert respuesta.endswith(final), (pregunta, respuesta)
+    # con una sola yerba en la planilla, "yerbas" a secas es esa, y sin envío
+    (tmp_path / "precios.csv").write_text(
+        "producto;presentacion;precio;stock\nYerba sin palo;bolsón;40.000;40\n", encoding="utf-8")
+    assert charla_con(ruta, capsys, monkeypatch, "12 yerbas sin envio", "12 yerbas no me las mandes",
+                      "12 yerbas con envio") == [
+        "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00.",
+        "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00.",
+        "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00. "
+        "Con envío: sí, va con envío."]
+
+
+# (la planilla, y los avisos que tiene que dar: uno por cada precio o stock mal cargado)
+PLANILLAS_MAL_CARGADAS = [
+    ("Yerba mate;bolsón;35.000;40\nAzúcar;bolsa;;25\n",
+     ["el precio de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista)."]),
+    ("Yerba mate;bolsón;consultar;40\n",
+     ["el precio de 'Yerba mate' no es un número: dice 'consultar' (es el producto número 1 de "
+      "la lista)."]),
+    ("Yerba mate;bolsón;35.000;40\nAzúcar;bolsa;9.800,50;\nHarina;bolsa;14.500;poco\n",
+     ["el stock de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista).",
+      "el stock de 'Harina' no es un número: dice 'poco' (es el producto número 3 de la lista)."]),
+    ("Yerba mate;bolsón;;\n",
+     ["el precio de 'Yerba mate' no es un número: está vacío (es el producto número 1 de la lista).",
+      "el stock de 'Yerba mate' no es un número: está vacío (es el producto número 1 de la lista)."]),
+    # (un precio con dos comas no es un número: queda como texto)
+    ("Yerba mate;bolsón;35,000,00;40\n",
+     ["el precio de 'Yerba mate' no es un número: dice '35,000,00' (es el producto número 1 de "
+      "la lista)."]),
+]
+COMO_SE_ARREGLA_LA_PLANILLA = (
+    " El precio y el stock van solo con números (un precio se escribe 9.800,50; si de algo no "
+    "hay stock, poné 0). Arreglalo en la planilla, guardala y volvé a arrancar el mostrador.\n")
+
+
+def planilla_mal_cargada_avisa_y_no_atiende(ruta, planilla, capsys, monkeypatch, tmp_path, *extra):
+    """Corre el mostrador con cada planilla mal cargada y con un cliente que saluda (lo que
+    antes cortaba el programa con 'pesos() espera numero'): tiene que avisar y no atender."""
+    import io
+    for filas, avisos in PLANILLAS_MAL_CARGADAS:
+        planilla.write_text("producto;presentacion;precio;stock\n" + filas, encoding="utf-8")
+        monkeypatch.setattr("sys.stdin", io.StringIO("hola\n2 yerbas\nchau\n"))
+        capsys.readouterr()
+        assert mate.main(["correr", ruta, *extra]) == 0
+        capturado = capsys.readouterr()
+        esperado = ("Mostrador: así no puedo atender. "
+                    + " ".join(f"En {planilla.name}, {aviso}" for aviso in avisos)
+                    + COMO_SE_ARREGLA_LA_PLANILLA)
+        assert capturado.out == esperado, filas
+        # ni un error técnico, ni una pregunta al cliente, ni archivos nuevos
+        assert capturado.err == "" and "pesos()" not in capturado.out, filas
+    assert not [a.name for a in tmp_path.iterdir() if "memoria" in a.name or "bitacora" in a.name]
+
+
+def test_el_ejemplo_12_avisa_al_arrancar_un_precio_o_stock_que_no_es_un_numero(tmp_path, capsys,
+                                                                             monkeypatch):
+    # P29: con un precio vacío el mostrador arrancaba como si nada y se cortaba en la primera
+    # consulta que iba a la IA ("hola") con un error técnico
+    import shutil
+    nombre = "12_mostrador_con_reglas.mate"
+    ruta = str(shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre))
+    planilla = tmp_path / "precios.csv"
+    monkeypatch.chdir(tmp_path)
+    planilla_mal_cargada_avisa_y_no_atiende(ruta, planilla, capsys, monkeypatch, tmp_path,
+                                            "--ia-simulada")
+    # sin --ia-simulada tampoco llega a consultar a nadie (no hace falta clave ni red)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("MATE_IA_PROPIA", raising=False)
+    planilla_mal_cargada_avisa_y_no_atiende(ruta, planilla, capsys, monkeypatch, tmp_path)
+    # con muchos renglones mal muestra cinco y dice cuántos más hay
+    planilla.write_text("producto;presentacion;precio;stock\n" + "".join(
+        f"Cosa {n};caja;a confirmar;1\n" for n in range(1, 9)), encoding="utf-8")
+    assert mate.main(["correr", ruta, "--ia-simulada"]) == 0
+    salida = capsys.readouterr().out
+    assert "el precio de 'Cosa 5'" in salida and "el precio de 'Cosa 6'" not in salida
+    assert " Y hay 3 más así. El precio y el stock van solo con números" in salida
+    # un stock en 0 y un precio con $ están bien: atiende
+    planilla.write_text("producto;presentacion;precio;stock\nPan;bolsa;$ 500;0\n", encoding="utf-8")
+    assert charla_con(ruta, capsys, monkeypatch, "2 pan") == ["De Pan ahora no hay stock."]
+
+
 def test_nuevo_mostrador_crea_el_programa_y_la_planilla_listos_para_usar(tmp_path, capsys,
                                                                        monkeypatch):
     codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
@@ -10718,6 +10878,82 @@ def test_el_mostrador_creado_sigue_andando_con_otros_productos_y_otra_regla(tmp_
     salida = capsys.readouterr().out
     assert "✗ tu planilla está bien cargada" in salida and "6 de 7 pruebas pasaron" in salida
     assert "En ferreteria_precios.csv, el stock de 'Tornillo' no es un número" in salida
+
+
+def test_el_mostrador_creado_hereda_los_arreglos_del_ejemplo_12(tmp_path, capsys, monkeypatch):
+    # P22 y P29 se arreglaron en el ejemplo 12: un mostrador creado después los trae
+    assert crear_mostrador(tmp_path, capsys, monkeypatch, "almacen")[0] == 0
+    planilla = tmp_path / "almacen_precios.csv"
+    planilla.write_text(PLANILLA_CON_SIN, encoding="utf-8")
+    assert mate.main(["probar", "almacen.mate"]) == 0
+    assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+    dicho = charla_con("almacen.mate", capsys, monkeypatch,
+                       *[d for d, _ in SIN_ENVIO_CON_PRODUCTOS_SIN])
+    assert dicho == [esperado for _, esperado in SIN_ENVIO_CON_PRODUCTOS_SIN]
+    dicho = charla_con("almacen.mate", capsys, monkeypatch,
+                       *[d for d, _ in CON_ENVIO_CON_PRODUCTOS_SIN])
+    assert len(dicho) == len(CON_ENVIO_CON_PRODUCTOS_SIN)
+    for (pregunta, final), respuesta in zip(CON_ENVIO_CON_PRODUCTOS_SIN, dicho):
+        assert respuesta.endswith(final), (pregunta, respuesta)
+    # la planilla mal cargada: avisa con el nombre de SU planilla y no atiende
+    for sobra in tmp_path.glob("almacen.mate.*"):
+        sobra.unlink()
+    planilla_mal_cargada_avisa_y_no_atiende("almacen.mate", planilla, capsys, monkeypatch,
+                                            tmp_path, "--ia-simulada")
+    # ...y 'probar' dice lo mismo, una sola vez (antes el aviso salía repetido)
+    planilla.write_text("producto;presentacion;precio;stock\nYerba;bolsón;;40\n", encoding="utf-8")
+    assert mate.main(["probar", "almacen.mate"]) == 1
+    salida = capsys.readouterr().out
+    assert "✗ tu planilla está bien cargada" in salida and "6 de 7 pruebas pasaron" in salida
+    aviso = "En almacen_precios.csv, el precio de 'Yerba' no es un número: está vacío"
+    assert salida.count("error: " + aviso) == 1 and "se esperaba nada" not in salida
+    # 'ensayar' con esa planilla no da nada por pasado: muestra el aviso y no ensaya
+    codigo, salida, err = orden_mate(capsys, "ensayar", "almacen.mate", "almacen_casos.txt",
+                                     "--ia-simulada")
+    assert codigo == 2 and aviso in salida and "casos pasaron" not in salida
+    assert "terminó sin pedir nada por teclado" in err and "pesos()" not in salida + err
+
+
+def test_nuevo_mostrador_avisa_que_los_casos_son_para_la_planilla_de_muestra(tmp_path, capsys,
+                                                                           monkeypatch):
+    # P68: el dueño cambia la planilla (paso 3), ensaya (paso 5) y le fallan los casos de
+    # los productos que sacó, sin que nadie le haya dicho que eran de muestra
+    codigo, salida, _ = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert codigo == 0
+    paso_5 = salida.split("  5. Ensayarlo:")[1].split("\n\n")[0]
+    assert ("     Ojo: esos casos son de muestra, escritos para la planilla de muestra. Si\n"
+            "     cambiaste los productos (paso 3), cambiá también los casos, o van a fallar\n"
+            "     los que nombran un producto que ya no está. Para abrirlos:\n"
+            "       notepad mi_negocio_casos.txt") in paso_5
+    assert max(len(r) for r in paso_5.splitlines() if "mate.py" not in r) <= 90
+    # el encabezado del archivo de casos lo dice arriba de todo, antes de cómo se usa
+    casos = (tmp_path / "mi_negocio_casos.txt").read_bytes().decode("utf-8-sig").replace("\r\n", "\n")
+    encabezado = casos[:casos.index("# Cómo se escribe")]
+    assert ("# OJO: los casos que vienen acá son de muestra, escritos para la planilla de muestra\n"
+            "# (yerba, azúcar, fideos). Si cambiás los productos de mi_negocio_precios.csv, cambiá\n"
+            "# también estos casos: si no, fallan los que nombran un producto que ya no está.\n"
+            ) in encabezado
+    assert encabezado.index("# OJO:") < encabezado.index("# Cómo se usa")
+    assert all(r.startswith("#") and len(r) <= 90 for r in encabezado.splitlines()
+               if "mate.py" not in r)
+    # el aviso es una nota: los casos siguen siendo los cinco de muestra y siguen pasando
+    assert len(mate.casos_de_archivo("mi_negocio_casos.txt")) == 5
+    codigo, salida, _ = orden_mate(capsys, "ensayar", "mi_negocio.mate", "mi_negocio_casos.txt",
+                                   "--ia-simulada")
+    assert codigo == 0 and "5 de 5 casos pasaron" in salida
+    # el programa creado también lo dice, al lado de la orden de ensayar, y cuenta que la
+    # planilla se revisa al arrancar
+    programa = (tmp_path / "mi_negocio.mate").read_bytes().decode("utf-8-sig").replace("\r\n", "\n")
+    arriba = programa[:programa.index("# La regla del envío:")]
+    assert ("#   OJO: los casos que vienen en mi_negocio_casos.txt son de muestra, escritos para "
+            "la planilla de\n#   muestra (yerba, azúcar, fideos).") in arriba
+    assert "un precio o un stock vacío o con letras, el mostrador no atiende" in arriba
+    # y el manual: el paso 5 como sale en pantalla, y el punto de 'Lo que hay que saber'
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "     Ojo: esos casos son de muestra, escritos para la planilla de muestra. Si\n" in readme
+    assert "**Los casos de muestra son para la planilla de muestra.**" in readme
+    assert "**Un precio o un stock vacío o con letras no llega al cliente.**" in readme
+    assert "(\"Yerba sin palo\", \"Galletitas sin sal\")" in readme
 
 
 def test_el_mostrador_creado_se_puede_abrir_con_el_bloc_de_notas_de_windows(tmp_path, capsys,
@@ -11407,7 +11643,7 @@ def test_ensayar_con_el_modelo_que_no_contesta_no_da_los_casos_por_pasados(tmp_p
         salida = corrida.stdout
         assert (corrida.returncode, corrida.stderr) == (1, "")
         assert "5 de 5" not in salida and "✓ tenes cafe?" not in salida
-        assert "  ? tenes cafe?: pasó 0 de 2, y 1 sin comprobar   (renglón 40 de" in salida
+        assert "  ? tenes cafe?: pasó 0 de 2, y 1 sin comprobar   (renglón 43 de" in salida
         assert motivo in salida and salida.count("La IA no contestó (la vez 1): ") == 1
         assert "      Sin la IA, el programa contestó: " in salida
         # era la primera consulta: corta ahí (no sigue repitiendo la misma falla)
