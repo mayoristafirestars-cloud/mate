@@ -16,6 +16,7 @@
 #     otra, y las reglas una sola vez, debajo de todas.
 #   - Da igual con mayúsculas o minúsculas, y con tilde o sin tilde.
 #   - Con una barra | se dan opciones:   tiene que decir: no hay stock | no queda
+#   - El texto va sin comillas (si copiás una regla del informe, con comillas, vale igual).
 #   - Un renglón que empieza con # es una nota: Mate no lo lee.
 # Ojo: se busca el texto tal cual. "no puede decir: hay envío" también salta con
 # "no hay envío", porque adentro dice "hay envío".

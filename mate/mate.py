@@ -3300,6 +3300,17 @@ def direccion_de_ia_propia():
     return direccion
 
 
+def modelo_de_ia_propia():
+    """El nombre del modelo propio (MATE_MODELO), o un error que dice cómo ponerlo."""
+    modelo = os.environ.get("MATE_MODELO", "").strip().strip("\"'").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:@/\[\]-]{0,99}", modelo):
+        raise error_de_ia(
+            "con MATE_IA_PROPIA hay que decir qué modelo usar, con el nombre que le da tu "
+            'servicio. En PowerShell:  $env:MATE_MODELO = "qwen2.5:3b"   (con Ollama, los '
+            "nombres los muestra:  ollama list)")
+    return modelo
+
+
 def pedir_a_la_ia_propia(direccion, instrucciones, pregunta):
     """Como pedir_a_la_ia, pero contra un modelo propio. La clave (si hace falta) va en
     MATE_IA_PROPIA_CLAVE y nunca aparece en un error."""
@@ -3309,12 +3320,7 @@ def pedir_a_la_ia_propia(direccion, instrucciones, pregunta):
     import urllib.parse
     import urllib.request
 
-    modelo = os.environ.get("MATE_MODELO", "").strip().strip("\"'").strip()
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:@/\[\]-]{0,99}", modelo):
-        raise error_de_ia(
-            "con MATE_IA_PROPIA hay que decir qué modelo usar, con el nombre que le da tu "
-            'servicio. En PowerShell:  $env:MATE_MODELO = "qwen2.5:3b"   (con Ollama, los '
-            "nombres los muestra:  ollama list)")
+    modelo = modelo_de_ia_propia()
     clave = os.environ.get("MATE_IA_PROPIA_CLAVE", "").strip().strip("\"'").strip()
     lugar = urllib.parse.urlsplit(direccion).netloc
     local = lugar.split(":")[0].lower() in ("localhost", "127.0.0.1", "[::1]")
@@ -5292,6 +5298,8 @@ class Interprete:
             except ErrorMate as e:
                 if self.traza:
                     self.trazar("la IA no contestó: " + e.mensaje.split("\n")[0], None, hondo)
+                if self.ensayando:  # el informe de 'ensayar' dice por qué no contestó
+                    consulta["motivo"] = e.mensaje
                 raise
             if len(respuesta) > MAX_LARGO:
                 raise error_de_ia("la respuesta es demasiado larga para guardarla")
@@ -8698,7 +8706,13 @@ def orden_nuevo(args, avisar, mostrar=print):
     if ya_estan:
         avisar(f"no creé nada: en esta carpeta ya hay {' y '.join(ya_estan)}, y no piso "
                "archivos. Elegí otro nombre (por ejemplo:  "
-               f"{orden} nuevo mostrador {nombre}_2) o mové esos archivos a otra carpeta",
+               f"{orden} nuevo mostrador {nombre}_2) o mové esos archivos a otra carpeta"
+               + ("" if casos in ya_estan or programa not in ya_estan else
+                  f". Si lo que te falta es el archivo de casos para 'ensayar' ({casos}), "
+                  "copiá el de muestra con ese nombre al lado del programa: está en "
+                  + ruta_para_escribir(os.path.join(
+                      os.path.dirname(os.path.abspath(__file__)), "ejemplos",
+                      CASOS_DE_MUESTRA))),
                "al escribir la orden: 'nuevo mostrador' con un nombre que ya existe", True)
         return 1
     creados = []
@@ -8767,12 +8781,27 @@ def orden_nuevo(args, avisar, mostrar=print):
 # 'probar'). Sí LEE la memoria: los agentes ensayan con sus lecciones aprobadas, que es lo
 # que se quiere comprobar. Lo único que escribe, al final, son las lecciones PROPUESTAS de
 # los casos que fallaron (las mismas de la orden 'propuestas': nadie las usa sin aprobar).
+#
+# Un caso tiene tres finales: pasó, falló, o NO SE PUDO COMPROBAR (una consulta quedó sin
+# respuesta de la IA: modelo apagado, nombre mal escrito, tope del agente). Este último
+# nunca cuenta como pasado, aunque el programa haya seguido solo y las reglas se cumplan:
+# si no, un modelo apagado daría "5 de 5 casos pasaron". Si la primera consulta del ensayo
+# no tiene respuesta, o tres seguidas, se corta ahí. Con --ia-simulada no se propone nada:
+# una lección no cambia un texto preparado.
 
 MAX_VECES = 20  # --veces=N: cuántas veces se repite cada caso, como mucho
 MAX_CASOS = 200  # preguntas en un archivo de casos
-_REGLA_DE_CASO = re.compile(r"(?is)(no\s+)?(tiene\s+que|debe|puede)\s+decir\s*:(.*)")
+_REGLA_DE_CASO = re.compile(
+    r"(?is)(?:[-*•·]\s*)?(no\s+)?(tiene\s+que|debe|puede)\s+decir\s*:(.*)")
 _PARECE_REGLA = ("tiene que decir", "no tiene que decir", "debe decir", "no debe decir",
                  "puede decir", "no puede decir")
+_DECIR_MAL_ESCRITO = ("decir", "desir", "dezir", "decri", "deicr", "dcir", "deir", "decirr")
+# Una regla copiada del informe viene con comillas:  no puede decir "a" ni "b"
+_PARES_DE_COMILLAS = (('"', '"'), ("“", "”"), ("«", "»"), ("'", "'"), ("‘", "’"))
+_ENTRE_COMILLAS = "|".join(f"{re.escape(a)}[^{re.escape(a + c)}]*{re.escape(c)}"
+                           for a, c in _PARES_DE_COMILLAS)
+_TODO_ENTRE_COMILLAS = re.compile(
+    rf"(?i)(?:{_ENTRE_COMILLAS})(?:\s*(?:\||,|o\b|ni\b)?\s*(?:{_ENTRE_COMILLAS}))*")
 COMO_VAN_LAS_REGLAS = ('Las reglas van debajo de la pregunta y se escriben así:  '
                        'tiene que decir: sin envío   o   no puede decir: descuento')
 
@@ -8793,16 +8822,40 @@ def regla_de_caso(renglon):
     Si es una pregunta, None. Si parece una regla mal escrita, un ErrorMate."""
     regla = _REGLA_DE_CASO.fullmatch(renglon)
     if regla and (regla.group(1) or regla.group(2).lower() != "puede"):
-        opciones = tuple(" ".join(o.split()) for o in regla.group(3).split("|") if o.strip())
+        texto = regla.group(3).strip()
+        if _TODO_ENTRE_COMILLAS.fullmatch(texto):  # "a" o "b", "a" ni "b", "a" | "b"
+            partes = [parte[1:-1] for parte in re.findall(_ENTRE_COMILLAS, texto)]
+        else:
+            partes = [sin_comillas_alrededor(parte.strip()) for parte in texto.split("|")]
+        opciones = tuple(" ".join(o.split()) for o in partes if o.strip())
         if not opciones:
             raise ErrorMate("a esta regla le falta el texto, después de los dos puntos. "
                             + COMO_VAN_LAS_REGLAS)
         return not regla.group(1), opciones
-    if para_comparar(renglon).startswith(_PARECE_REGLA):
+    suelto = para_comparar(renglon).lstrip("-*•· ")
+    antes = suelto.split(":")[0].split()  # "no puede desir: ...", "tiene q decir: ..."
+    if suelto.startswith(_PARECE_REGLA) or (
+            ":" in suelto and 1 <= len(antes) <= 5 and antes[-1] in _DECIR_MAL_ESCRITO):
         raise ErrorMate("este renglón parece una regla, pero no la entiendo"
                         + ("" if ":" in renglon else " (le faltan los dos puntos)")
                         + ". " + COMO_VAN_LAS_REGLAS)
     return None
+
+
+def sin_comillas_alrededor(opcion):
+    """La opción de una regla sin las comillas que la envuelven. Con comillas a medias
+    (abre y no cierra, o hay más de un par) falla: así como está no se cumpliría nunca."""
+    for abre, cierra in _PARES_DE_COMILLAS:
+        if opcion.startswith(abre):
+            adentro = opcion[len(abre):-len(cierra)]
+            if len(opcion) < 2 or not opcion.endswith(cierra) or abre in adentro \
+                    or cierra in adentro:
+                raise ErrorMate(
+                    "esta regla tiene comillas que no entiendo. El texto va sin comillas, y "
+                    "las opciones se separan con una barra:  tiene que decir: no hay stock "
+                    "| no queda")
+            return adentro
+    return opcion
 
 
 def regla_escrita(regla):
@@ -8869,16 +8922,17 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
                           consultas=0, sin_limite=False):
     """Corre el programa de cero y le 'teclea' esa pregunta en su primer leer(). Devuelve
     un mapa: pidio (si llegó a pedir algo por teclado), respuesta (lo que mostró desde ahí
-    hasta que volvió a pedir, o hasta el final), antes (lo que mostró antes), error (el
+    hasta que volvió a pedir, o hasta el final), cartel (lo que decía ese leer()), otra (si volvió a pedir), antes (lo
+    que mostró antes), error (el
     texto, o None), limite (si lo cortó un tope de Mate), consultas (las que le hizo a la
     IA, como en consultas_ia()), agentes (los que consultaron), gasto y hechas (las
     cuentas, para la pregunta que sigue). No toca el disco: ni memoria, ni bitácora, ni
     los archivos que el programa escriba."""
     mostrado, corte = [], {}
 
-    def entrada(_):
+    def entrada(cartel):
         if "desde" not in corte:
-            corte["desde"] = len(mostrado)
+            corte["desde"], corte["cartel"] = len(mostrado), str(cartel or "")
             return pregunta
         corte.setdefault("hasta", len(mostrado))
         raise _FinDelEnsayo()
@@ -8912,7 +8966,7 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
         agente = molde_de.get(consulta["agente"], consulta["agente"])
         if agente in interprete.agentes and agente not in agentes:
             agentes.append(agente)
-    return {"pidio": "desde" in corte,
+    return {"pidio": "desde" in corte, "cartel": corte.get("cartel", ""), "otra": "hasta" in corte,
             "respuesta": "\n".join(mostrado[desde:corte.get("hasta")]).strip(),
             "antes": mostrado[:desde], "error": error, "limite": bool(limite),
             "consultas": list(interprete.ia_historial), "agentes": agentes,
@@ -8966,9 +9020,8 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         if simulada:
             contesta = "la IA simulada: no sale a la red y no gasta nada"
         elif direccion_de_ia_propia():
-            modelo = os.environ.get("MATE_MODELO", "").strip().strip("\"'").strip()
-            contesta = (f"tu modelo propio{f' ({modelo})' if modelo else ''}, en "
-                        f"{direccion_de_ia_propia()}")
+            # (sin MATE_MODELO fallarían todas las consultas: se dice acá, una sola vez)
+            contesta = f"tu modelo propio ({modelo_de_ia_propia()}), en {direccion_de_ia_propia()}"
         elif not os.environ.get("ANTHROPIC_API_KEY", "").strip():
             raise ErrorMate(
                 "para ensayar hay que decir quién contesta las consultas a la IA, y no hay "
@@ -9016,24 +9069,33 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         if ficha["lecciones"]:
             mostrar(f"{agente} ensaya con las lecciones que ya tiene aprobadas "
                     f"({len(ficha['lecciones'])}).")
-    mostrar("")
     sys.stdout.flush()
 
+    import textwrap
     bien, mal = simbolo("✓", "OK"), simbolo("✗", "FALLA")
-    pasaron, consultas, sin_respuesta, frenadas, a_proponer, cortado = 0, 0, 0, 0, [], None
+    pasaron, sin_comprobar, consultas, frenadas, cortado = 0, 0, 0, 0, None
+    a_proponer, simuladas_sin_proponer, motivos_dichos, mudas_seguidas = [], 0, [], 0
     hechas, viva = 0, json.loads(json.dumps(memoria))  # (viva: la memoria, con la cuenta al día)
     for caso in casos:
-        pasadas, falla = 0, None
+        pasadas, mudas, falla, muda, con_freno = 0, 0, None, None, False
         for vez in range(1, veces + 1):
             dado = preguntar_al_programa(ruta, caso["pregunta"], viva, simulada, preparadas,
                                          hechas, "--sin-limite" in opciones)
             # (se cuentan las que la IA contestó: no las que frenó un tope antes de salir)
             contestadas = sum(c["respuesta"] is not None for c in dado["consultas"])
-            hechas, consultas = dado["hechas"], consultas + contestadas
-            sin_respuesta += len(dado["consultas"]) - contestadas
-            frenadas += any(consulta.get("freno") for consulta in dado["consultas"])
+            sin_ia = [c for c in dado["consultas"] if c["respuesta"] is None]
+            con_freno = con_freno or any(
+                c.get("freno") and c["respuesta"] is not None for c in dado["consultas"])
             for agente, gasto in dado["gasto"].items():
                 viva.setdefault(agente, {"estado": {}, "lecciones": []})["gasto"] = gasto
+            if caso is casos[0] and vez == 1:
+                # Dónde entra la pregunta: en el primer leer() del programa. Se dice una
+                # vez, por si ese leer() no es el que espera la consulta del cliente.
+                if dado["pidio"] and dado["cartel"].strip():
+                    mostrar("Cada pregunta se le escribe al programa donde pide:  "
+                            + recortado(dado["cartel"].strip(), 60))
+                mostrar("")
+            hechas, consultas = dado["hechas"], consultas + contestadas
             if not dado["pidio"]:
                 # Ni llegó a leer la pregunta: con las demás va a pasar lo mismo.
                 for renglon in dado["antes"][-5:]:
@@ -9048,19 +9110,64 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                        'espera al cliente, con leer(): por ejemplo  sea dicho = '
                        'leer("Cliente:", "chau")')
                 return 2
+            if dado["limite"]:
+                if falla is None:
+                    falla = dict(dado, vez=vez, incumplidas=[])
+                cortado = dado["error"]
+                break
+            if sin_ia:
+                # Una consulta quedó sin respuesta de la IA (no anduvo, o el agente llegó a
+                # su tope). Aunque el programa haya seguido solo y las reglas se cumplan,
+                # esta vez NO cuenta como pasada: no se llegó a ver qué contesta la IA.
+                mudas, muda = mudas + 1, muda or dict(dado, vez=vez, sin_ia=sin_ia)
+                mudas_seguidas += 1
+                if any(not c.get("freno") for c in sin_ia) and (
+                        consultas == 0 or mudas_seguidas >= 3):
+                    cortado = ("la primera consulta a la IA no tuvo respuesta" if consultas == 0
+                               else "la IA no contestó tres veces seguidas") + (
+                        ": arreglá eso y ensayá de nuevo.")
+                    break
+                continue
+            if contestadas:
+                mudas_seguidas = 0
             incumplidas = [] if dado["error"] else reglas_incumplidas(
                 dado["respuesta"], caso["reglas"])
             if not dado["error"] and not incumplidas:
                 pasadas += 1
             elif falla is None:
                 falla = dict(dado, vez=vez, incumplidas=incumplidas)
-            if dado["limite"]:
-                cortado = dado["error"]
-                break
         pasaron += pasadas == veces
-        mostrar(f"  {bien if pasadas == veces else mal} {caso['pregunta']}"
+        sin_comprobar += bool(mudas) and falla is None
+        frenadas += con_freno
+        hecho = mal if falla is not None else simbolo("?", "SIN COMPROBAR") if mudas else bien
+        mostrar(f"  {hecho} {caso['pregunta']}"
                 + (f": pasó {pasadas} de {veces}" if veces > 1 else "")
-                + ("" if falla is None else f"   (renglón {caso['renglon']} de {de_casos})"))
+                + ("" if not mudas else ": no se pudo comprobar" if veces == 1 else
+                   f", y {mudas} sin comprobar")
+                + ("" if falla is None and not mudas else
+                   f"   (renglón {caso['renglon']} de {de_casos})"))
+        if muda is not None:
+            # El motivo se muestra entero una sola vez: con el modelo apagado es el mismo
+            # en todos los casos.
+            cual = f" (la vez {muda['vez']})" if veces > 1 else ""
+            for consulta in muda["sin_ia"]:
+                motivo = (consulta.get("motivo") or consulta.get("freno")
+                          or "no dio una respuesta que se pueda usar")
+                if motivo.startswith("consultar_ia(): "):
+                    motivo = motivo[len("consultar_ia(): "):]
+                que = "No se consultó a la IA" if consulta.get("freno") else "La IA no contestó"
+                if motivo in motivos_dichos:
+                    mostrar(f"      {que}{cual}, por lo mismo que más arriba.")
+                    continue
+                motivos_dichos.append(motivo)
+                partes = [corto for parte in f"{que}{cual}: {motivo}".split("\n")
+                          for corto in textwrap.wrap(parte, 88) or [""]]
+                mostrar(f"      {partes[0]}")
+                for parte in partes[1:]:
+                    mostrar(f"          {parte}")
+            if muda["respuesta"] and not muda["error"]:
+                mostrar("      Sin la IA, el programa contestó: "
+                        + recortado(muda["respuesta"], 55))
         if falla is not None:
             cual = f" (la vez {falla['vez']})" if veces > 1 else ""
             partes = falla["respuesta"].split("\n") if falla["respuesta"] else ["(nada)"]
@@ -9071,19 +9178,31 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 mostrar(f"      No cumple: {regla_escrita(regla)}")
             if falla["error"]:
                 mostrar(f"      El programa falló: {falla['error']}")
+            frenos_dichos = []
             for consulta in falla["consultas"]:
-                if consulta.get("freno"):
-                    mostrar(f"      Saltó un freno de {consulta['agente']}: {consulta['freno']}"
-                            + ("" if consulta["respuesta"] is None else
-                               f". La IA había dicho: {recortado(consulta['respuesta'], 200)}"))
+                freno = consulta.get("freno") and (
+                    f"      Saltó un freno de {consulta['agente']}: {consulta['freno']}"
+                    + ("" if consulta["respuesta"] is None else
+                       f". La IA había dicho: {recortado(consulta['respuesta'], 200)}"))
+                if freno and freno not in frenos_dichos:  # (dos intentos iguales: una vez)
+                    frenos_dichos.append(freno)
+                    mostrar(freno)
             if falla["error"]:
                 pass
             elif not falla["consultas"]:
                 mostrar("      Esta respuesta la dio el programa, sin consultar a la IA: una "
-                        "lección no la cambia. Hay que cambiar el programa (o el caso).")
-            elif all(consulta["respuesta"] is None for consulta in falla["consultas"]):
-                mostrar("      La IA no llegó a contestar esta pregunta (no anduvo, o el "
-                        "agente llegó a su tope): no queda una lección propuesta.")
+                        "lección no la cambia.")
+                mostrar("      Hay que cambiar el programa (o el caso).")
+                if not falla["respuesta"] and falla["otra"]:
+                    mostrar("      (El programa volvió a pedir algo por teclado sin mostrar "
+                            "nada: quizás su primer")
+                    mostrar("      leer() no es el que espera la consulta del cliente.)")
+            elif simulada:
+                # Una lección no cambia un texto preparado: proponerla sería hacerle creer
+                # a la persona que aprobándola el ensayo simulado va a pasar.
+                simuladas_sin_proponer += 1
+                mostrar("      Eso lo contestó la IA simulada, con un texto preparado: una "
+                        "lección no lo cambia.")
             elif not falla["agentes"]:
                 mostrar("      La consulta a la IA la hizo el programa, no un agente: no hay "
                         "a quién dejarle una lección.")
@@ -9105,13 +9224,20 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
             + (f" las {veces} veces" if veces > 1 else "") + "."
             + (f" Consultas a la IA: {consultas}" + (" (simuladas: no se pagan)." if simulada
                                                     else ".") if consultas else
-               "" if sin_respuesta else " No hizo falta consultar a la IA."))
-    if sin_respuesta:
-        mostrar(f"{sin_respuesta} consulta(s) quedaron sin respuesta de la IA (no anduvo, o "
-                "un agente llegó a su tope).")
+               "" if motivos_dichos else " No hizo falta consultar a la IA."))
+    if sin_comprobar:
+        mostrar(f"{sin_comprobar} caso(s) no se pudieron comprobar porque la IA no contestó: "
+                "no cuentan como")
+        mostrar("pasados. Arriba está el motivo; arreglalo y ensayá de nuevo.")
     if frenadas:
         mostrar(f"En {frenadas} pregunta(s) saltó un freno: lo que dijo la IA no pasaba y "
                 "Mate no lo dejó salir así.")
+    if consultas and not simulada:
+        mostrar("Las consultas de un ensayo no entran en la cuenta del día ni en la bitácora.")
+    if simuladas_sin_proponer:
+        mostrar("Con --ia-simulada no quedan lecciones propuestas. Para ver qué contesta la "
+                "IA de verdad (y que")
+        mostrar("lo que falle quede propuesto), ensayá sin --ia-simulada.")
     if a_proponer:
         # Las propuestas van a la memoria que está AHORA en el disco (pudo cambiar mientras
         # se ensayaba), y es lo único que se le agrega.
@@ -9120,14 +9246,28 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         except ErrorMate as e:
             avisar(f"aviso: no dejé las lecciones propuestas: {e.mensaje}")
             return 1
-        fecha, nuevas = datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), 0
+        fecha, nuevas, repetidas = datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), 0, 0
+        ya_aprobadas = []  # los agentes que ya tenían aprobada la lección de un caso fallado
         for agente, texto, motivo in a_proponer:
             ficha = en_disco.setdefault(agente, {"estado": {}, "lecciones": []})
+            if any(leccion["texto"] == en_un_renglon(texto, LARGO_DE_LECCION)
+                   for leccion in ficha["lecciones"]):
+                ya_aprobadas += [agente] if agente not in ya_aprobadas else []
+                continue
             antes = ficha.get("propuestas", [])
             ficha["propuestas"] = sumar_propuesta(antes, ficha["lecciones"], texto, motivo, fecha)
             nuevas += ficha["propuestas"] is not antes
+            repetidas += ficha["propuestas"] is antes
             if not ficha["propuestas"]:
                 del ficha["propuestas"]
+        for agente in ya_aprobadas:
+            mostrar(f"{agente} ya tiene aprobada la lección de un caso que volvió a fallar: "
+                    "no alcanzó.")
+            mostrar("Una lección es un pedido, no una garantía. Escribila de otra forma (se "
+                    "ven con la orden de")
+            mostrar("abajo y se anotan con 'corregir'), o pasá la regla al programa o a un "
+                    "freno del agente:")
+            mostrar(f"  {orden} lecciones {para_pegar(args[0])}")
         if nuevas:
             problema = guardar_memoria(archivo_memoria, programa, en_disco)
             if problema:
@@ -9136,12 +9276,13 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
             mostrar(f"Por los casos que fallaron quedó {nuevas} lección(es) propuesta(s). "
                     "Ningún agente las usa")
             mostrar("hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):")
-        else:
-            mostrar("Las lecciones de los casos que fallaron ya estaban propuestas o "
-                    "aprobadas. Para verlas:")
-        mostrar(f"  {orden} propuestas {para_pegar(args[0])}")
-        mostrar("Una propuesta es un borrador: si la aprobás, ensayá de nuevo para ver si "
-                "alcanzó.")
+        elif repetidas:
+            mostrar("Las lecciones de los casos que fallaron ya estaban propuestas, sin "
+                    "aprobar. Para verlas:")
+        if nuevas or repetidas:
+            mostrar(f"  {orden} propuestas {para_pegar(args[0])}")
+            mostrar("Una propuesta es un borrador: si la aprobás, ensayá de nuevo para ver "
+                    "si alcanzó.")
     return 0 if pasaron == len(casos) and not cortado else 1
 
 
@@ -9171,9 +9312,9 @@ def texto_de_ayuda():
         "  ensayar mi_negocio.mate mi_negocio_casos.txt   le hace al programa las preguntas",
         "                           de ese archivo (se escribe con el Bloc de notas: la",
         "                           pregunta del cliente y, debajo, 'tiene que decir: ...' o",
-        "                           'no puede decir: ...') y dice cuáles contestó bien. Los",
-        "                           casos que fallan quedan como lección propuesta. Con",
-        "                           --ia-simulada no gasta; sin eso contesta la IA de verdad",
+        "                           'no puede decir: ...') y dice cuáles contestó bien. Con",
+        "                           --ia-simulada no gasta; sin eso contesta la IA de verdad,",
+        "                           y los casos que fallan quedan como lección propuesta",
         "",
         "Para que un agente aprenda (mirá 'ayuda recordado'):",
         '  corregir  archivo.mate Mostrador "la lección"   le anota una lección a ese agente',
@@ -9729,12 +9870,12 @@ def orden_propuestas(args, memoria, guardar, listar, avisar):
     programa = para_pegar(args[0])
     todas = [(agente, propuesta) for agente, ficha in memoria.items()
              for propuesta in ficha.get("propuestas", [])]
-    ver = f"{como_se_llama()} propuestas {programa}"
+    ver = f"{orden_para_esta_carpeta()} propuestas {programa}"
     if len(args) == 1:
         if not todas:
             print(f"{os.path.basename(args[0])} no tiene lecciones propuestas. Aparecen "
                   "solas cuando salta un freno de un agente, o las pedís con:  "
-                  f'{como_se_llama()} proponer {programa} Agente "qué estuvo mal"')
+                  f'{orden_para_esta_carpeta()} proponer {programa} Agente "qué estuvo mal"')
             return 0
         print(f"Lecciones propuestas, sin aprobar ({len(todas)}). Ningún agente las usa "
               "todavía:")

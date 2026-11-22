@@ -1596,8 +1596,8 @@ también puede **proponerlas**, de tres maneras:
 
 - **Cuando salta un freno**, queda sola una lección propuesta con lo que pasó.
 - **Cuando falla un caso de un ensayo** (la orden
-  [`ensayar`](#ensayar-un-mostrador-ensayar)), queda una con la pregunta y lo que la
-  respuesta no cumplió.
+  [`ensayar`](#ensayar-un-mostrador-ensayar), con la IA de verdad), queda una con la
+  pregunta y lo que la respuesta no cumplió.
 - **Cuando una respuesta estuvo mal y se lo contás**:
 
   ```
@@ -1873,6 +1873,12 @@ tenes cafe?
 - Con una barra `|` se dan opciones: `tiene que decir:` se cumple con cualquiera de ellas;
   `no puede decir:` falla si aparece alguna.
 - Un renglón que empieza con `#` es una nota. Los renglones en blanco no cuentan.
+- El texto de una regla va sin comillas. Si copiás una regla tal como la muestra el informe
+  (`no puede decir "si, tenemos" ni "si tenemos"`, agregándole los dos puntos después de
+  `decir`), vale igual: Mate saca las comillas y toma cada texto como una opción.
+- Si un renglón parece una regla pero está mal escrito (`no puede desir: descuento`,
+  `tiene que decir sin envío` sin los dos puntos), Mate no ensaya y te dice en qué renglón
+  está: si no, lo tomaría por una pregunta más.
 - **Ojo:** se busca el texto tal cual. `no puede decir: hay envío` también salta con "no hay
   envío", porque adentro dice "hay envío". Conviene pedir pedazos que no se presten a
   confusión: un importe (`$ 29.401,50`), "sin envío", "no hay stock".
@@ -1886,16 +1892,18 @@ Ensayo de mi_negocio.mate con mi_negocio_casos.txt: 5 pregunta(s).
 Contesta tu modelo propio (qwen2.5:3b), en http://localhost:11434/v1/chat/completions.
 Va a hacer hasta 5 consulta(s) a la IA: una por cada pregunta que el programa no
 conteste solo (si salta un freno, esa pregunta consulta una vez más).
+Cada pregunta se le escribe al programa donde pide:  "Cliente:"
 
   ✓ me mandas 5 yerbas?
   ✓ me alcanzas 8 yerbas?
   ✓ necesito que me lleven 3 azucar a casa
   ✓ quiero 12 fideos con envio
-  ✗ tenes cafe?   (renglón 39 de mi_negocio_casos.txt)
+  ✗ tenes cafe?   (renglón 40 de mi_negocio_casos.txt)
       Contestó: Mostrador: Si, tenemos cafe, es muy rico.
       No cumple: no puede decir "si, tenemos" ni "si tenemos" ni "café a $"
 
 4 de 5 casos pasaron. Consultas a la IA: 1.
+Las consultas de un ensayo no entran en la cuenta del día ni en la bitácora.
 Por los casos que fallaron quedó 1 lección(es) propuesta(s). Ningún agente las usa
 hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):
   python mate\mate.py propuestas mi_negocio.mate
@@ -1908,6 +1916,27 @@ pasado solo si pasó todas las veces. Ojo con la cuenta: 5 preguntas con `--vece
 ser 25 consultas (y Mate corta un ensayo a las 50 consultas de verdad, salvo con
 `--sin-limite`).
 
+**Si la IA no contesta** (el programa de tu modelo está cerrado, `MATE_MODELO` tiene mal el
+nombre, se cortó la red, o el agente llegó a su tope del día), ese caso no pasa ni falla:
+queda marcado con `?` y **no cuenta como pasado**, aunque el mostrador haya seguido solo y
+haya contestado con la lista. El motivo sale una vez, debajo del primer caso al que le pasó:
+
+```
+  ? tenes cafe?: no se pudo comprobar   (renglón 40 de mi_negocio_casos.txt)
+      La IA no contestó: no pude conectarme con tu modelo en localhost:11434. Fijate que
+      el programa que lo corre esté abierto (...)
+
+El ensayo se cortó ahí y no siguió con los casos que faltaban:
+  la primera consulta a la IA no tuvo respuesta: arreglá eso y ensayá de nuevo.
+4 de 5 casos pasaron.
+1 caso(s) no se pudieron comprobar porque la IA no contestó: no cuentan como
+pasados. Arriba está el motivo; arreglalo y ensayá de nuevo.
+```
+
+Si la que no tiene respuesta es la primera consulta del ensayo, o tres seguidas, Mate corta
+ahí en vez de repetir la misma falla en cada caso. Y si está puesta `MATE_IA_PROPIA` pero
+falta `MATE_MODELO`, ni empieza: te dice cómo ponerla.
+
 Lo que hay que saber:
 
 - **Los casos que fallan quedan como lección propuesta**, igual que cuando salta un freno
@@ -1916,19 +1945,31 @@ Lo que hay que saber:
   pregunten algo como "tenes cafe?", tu respuesta no puede decir..."): tomala como un
   borrador. Si preferís decirlo con tus palabras, descartala y anotá la tuya con `corregir`.
   Después, ensayá de nuevo.
+- **Si ya aprobaste esa lección y el caso vuelve a fallar**, el informe lo dice ("ya tiene
+  aprobada la lección de un caso que volvió a fallar: no alcanzó") y no te manda a
+  `propuestas`. Una lección es un pedido, no una garantía: escribila de otra forma con
+  `corregir`, o pasá la regla al programa o a un freno (ver [Qué va en una lección, qué en
+  un freno y qué en el programa](#qué-va-en-una-lección-qué-en-un-freno-y-qué-en-el-programa)).
+- **Con `--ia-simulada` no quedan lecciones propuestas.** La respuesta simulada es un texto
+  preparado y una lección no lo cambia: el caso se muestra como fallado y nada más. Las
+  propuestas salen de ensayar con la IA de verdad.
 - **Si la respuesta que falló la dio el programa, sin consultar a la IA**, no queda ninguna
   propuesta y el informe lo dice: una lección no cambia esa respuesta. Hay que cambiar el
   programa (o el caso, si lo que estaba mal era lo que esperabas). Tampoco queda una
   propuesta si la IA no llegó a contestar (el modelo estaba apagado, o el agente llegó a su
-  tope del día): ahí no hay nada que corregirle.
+  tope del día): ahí no hay nada que corregirle, y el caso queda sin comprobar.
 - **Un ensayo no cambia la memoria del programa.** Los agentes ensayan con las lecciones que
   ya tienen aprobadas (eso es lo que se quiere comprobar), pero no se guarda lo que
   "recuerdan", no se anota nada en la bitácora y las consultas del ensayo no entran en la
-  cuenta del día. Lo que el programa anota con `agregar_a_archivo` tampoco llega al disco
+  cuenta del día (ojo: si contesta Claude se pagan igual, aunque `bitacora` no las muestre;
+  el informe del ensayo dice cuántas fueron). Lo que el programa anota con `agregar_a_archivo` tampoco llega al disco
   (igual que con `probar`). Lo único que se agrega al archivo de memoria son las propuestas.
 - **Cada pregunta es una charla nueva.** Por cada pregunta el programa arranca de cero, y
-  Mate se la escribe donde el programa espera al cliente: en su primer `leer`. La respuesta
-  es lo que el programa muestra desde ahí hasta que vuelve a esperar al cliente. Por eso
+  **la pregunta entra en el primer `leer()` del programa**. La respuesta es lo que el
+  programa muestra desde ahí hasta que vuelve a pedir algo por teclado. El informe dice cuál
+  es ese `leer` (`Cada pregunta se le escribe al programa donde pide:  "Cliente:"`): si tu
+  programa pide otra cosa antes de la consulta (el nombre, por ejemplo), la pregunta va a
+  parar ahí y el ensayo no sirve. Por eso
   sirve con cualquier programa que charle por teclado (el ejemplo 12, lo que crea `nuevo
   mostrador`, los mostradores del curso) sin tocarlo; y no sirve para ensayar una charla de
   varias idas y vueltas, ni un programa que no usa `leer`.
@@ -1937,6 +1978,10 @@ Lo que hay que saber:
 - `mate\ejemplos\casos.txt` trae casos de muestra para el ejemplo 12, y `nuevo mostrador` te
   deja una copia para tu mostrador (`mi_negocio_casos.txt`). Están escritos para la planilla
   de muestra: cuando pongas tus productos, cambiá las preguntas y los importes.
+- **Si creaste tu mostrador antes de que existiera `ensayar`**, no tenés ese archivo: copiá
+  `mate\ejemplos\casos.txt` al lado de tu mostrador, con el nombre que quieras (por ejemplo
+  `mi_negocio_casos.txt`), y cambiale las preguntas. `nuevo mostrador` no lo crea solo
+  porque nunca toca una carpeta donde ya está el programa.
 
 ## Referencia rápida
 
