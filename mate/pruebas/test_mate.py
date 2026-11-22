@@ -16805,3 +16805,81 @@ def test_la_confirmacion_del_equipo_esta_documentada(capsys):
     # y el contrato sigue teniendo un solo camino a Reservar, que sale de Ventas
     assert programa.count('mensaje: "Reservar"') == 1
     assert 'origen: "Ventas", destino: "Deposito",\n          mensaje: "Reservar"' in programa
+
+
+# ── Revisión externa de la 0.7 (pull request 3) ──
+
+# (C6) El ID de la conversación se hereda a través de una llamada intermedia que no está
+# en el contrato: el rechazo por ID cruzado es el mismo con o sin ese paso del medio.
+CONTRATO_CON_PASO_DEL_MEDIO = """\
+contrato conversacion {
+    id: "charla",
+    inicio: "inicio",
+    pasos: [
+        { estado: "inicio", evento: "pregunta", origen: "(programa)", destino: "Mostrador",
+          mensaje: "Consulta", sigue: "busca" },
+        { estado: "busca", evento: "pregunta", origen: "%(quien)s", destino: "Catalogo",
+          mensaje: "Buscar", sigue: "espera" },
+        { estado: "inicio", evento: "pregunta", origen: "%(quien)s", destino: "Catalogo",
+          mensaje: "Buscar", sigue: "espera" },
+        { estado: "espera", evento: "respuesta", origen: "Catalogo", destino: "%(quien)s",
+          mensaje: "Ficha", sigue: "contesta" },
+        { estado: "contesta", evento: "respuesta", origen: "Mostrador", destino: "(programa)",
+          mensaje: "Respuesta", sigue: "fin" }
+    ]
+}
+mensaje Consulta { charla: texto, sku: texto } responde Respuesta
+mensaje Respuesta { charla: texto, precio: numero }
+mensaje Buscar { charla: texto, sku: texto } responde Ficha
+mensaje Ficha { charla: texto, precio: numero }
+mensaje Encargo { sku: texto, charla: texto }
+mensaje Hecho { precio: numero }
+agente Catalogo {
+    al recibir Buscar como b {
+        mostrar("busca " + b.charla)
+        responder Ficha { charla: b.charla, precio: 10 }
+    }
+}
+agente Ayudante {
+    al recibir Encargo como e {
+        sea ficha = preguntar Buscar { charla: e.charla, sku: e.sku } a Catalogo
+        responder Hecho { precio: ficha.precio }
+    }
+}
+agente Mostrador {
+    al recibir Consulta como c {
+        %(cuerpo)s
+    }
+}
+"""
+DIRECTO = ('sea ficha = preguntar Buscar { charla: "%s", sku: c.sku } a Catalogo\n'
+           "        responder Respuesta { charla: c.charla, precio: ficha.precio }")
+CON_PASO = ('sea hecho = preguntar Encargo { sku: c.sku, charla: "%s" } a Ayudante\n'
+            "        responder Respuesta { charla: c.charla, precio: hecho.precio }")
+PREGUNTA_B = '\nsea r = preguntar Consulta { charla: "B", sku: "pinza" } a Mostrador\nmostrar(r.precio)\n'
+
+
+def test_contrato_el_id_cruzado_se_rechaza_igual_con_una_llamada_intermedia():
+    directo = CONTRATO_CON_PASO_DEL_MEDIO % {"quien": "Mostrador", "cuerpo": DIRECTO % "C"}
+    con_paso = CONTRATO_CON_PASO_DEL_MEDIO % {"quien": "Ayudante", "cuerpo": CON_PASO % "C"}
+    esperado = "ID de conversación incorrecto: se esperaba 'B' y llegó 'C'"
+    sin_medio = falla(directo + PREGUNTA_B)
+    assert sin_medio.mensaje == esperado and sin_medio.familia == "contrato"
+    con_medio = falla(con_paso + PREGUNTA_B)
+    assert (con_medio.mensaje, con_medio.familia) == (sin_medio.mensaje, sin_medio.familia)
+    # y con el mismo ID la cadena anda, con o sin el paso del medio
+    for fuente in (CONTRATO_CON_PASO_DEL_MEDIO % {"quien": "Mostrador", "cuerpo": DIRECTO % "B"},
+                   CONTRATO_CON_PASO_DEL_MEDIO % {"quien": "Ayudante", "cuerpo": CON_PASO % "B"}):
+        assert correr(fuente + PREGUNTA_B)[0] == ["busca B", "10"]
+
+
+def test_contrato_el_id_no_se_hereda_a_lo_que_sale_de_la_cola():
+    # Un 'enviar' no es una llamada: lo que el agente hace al atenderlo más tarde, ya fuera
+    # del turno que lo mandó, arranca una conversación propia.
+    fuente = CONTRATO_CON_PASO_DEL_MEDIO % {"quien": "Ayudante", "cuerpo": (
+        'enviar Encargo { sku: c.sku, charla: "C" } a Ayudante\n'
+        "        responder Respuesta { charla: c.charla, precio: 1 }")}
+    fuente = fuente.replace('sigue: "busca" }', 'sigue: "contesta" }').replace(
+        "responder Hecho { precio: ficha.precio }", "")
+    salida, interprete = correr(fuente + PREGUNTA_B)
+    assert salida == ["1", "busca C"] and not interprete.errores_agentes

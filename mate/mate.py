@@ -5415,6 +5415,10 @@ class Interprete:
         self.copias = {}
         self.cola = deque()
         self.contexto = None  # (agente, remitente, tipo de mensaje) mientras se atiende uno
+        # La pregunta del contrato de conversación que inició la cadena de preguntas que se
+        # está atendiendo (o None): su ID vale para toda la cadena, también a través de
+        # un paso del medio que no está en el contrato.
+        self.origen_de_charla = None
         self.entregados = 0
         # El "sobre" de cada entrega (mejora 99): su número, quién, a quién, en respuesta
         # a cuál y el número de conversación. Una conversación empieza cuando el programa
@@ -7154,9 +7158,9 @@ class Interprete:
             if msg.tipo not in contrato.preguntas:
                 raise ErrorMate(f"'{msg.tipo}' solo puede viajar como respuesta en este contrato",
                                 linea, familia="contrato")
-            padre = self.contexto[4] if self.contexto else None
+            padre = self.origen_de_charla if self.contexto else None
             charla = contrato.identificador(msg, linea)
-            if padre is not None and padre.tipo in contrato.preguntas:
+            if padre is not None:
                 contrato.mismo_id(contrato.identificador(padre, linea), msg, linea)
             if not pregunta:
                 raise ErrorMate("el contrato de conversación requiere 'preguntar'", linea,
@@ -7536,6 +7540,15 @@ class Interprete:
             env.definir(var, dict(msg.campos) if aviso else msg, origen="mensaje")
         previo, dest.ocupado = self.contexto, True
         self.contexto = (dest, rem, msg.tipo, env.serie, msg)
+        # El ID de la conversación: lo fija una pregunta del contrato, y lo heredan las
+        # preguntas que se hacen para atenderla (aunque no estén en el contrato). Lo que
+        # sale de la cola (un 'enviar', un aviso de falla) no viene de ninguna cadena.
+        origen_previo = self.origen_de_charla
+        contrato = self.contrato_conversacion
+        if contrato and msg.tipo in contrato.preguntas:
+            self.origen_de_charla = msg
+        elif not pregunta or previo is None:
+            self.origen_de_charla = None
         respondio, valor = False, None
         # Si falla, el agente vuelve a como estaba antes de recibir este mensaje.
         estado_previo = {k: list(v) for k, v in dest.env.vars.items()}
@@ -7607,6 +7620,7 @@ class Interprete:
             raise
         finally:
             self.contexto, dest.ocupado, self.llamadas = previo, False, llamadas
+            self.origen_de_charla = origen_previo
             self.atendiendo.pop()
         return respondio, valor
 
