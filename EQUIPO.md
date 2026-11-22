@@ -758,3 +758,138 @@ Para el coordinador: (1) `VERSION` (P49); (2) siguen abiertos P22 (cambio 1) y P
 (3) revisión de seguridad del conjunto, con la pregunta de arriba; (4) la corrida del dueño en
 Windows, con `py mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` y su Ollama
 prendido y apagado; (5) una carpeta temporal por agente (P60).
+
+## Estado final
+
+Cierre del integrador sobre `5ef3e8f` (rama `equipo/mate-0.6`, sin subir nada). En este commit
+solo cambia este archivo: el integrador no tocó código ni pruebas en el cierre.
+
+**Qué quedó aprobado y por quién**
+
+| Cambio | Vueltas | Estado | Quién aprobó | Qué lo frena |
+|---|---|---|---|---|
+| 1. Mostrador con reglas y comandos con `py` | 3 | **NO aprobado** | nadie: R no aprobó la vuelta 3 | P22 (medio): con un producto "sin palo", "sin sal" o parecido, "12 yerbas sin envio" contesta "Con envío: sí". No hubo vuelta 4 |
+| 2. Orden `nuevo mostrador` | 1 | **aprobado con reserva** | P aprobó. R no aprobó en su vuelta (P29); el coordinador lo dio por aprobado porque P29 y P22 ya estaban en el ejemplo 12 antes de este cambio | P29 (medio) y P22 siguen abiertos y los mostradores creados los heredan. No hubo vuelta 2 |
+| 3. Orden `ensayar` | 2 | **aprobado** | R y P | solo problemas bajos |
+| Seguridad del conjunto | 1 | **aprobado** | especialista en seguridad | ningún problema alto ni medio; 7 bajos |
+
+Ojo con el cambio 2: la regla de este registro dice que un cambio se cierra cuando R y P no
+tienen problemas medios, y P29 sigue ahí. Queda anotado como "aprobado con reserva" para que
+el coordinador y el dueño lo decidan sabiendo eso; no es un cierre limpio.
+
+**Números de las pruebas** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`, sobre `5ef3e8f`)
+
+| Comando | Resultado | Punto de partida (`7a4cf4f`) |
+|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 879 pasan, 0 fallan | 789 pasan, 1 falla (conocida) |
+| `python3 mate/mate.py probar mate/ejemplos` | 64 de 64, en 18 archivos | — |
+| `python3 mate/mate.py probar mate/curso` | 30 de 30, en 24 archivos | — |
+
+Después de las tres corridas `git status --short` quedó vacío y `mate/errores_de_uso.txt`
+(ignorado por git, P37) tiene el mismo md5 que antes (`25cb241d...`). Ninguna falla, ni vieja
+ni nueva. Sin correr: Windows real, Python 3.10, 3.11, 3.12 y 3.14 con pytest, Claude y Ollama
+de verdad.
+
+**El flujo completo del dueño, de punta a punta** (integrador, carpeta temporal propia,
+modelo de mentira en 127.0.0.1)
+
+| Paso | Qué dio |
+|---|---|
+| `nuevo mostrador mi_negocio` | código 0, tres archivos; `verificar` "sin errores"; `probar` 7 de 7 |
+| Cambiar la planilla (Tornillo, Martillo, Clavos sin stock, Yerba sin palo) | `probar` 7 de 7 |
+| `correr mi_negocio.mate --ia-simulada` | "12 tornillos con envio": $ 54.000,00 y envío sí; "2 martillos": $ 24.001,00 y sin envío; "5 clavos": no hay stock; "hola, que tienen?": respuesta simulada. **"12 yerbas sin envio": "Con envío: sí" (P22, sigue)** |
+| `corregir mi_negocio.mate Mostrador "..."` | "Anotado", 1 lección; `lecciones` la muestra |
+| `ensayar` con los casos de muestra y la planilla cambiada, `--ia-simulada` | 3 de 5, código 1: dos casos nombran azúcar y fideos, que ya no están en la planilla (P68, nuevo) |
+| `ensayar` con casos escritos para esa planilla, `--veces=2`, contra un modelo que dice "Si, tenemos cafe a $ 5.000 ... descuento" | "Mostrador ensaya con las lecciones que ya tiene aprobadas (1)"; `✗ tenes cafe?: pasó 0 de 2`; salta el freno y sale la reserva; 3 de 4, código 1; 4 pedidos al servidor, todos con la lección adentro; queda 1 propuesta; lecciones y cuenta del día sin cambios |
+| `propuestas mi_negocio.mate` | muestra la propuesta y las órdenes de aprobar y descartar con la ruta completa |
+| `propuestas ... aprobar 1` y ensayar de nuevo | 2 lecciones; "ya tiene aprobada la lección de un caso que volvió a fallar: no alcanzó"; la memoria queda con el mismo md5 |
+
+La clave de mentira (`MATE_IA_PROPIA_CLAVE`) llegó al servidor en el encabezado y no aparece
+en la pantalla ni en ningún archivo de la carpeta. P29 reproducido de nuevo: con un precio
+vacío el mostrador arranca y se corta en "hola" con `pesos() espera numero...`.
+
+**Resultado de seguridad** (especialista; todo en copias, 879 pasan, repositorio sin tocar)
+
+Aprobado. Sin problemas altos ni medios. Respuesta a la pregunta de R: ningún error de
+`consultar_ia()` trae la clave, tampoco por la rama de Claude (probado con un servidor local
+que la devuelve en un 400 y un 403: sale "(la clave)").
+
+Comprobado y bien: `nuevo mostrador` no sale de la carpeta, no pisa y no sigue enlaces;
+`ensayar` no deja en disco lo que escribe el programa, rechaza `--traza=` y `--guardar=` y
+corta en 50 pedidos exactos; el texto del cliente o del modelo no se interpreta en ningún
+lado; `probar`, `verificar` y `ensayar --ia-simulada` hicieron 0 pedidos con `MATE_IA_PROPIA`
+y la clave puestas; en `mate.py` solo `pedir_a_la_ia` y `pedir_a_la_ia_propia` abren
+conexiones; una dirección con usuario y contraseña se rechaza sin mostrarla.
+
+| # | Problema de seguridad | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|
+| P61 | `nuevo mostrador` acepta `COM¹`, `lpt²` y parecidos, que Windows también reserva (`com1` sí se rechaza) | baja | no | pendiente: aceptar solo números comunes o sumarlos a `_NOMBRES_DE_WINDOWS` |
+| P62 | Si el programa corta con `fallar` antes del primer `leer()`, `ensayar` anota ese texto en `errores_de_uso.txt`; `correr` lo tapa | baja | no | pendiente: pasar un texto sin el error como cuarto valor de ese `avisar()` |
+| P63 | `ensayar` muestra entera la dirección de `MATE_IA_PROPIA` ("Contesta tu modelo propio (...), en ...") | baja | no | pendiente: mostrar solo el servidor. Con Ollama local no cambia nada |
+| P64 | Si el modelo propio contesta con una redirección 302, la clave viaja al otro servidor y su respuesta se toma como buena | baja | sí | pendiente: no seguir redirecciones en las dos funciones de la IA. Al dueño hoy no lo toca (Ollama local no usa clave) |
+| P65 | Con el adaptador de `mate/modelo` y `MATE_MODELO_PROPIO_URL` puesta, `probar` sale a la red con la clave si la prueba no simula | baja | sí | pendiente del coordinador. **Es una excepción a "`probar` no toca la red"** (criterio "Para todo"): hoy solo la avisa `mate/modelo/README.md`. No pasa con `MATE_IA_PROPIA`, que es lo que usa el dueño. La rama no tocó `mate/modelo` |
+| P66 | Lo que contesta el modelo llega con códigos de control a la pantalla, y ahora también queda guardado en la propuesta que deja `ensayar` | baja | sí (lo de guardarlo es nuevo) | pendiente: sacar los caracteres de control antes de mostrar o guardar |
+| P67 | El tapado de la clave no cubre una clave deformada por el servidor ni una respuesta 200 que la repita; la bitácora y el registro solo tapan `ANTHROPIC_API_KEY` | baja | sí | aceptable; segunda barrera barata: tapar también `MATE_IA_PROPIA_CLAVE` ahí |
+
+No se pudo comprobar: Windows real (nombres reservados, enlaces y Bloc de notas solo
+simulados), Claude y Ollama de verdad.
+
+**Qué quedó pendiente o con riesgo**
+
+Medios (hay que resolverlos o decidirlos antes de que el dueño use su mostrador con clientes):
+- **P22** (cambio 1; lo heredan los mostradores creados): un "sin envío" o "no me lo mandes"
+  se toma como envío confirmado si algún producto nombrado tiene "sin", "no", "ni" o "nada"
+  en el nombre. El arreglo pedido está en "Para la vuelta 4" del cambio 1.
+- **P29** (cambio 2 y ejemplo 12): un precio o stock vacío o con texto corta el programa en
+  la primera consulta que va a la IA, con un error técnico. Solo `probar` lo avisa antes.
+- Los dos arreglos van al ejemplo 12, y un mostrador ya creado es una copia fija: el dueño
+  tiene que crear el suyo **después** de esos arreglos, o crearlo de nuevo.
+
+Nuevo del cierre (integrador):
+- **P68** (baja, cruce de los cambios 2 y 3): los casos de muestra hablan de yerba, azúcar,
+  fideos y café. Si el dueño cambia la planilla (paso 3) y después ensaya (paso 5), fallan
+  los casos de los productos que sacó, con "Hay que cambiar el programa (o el caso)". El
+  encabezado de `<nombre>_casos.txt` no avisa que esos casos son para la planilla de muestra.
+  Pendiente para el implementador: un renglón en el encabezado y en el paso 5. I no lo
+  arregló: cambia el número de renglón que afirman varias pruebas y nadie lo revisaría después.
+- **P69** (—): el especialista en seguridad borró y volvió a crear una carpeta `copia` en la
+  carpeta temporal compartida antes de ver que era compartida (misma familia que P60). Nada
+  en el repositorio. Para el coordinador: una carpeta temporal por agente.
+
+Bajos que siguen abiertos (ninguno traba):
+- Cambio 1: P23, P24, P27; P11 (nada probado en una Windows real).
+- Cambio 2: P30, P32, P33, P34, P35; P31 aceptado.
+- Cambio 3: P53, P54, P55, P57, P58, P59; P56 aceptado.
+- Los tres: P20 (el aviso del freno, `lecciones`, `corregir` y `bitacora` sugieren
+  `mate/mate.py` relativo; visto otra vez en el cierre: `corregir` dice
+  `python3 mate/mate.py lecciones ...` desde la carpeta del mostrador).
+- Seguridad: P61 a P67.
+
+Para el coordinador y el dueño:
+1. Decidir si la rama se integra con P22 y P29 abiertos o si antes va una vuelta más.
+2. `VERSION` sigue en `"0.5"` y el README dice "Versión 0.5" arriba y "(0.6)" en lo nuevo (P49).
+3. La corrida del dueño en Windows sigue sin hacerse: `py mate\mate.py curso 99` (tiene que
+   sugerir `py mate\mate.py curso`), `py -m pytest mate\pruebas mate\modelo -q -p
+   no:cacheprovider`, `py mate\mate.py nuevo mostrador mi_negocio` con sus pasos, y `ensayar`
+   con su Ollama prendido y apagado.
+4. Decisiones del dueño que faltan: si está bien `<nombre>_precios.csv`; si devoluciones y
+   cancelaciones van a la IA con frenos o a una respuesta fija; la regla de envío para un
+   pedido con varios productos.
+5. Anotar o resolver la excepción de P65.
+
+**El registro contra el código** (revisado por el integrador en el cierre)
+
+Coinciden con `mate.py`: nombre de hasta 60 letras, `MAX_VECES` 20, `MAX_CASOS` 200,
+`_CASOS_DESDE`, `_NOMBRES_DE_WINDOWS`, `_PARES_DE_COMILLAS`, `_FinDelEnsayo`,
+`modelo_de_ia_propia()`, `orden_para_esta_carpeta()` y el atributo `ensayando` (tres usos:
+las dos condiciones `en_prueba or ensayando` y el guardado de `motivo`). MEJORAS tiene las
+entradas 121, 122 y 123. Aclaraciones a lo escrito más arriba:
+- "tenes cafe?" está en el renglón 40 del archivo que crea `nuevo mostrador` y en el 42 de
+  `mate/ejemplos/casos.txt` (el encabezado es distinto). Donde este registro dice "renglón
+  40" habla del archivo creado.
+- Criterio "Para todo: `probar` no toca la red": vale para `consultar_ia()`; no para el
+  adaptador de `mate/modelo` (P65, ya estaba en `main`).
+- "Decisiones técnicas" dice que con `ensayar` se rechazan `--traza` y `--olvidar`; también
+  se rechaza `--guardar=` (comprobado por seguridad).
+- El título "Cambio 2, vuelta 1 — NO cerrado" queda como historia de esa vuelta; el estado
+  de hoy es el de la tabla de arriba.
