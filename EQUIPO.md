@@ -154,6 +154,42 @@ entre vuelta y vuelta, y por este registro.
   `nombres_muy_cortos` avisa, sin impedir atender, si un producto empieza con una palabra de
   1 o 2 letras ("Té").
 
+- (C3) `ensayar` le reemplaza el teclado al programa: por cada pregunta el programa corre
+  entero y de cero en un intérprete nuevo, su primer `leer()` recibe la pregunta y la
+  respuesta es lo que muestra hasta que vuelve a pedir algo por teclado (ahí se lo corta con
+  `_FinDelEnsayo`, que hereda de `BaseException` y el programa no puede atajar) o termina. No
+  se le habla al agente directo: en el ejemplo 12 los pedidos con cantidad los contesta el
+  programa antes de llegar al agente. Límite aceptado: si el primer `leer()` no es la
+  consulta del cliente, la pregunta cae en el lugar equivocado (P44).
+- (C3) Un ensayo lee la memoria (ensaya con las lecciones aprobadas) y nunca la guarda: ni
+  memoria, ni bitácora, ni cuenta del día. Lo que el programa escribe en archivos no llega al
+  disco (`archivos_de_prueba`, igual que `probar`). Lo único que se agrega al archivo de
+  memoria son las propuestas, al final. Las consultas de verdad de un ensayo no quedan en la
+  cuenta del día ni en `bitacora` (aceptado por R; falta decirlo en el informe final).
+- (C3) Dentro del ensayo valen el tope por día del agente y el de 50 consultas de verdad por
+  corrida, contados para el ensayo entero; al llegar a 50 se corta y lo dice.
+- (C3) Único cambio en el intérprete: el atributo `ensayando` (nace en falso); dos
+  condiciones `en_prueba` pasaron a `en_prueba or ensayando` para anotar `ia_historial`.
+- (C3) Lección propuesta: una por caso fallado y por agente que consultó, con redacción fija
+  (no gasta consultas), con `sumar_propuesta`; no se repite si ya está propuesta o aprobada.
+  No se propone si contestó el programa sin la IA, si la IA no llegó a contestar o si la
+  consulta no la hizo un agente.
+- (C3) Las reglas se comparan buscando el texto dentro de la respuesta, sin mayúsculas,
+  tildes ni espacios de más; `|` separa opciones. "no puede decir: hay envío" salta con "no
+  hay envío": avisado en el README y en `casos.txt`.
+- (C3) Archivo de casos: la pregunta en un renglón y debajo `tiene que decir:` / `no puede
+  decir:` (también `debe decir:`, `no debe decir:`, `no tiene que decir:`); varias preguntas
+  seguidas comparten las reglas de abajo; `#` es una nota; tope de 200 preguntas. Una regla
+  sin los dos puntos es un error con su renglón.
+- (C3) `ensayar` exige que haya quién conteste (`--ia-simulada`, `MATE_IA_PROPIA` o la clave)
+  antes de empezar; con Claude avisa "cada consulta se paga" y arranca sin pedir confirmación
+  (aceptado por R). `--veces` va de 1 a 20; `--traza` y `--olvidar` se rechazan.
+- (C3) Los casos de muestra viven en `ejemplos/casos.txt`; `nuevo mostrador` crea
+  `<nombre>_casos.txt` copiándolo desde el título "Cómo se escribe" (`_CASOS_DESDE`), con un
+  encabezado propio. El caso "tenes cafe?" lleva solo reglas `no puede decir` para pasar con
+  `--ia-simulada`; la regla exigente queda como nota (ver P39: hoy eso deja pasar un modelo apagado).
+- (C3) `ensayar` sola con un `ensayar.mate` en la carpeta sigue corriendo ese programa.
+
 ## Punto de partida
 
 - Rama creada desde `main` en `7a4cf4f`.
@@ -481,3 +517,94 @@ pendiente su corrida en Windows, ahora también con `py mate\mate.py nuevo mostr
 Para el cambio 3: `ensayar` tiene que andar con lo que crea `nuevo mostrador`; `correr` deja
 `<nombre>.memoria.json` y `.bitacora.txt` al lado (comportamiento de siempre), y `ensayar` no
 debe cambiarlos. Sugerir sus comandos con `orden_para_esta_carpeta()`.
+
+### Cambio 3, vuelta 1 — NO cerrado (quedan dos problemas medios: P39 y P40)
+
+**Qué se implementó** (commit `32d50ae`, implementador)
+- Orden `ensayar programa.mate casos.txt`: le hace al programa cada pregunta del archivo y
+  muestra cuántos casos pasaron y, de cada uno que falló, la pregunta con su renglón, lo que
+  contestó y la regla que no cumplió. Código 0 si pasan todos, 1 si alguno falla, 2 si la
+  orden o el archivo están mal escritos. `ensayar` entra en `ORDENES_SABIDAS`.
+- Anda con `--ia-simulada` (también `=archivo`), `MATE_IA_PROPIA` y Claude; antes de la
+  primera consulta dice quién contesta y hasta cuántas consultas puede hacer.
+- `--veces=N` (1 a 20): "pasó 4 de 5"; un caso pasa solo si pasó todas las veces.
+- No guarda memoria ni bitácora; los casos que fallan quedan como lección propuesta.
+- `mate/ejemplos/casos.txt` con las cinco preguntas reales del dueño. `nuevo mostrador` crea
+  además `<nombre>_casos.txt` y suma el paso 5 "Ensayarlo".
+- README, `ayuda`, una línea en la `guia`, clase 12 del curso, encabezado del ejemplo 12 (3
+  renglones de comentario), MEJORAS 123.
+- 38 pruebas nuevas. Pruebas viejas tocadas (ninguna afirma menos; R y P lo confirmaron):
+  `test_el_ejemplo_del_agente_que_aprende` (exceptúa `casos.txt`), tres de `nuevo mostrador`
+  (tres archivos en vez de dos) y `test_una_opcion_parecida_a_borrar_se_sugiere` (la lista de
+  opciones ahora incluye `--veces`).
+- No se tocó: `docs/index.html`, `curso/README.md`, `VERSION` (sigue en 0.5; el README ya dice 0.6).
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `32d50ae`)
+- `pytest mate/pruebas mate/modelo`: 864 pasan, 0 fallan (vuelta anterior: 826). Python 3.13.
+- `probar mate/ejemplos`: 64 de 64, en 18 archivos. `probar mate/curso`: 30 de 30, en 24 archivos.
+- Después de todo, `git status --short` vacío; no hay memoria ni bitácora en `mate/ejemplos`.
+
+**Flujos cruzados comprobados por el integrador** (en carpetas temporales)
+- `nuevo mostrador mi_negocio` en carpeta vacía y el comando del paso 5 tal cual: 5 de 5,
+  código 0, la carpeta sigue con sus 3 archivos; `verificar` "sin errores", `probar` 7 de 7.
+- Mostrador creado con modelo propio de mentira (127.0.0.1, `MATE_IA_PROPIA` + `MATE_MODELO`
+  + clave de mentira): con memoria ya creada por `correr`, un ensayo de 5 de 5 deja el mismo
+  md5 (88147b50...). Con el modelo diciendo "Si, tenemos cafe a buen precio." y `--veces=2`:
+  `✗ tenes cafe?: pasó 0 de 2`, 4 de 5, código 1, una sola propuesta visible con
+  `propuestas`. La clave no aparece en la salida ni en ningún archivo de la carpeta.
+- Ejemplo 12 real con ese modelo de mentira: 5 de 5, 1 consulta, y no deja archivos en
+  `mate/ejemplos` (`git status --ignored` igual que antes).
+- Lección aprobada (`propuestas ... aprobar 1`) y ensayo de nuevo: la lección viaja en el
+  pedido al modelo; el caso sigue fallando y el mensaje manda a `propuestas` (P41).
+- Sugerencias con `py` (Windows simulado, lanzador `py`): `ensayar` sin quién conteste,
+  `ensayar` sola, el aviso de propuestas y el paso 5 de `nuevo mostrador` dicen
+  `py <ruta de mate.py> ...`; el encabezado de `kiosco_casos.txt` y el de `kiosco.mate`
+  también. Con `MATE_ORDEN=mate`: `mate ensayar ...`. `ensallar` sugiere `ensayar`.
+- `ensayar` del ejemplo 12 con `--ia-simulada` también da 5 de 5 con Python 3.11 y 3.12.
+- Reproducidos por el integrador: P39 (modelo apagado: 5 de 5 y código 0), P40 (regla con
+  comillas pasa siempre), P41 y P20.
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | Estado |
+|---|---|---|---|---|
+| P39 | Si el modelo no contesta (apagado, 404 por `MATE_MODELO` mal escrito), con los casos de muestra el ensayo da "5 de 5 casos pasaron" y código 0; el motivo no se muestra. El mostrador ataja la falla y "tenes cafe?" solo tiene reglas `no puede decir` | R (media), P (baja); reproducido por I | media | pendiente (vuelta 2, obligatorio): un caso cuya consulta quedó sin respuesta no cuenta como pasado, se marca aparte ("no se pudo ensayar: la IA no contestó") con el motivo una vez y código distinto de 0; mejor, cortar al primer fallo de conexión o configuración. Con prueba contra 127.0.0.1 apagado o con 404 |
+| P40 | Una regla escrita con comillas, como las muestra el informe y la lección propuesta, no funciona: `no puede decir: "decime"` pasa siempre y `tiene que decir: "sin envío"` no se cumple nunca | P; reproducido por I | media | pendiente (vuelta 2, obligatorio): en `regla_de_caso`, sacar las comillas que envuelven cada opción (rectas y tipográficas) o dar error con renglón; con prueba |
+| P41 | Si la lección ya fue aprobada y el caso sigue fallando, el informe manda a `propuestas`, donde ya no está | R; reproducido por I | baja | pendiente: decir que ya está aprobada y no alcanzó (cambiarla con `lecciones` o `corregir`, o pasar la regla al programa o a un freno) |
+| P42 | Con `MATE_IA_PROPIA` y sin `MATE_MODELO` el ensayo arranca y repite el mismo error en cada caso | R | baja | pendiente (junto con P39): revisarlo antes de empezar, código 2 |
+| P43 | Con `--ia-simulada` también deja lecciones propuestas, que no cambian un texto fijo | R | baja | pendiente: no proponer y decirlo, o aclarar que hay que ensayar con la IA de verdad (decisión de R a la pregunta 4 del implementador) |
+| P44 | Programa cuyo primer `leer()` no es la consulta: la pregunta cae ahí; da "Contestó: (nada)" o pasa por casualidad, sin aviso | R, P | baja | aceptado como límite; pendiente decirlo en el manual con esas palabras y, si entra, avisar cuando no mostró nada entre el primer `leer` y el segundo |
+| P45 | Una regla mal tipeada ("no puede desir:", "tiene q decir:", "- tiene que decir:") se toma como una pregunta más y gasta una consulta; el error puede apuntar al renglón equivocado | P | baja | pendiente (vuelta 2 si entra): avisar "parece una regla" con su renglón |
+| P46 | Con `--veces` y un freno, el renglón "Saltó un freno..." sale repetido y el resumen cuenta corridas como preguntas | P | baja | pendiente (vuelta 2 si entra) |
+| P47 | Los mostradores creados antes de este cambio no tienen `_casos.txt` y `nuevo mostrador` no dice cómo conseguirlo | P, R | baja | pendiente: una línea en el README (copiar `mate\ejemplos\casos.txt` al lado del mostrador) |
+| P48 | El informe final no dice que las consultas de verdad del ensayo no quedan en la cuenta del día ni en `bitacora` | R | baja | pendiente: agregar el renglón. La decisión de no contarlas queda (criterio "no cambia la memoria") |
+| P20 | `propuestas` sigue sugiriendo `python3 mate/mate.py ... aprobar 1` relativo, y ahora `ensayar` manda ahí al dueño | R, P; reproducido por I | baja | ya estaba antes; pesa más. Pendiente para el implementador (`orden_para_esta_carpeta()`). I no lo arregló por lo mismo que en el cambio 2 |
+| P49 | `VERSION` sigue en 0.5 y el README ya dice "(0.6)" | R | baja | pendiente del coordinador, al integrar |
+| P50 | Al probar con una clave falsa de Claude, la copia del revisor hizo un pedido real a Anthropic, que lo rechazó | R | — | descartado: sin costo y sin datos del dueño. Recordatorio: para Claude usar la IA de mentira de las pruebas o cambiar `IA_DIRECCION` |
+| P51 | Con Ctrl+C a mitad de un ensayo no se guardan las propuestas de los casos ya fallados; los frenos que saltan en un ensayo no dejan su propia propuesta | implementador | baja | aceptado: anotado en MEJORAS 123 como lo que quedó afuera |
+| P11 | `py`, PowerShell 5.1 y el Bloc de notas siguen probados solo simulados; tampoco se probó contra Claude ni un Ollama de verdad; Python 3.10 y 3.14 no están en la máquina | R, P, I | baja | pendiente del dueño |
+
+El integrador no arregló nada en esta vuelta: P39 y P40 cambian qué cuenta como caso pasado y
+cómo se lee una regla, y piden revisión independiente.
+Dudas del implementador ya contestadas por R: `_FinDelEnsayo` no se puede atajar (probado con
+`leer` dentro de `intentar ... si falla`); arrancar con Claude sin confirmar está bien; la
+redacción fija de la lección sirve como borrador.
+
+**Criterios de aceptación del cambio 3**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| Corre los casos y muestra cuántos pasaron y, de cada uno que falló, pregunta, respuesta y regla | cumple, con reserva | `✗ tenes cafe?   (renglón 39 ...)`, "Contestó: ...", "No cumple: ...", 4 de 5, código 1 (R, P, I); archivos CRLF, cp1252, UTF-16 y con marca; errores con renglón y código 2 (R, P). Reserva: reglas con comillas (P40) |
+| Anda con `--ia-simulada`, modelo propio y Claude; avisa antes cuántas consultas | no cumple (R) / cumple (P) | Arranca con las tres y avisa antes; el tope de 50 corta en 50 pedidos exactos (P); Claude solo con la IA de mentira. No cumple cuando el modelo propio no contesta: 5 de 5 y código 0 (P39) |
+| `--veces=N` informa "pasó 4 de 5" | cumple | "pasó 0 de 2", "pasó 2 de 5", "pasó 20 de 20" (R, P, I); `-k paso_4_de_5`; `--veces` mal escrito o con otra orden: código 2 |
+| No cambia la memoria; los casos que fallan quedan propuestos | cumple | md5 de memoria y bitácora iguales tras ensayos con consultas de verdad (R, P, I); sin memoria previa no la crea si pasan todos; una sola propuesta por caso, no se duplica; lo que escribe el programa no llega al disco |
+| Anda con el ejemplo 12 y con lo que crea `nuevo mostrador` | cumple | 5 de 5 en los dos, sin tocarlos y sin archivos nuevos (R, P, I); también con carpeta con espacios y nombres con tilde (P) |
+| Para todo: pruebas, ejemplos, curso | cumple en Linux; Windows solo simulado | 864 / 64 de 64 / 30 de 30 |
+| Para todo: nada nuevo sin usarlo, `probar` limpio, claves | cumple | `git status` vacío tras pytest, `probar` y `ensayar`; solo dos condiciones cambian en el intérprete; clave de mentira ausente de salida y archivos (R, P, I) |
+
+**Para la vuelta 2**: P39 y P40 (obligatorios). Si entran: P42, P41, P43, P45, P46, P47, P48,
+P44 y P20.
+Para el coordinador: (1) `VERSION` (P49); (2) siguen abiertos P22 (cambio 1) y P29 (cambio 2),
+y los mostradores ya creados no reciben esos arreglos ni el archivo de casos; (3) sigue
+pendiente la corrida del dueño en Windows, ahora también con
+`py mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada` y con su Ollama.
