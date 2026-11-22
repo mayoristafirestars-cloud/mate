@@ -4613,6 +4613,7 @@ class Interprete:
         # Con 'ensayar': lo que viajó entre agentes (tipo, de, a, molde de, molde a), en
         # orden, respuestas incluidas. None en cualquier otra corrida.
         self.viajes = None
+        self.vistos = {}  # (ensayo) número del mensaje -> el número con que se mostró
         self.pasos = 0
         self.max_pasos = MAX_PASOS  # None = sin tope
         self.linea_actual = None  # la última sentencia que se empezó a ejecutar
@@ -6298,6 +6299,10 @@ class Interprete:
             self.desde = (numero0, conversacion0)
         traza = self.traza and not viejo
         visto = numero - numero0 if numero is not None else None
+        if self.viajes is not None and visto is not None and not viejo:
+            # (lo de antes que se entrega intercalado corre la cuenta: 'en respuesta al N'
+            # tiene que decir el número con que ese mensaje se mostró)
+            self.vistos[numero] = visto
         if self.en_prueba and not aviso:
             self.historial.append(
                 (numero, de, dest.nombre, msg, pregunta, conversacion, respuesta_a))
@@ -6314,7 +6319,8 @@ class Interprete:
             anotado = ""
             if not hondo:
                 anotado = f"   (conversación {conversacion - conversacion0}" + (
-                    f", en respuesta al {respuesta_a - numero0})" if respuesta_a else ")")
+                    f", en respuesta al {self.vistos.get(respuesta_a, respuesta_a - numero0)})"
+                    if respuesta_a else ")")
             self.trazar(f"{de} {flecha} {dest.nombre}: {formato(msg)}{anotado}",
                         visto, hondo)
         afuera, self.conversacion = self.conversacion, conversacion
@@ -9316,6 +9322,7 @@ def orden_nuevo(args, avisar, mostrar=print):
 
 MAX_VECES = 20  # --veces=N: cuántas veces se repite cada caso, como mucho
 MAX_CASOS = 200  # preguntas en un archivo de casos
+MAX_RENGLONES_DE_CHARLA = 60  # de la conversación de un caso que falla, en el informe
 _REGLA_DE_CASO = re.compile(
     r"(?is)(?:[-*•·]\s*)?(no\s+)?(tiene\s+que|debe|puede)\s+decir\s*:(.*)")
 _PARECE_REGLA = ("tiene que decir", "no tiene que decir", "debe decir", "no debe decir",
@@ -9347,6 +9354,11 @@ _FORMA_DE_VIAJE = re.compile(
 UN_MENSAJE_POR_REGLA = ("En cada regla va un solo mensaje. Si tienen que viajar los dos, "
                         "escribí un renglón 'tiene que viajar:' para cada uno; si alcanza "
                         "con cualquiera, separalos con una barra |")
+# Así empieza una regla (bien o mal escrita). Un renglón que empieza así, está debajo de
+# una pregunta y nombra un mensaje del programa es una regla de mensajes mal escrita
+# ("no tiene que viaja: Reponer"), no otra pregunta de un cliente.
+_EMPIEZA_COMO_REGLA = ("no tiene que ", "tiene que ", "no puede ", "no debe ", "debe ",
+                       "no viaja", "viaja ", "viaja:", "viajar")
 _EL_PROGRAMA = "(programa)"  # así figura en la traza lo que manda el programa, no un agente
 COMO_VAN_LOS_MENSAJES = ('Lo que tiene que viajar entre agentes se escribe así:  '
                          'tiene que viajar: Reservar de Ventas a Deposito   o   '
@@ -9412,10 +9424,30 @@ def quizas_viaje(renglon):
     return None
 
 
-def viaje_mal_escrito(renglon):
+def viaje_mal_escrito(renglon, faltan_los_dos_puntos=None):
+    if faltan_los_dos_puntos is None:
+        faltan_los_dos_puntos = ":" not in renglon
     return ErrorMate("este renglón parece una regla de mensajes, pero no la entiendo"
-                     + ("" if ":" in renglon else " (le faltan los dos puntos)")
-                     + ". " + COMO_VAN_LOS_MENSAJES)
+                     + (" (le faltan los dos puntos)" if faltan_los_dos_puntos else "")
+                     + ". " + COMO_VAN_LOS_MENSAJES
+                     + ". (Si es una pregunta de un cliente, terminala con un signo de "
+                     "pregunta: ?)")
+
+
+def empieza_como_regla(caso):
+    """Si ese renglón, que quedó como pregunta, tiene pinta de regla mal escrita: está
+    debajo de otra pregunta, empieza como una regla ("no tiene que...", "no puede...") y
+    no lleva signo de pregunta."""
+    return bool(caso.get("debajo") and "?" not in caso["pregunta"] and (para_comparar(
+        caso["pregunta"].lstrip("-*•· ")) + " ").startswith(_EMPIEZA_COMO_REGLA))
+
+
+def habla_de_viajar(renglon):
+    """Si alguna palabra del renglón es 'viajar' o se le parece: viaja, vijar, biajar."""
+    import difflib
+    return any(palabra.startswith("viaj") or difflib.SequenceMatcher(
+        None, palabra, "viajar").ratio() >= 0.8
+        for palabra in re.findall(r"\w+", para_comparar(renglon)))
 
 
 def viaje_de_caso(renglon):
@@ -9433,6 +9465,12 @@ def viaje_de_caso(renglon):
                 parte = parte[1:-1].strip()
         if not parte:
             continue
+        if re.search(r"(?i)^\w+\s+del\s+programa\b|\s+al\s+programa$", parte):
+            # (una sola forma de escribirlo: se explica cómo va, no se aceptan dos)
+            raise ErrorMate(f"no entiendo '{parte}': lo que manda o recibe el programa se "
+                            "escribe 'de el programa' y 'a el programa', separado (no 'del' "
+                            "ni 'al'):  tiene que viajar: ConsultaDeCliente de el programa "
+                            "a Ventas")
         viaje = _UN_VIAJE.fullmatch(parte)
         if not viaje:
             raise ErrorMate(f"no entiendo qué mensaje es '{parte}': va el nombre del "
@@ -9473,21 +9511,39 @@ def viajes_incumplidos(viajes, reglas):
     return [regla for regla in reglas if any(map(viajo, regla[1])) != regla[0]]
 
 
-def copias_del_programa(programa):
+def copias_del_programa(programa, con_armadas=False):
     """Las copias de agentes que el programa crea con 'crear ... llamado': {agente: los
     nombres completos ("Vendedor Centro"), o None si alguno se arma al correr (llamado
-    "Sucursal " + nombre) y no se puede saber acá}."""
-    copias, por_ver = {}, [programa]
+    "Sucursal " + nombre) y no se puede saber acá}. Con con_armadas: ({agente: los
+    nombres que sí están escritos en el programa}, los agentes con algún nombre armado)."""
+    copias, armadas, por_ver = {}, set(), [programa]
     while por_ver:
         nodo = por_ver.pop()
         if _es_nodo(nodo, "crear", 5) and nodo[3] is not None:
-            if nodo[3][0] == "str" and copias.get(nodo[2], []) is not None:
-                copias.setdefault(nodo[2], []).append(f"{nodo[2]} {nodo[3][2]}")
+            copias.setdefault(nodo[2], [])
+            if nodo[3][0] == "str":
+                copias[nodo[2]].append(f"{nodo[2]} {nodo[3][2]}")
             else:
-                copias[nodo[2]] = None
+                armadas.add(nodo[2])
         if isinstance(nodo, (list, tuple)):
             por_ver.extend(reversed(nodo))  # (en el orden del programa)
-    return copias
+    if con_armadas:
+        return copias, armadas
+    return {agente: None if agente in armadas else nombres
+            for agente, nombres in copias.items()}
+
+
+def consulta_a_la_ia(programa):
+    """Si en el programa hay alguna llamada a consultar_ia()."""
+    por_ver = [programa]
+    while por_ver:
+        nodo = por_ver.pop()
+        if _es_nodo(nodo, "llamar", 4) and _es_nodo(nodo[2], "nombre", 3) \
+                and nodo[2][2] == "consultar_ia":
+            return True
+        if isinstance(nodo, (list, tuple)):
+            por_ver.extend(nodo)
+    return False
 
 
 def revisar_viajes(casos, programa, ruta):
@@ -9495,7 +9551,8 @@ def revisar_viajes(casos, programa, ruta):
     nombre mal escrito (o una regla mal armada: 'Reservar a Deposito de Ventas') haría que
     'no tiene que viajar' pasara siempre. Deja los nombres escritos como en el programa.
     Falla con un ErrorMate que dice el renglón. También avisa una pregunta que en realidad
-    es una regla de mensajes mal escrita (nombra un mensaje del programa)."""
+    es una regla de mensajes mal escrita (nombra un mensaje del programa). Devuelve lo
+    que no se pudo revisar, [(renglón, nombre)]: una copia cuyo nombre se arma al correr."""
     def el_de(nombre, declarados, que, renglon):
         igual = [d for d in declarados if para_comparar(d) == para_comparar(nombre)]
         if igual:
@@ -9514,7 +9571,11 @@ def revisar_viajes(casos, programa, ruta):
         for agente in agentes:  # una copia: "Vendedor Centro"
             if dicho.startswith(para_comparar(agente) + " ") and agente in copias:
                 de_ese = copias[agente]
-                if de_ese is None:  # el nombre se arma al correr: no se puede revisar acá
+                if agente in armadas and dicho not in map(para_comparar, de_ese):
+                    # El nombre se arma al correr: no se puede revisar acá. Se mira después
+                    # de ensayar el caso (con el nombre mal escrito, un 'no tiene que
+                    # viajar' pasaría siempre).
+                    sin_revisar.append((renglon, nombre))
                     return nombre
                 return el_de(nombre, de_ese, f"ningún {agente} llamado", renglon)
         palabras, tiene = dicho.split(), ""
@@ -9538,7 +9599,7 @@ def revisar_viajes(casos, programa, ruta):
 
     mensajes = [s[2] for s in programa if s[0] == "mensaje"]
     agentes = [s[2] for s in programa if s[0] == "agente"]
-    copias = copias_del_programa(programa)
+    (copias, armadas), sin_revisar = copias_del_programa(programa, True), []
     de_mensajes = {para_comparar(mensaje) for mensaje in mensajes}
     for caso in casos:
         # "tiene que viajar reponer" (sin los dos puntos) quedó como pregunta: no lo es.
@@ -9546,12 +9607,19 @@ def revisar_viajes(casos, programa, ruta):
         if resto and para_comparar(resto.split()[0].strip(".,;:|\"'")) in de_mensajes:
             raise ErrorMate(f"{ruta}:{caso['renglon']}: "
                             + viaje_mal_escrito(caso["pregunta"]).mensaje)
+        # "no tiene que viaja: Reponer", "no tiene que viajar el reponer", debajo de una
+        # pregunta: si no se avisa, queda como una pregunta más y la regla no se mira.
+        if empieza_como_regla(caso) and habla_de_viajar(caso["pregunta"]) and \
+                de_mensajes.intersection(re.findall(r"\w+", para_comparar(caso["pregunta"]))):
+            raise ErrorMate(f"{ruta}:{caso['renglon']}: " + viaje_mal_escrito(
+                caso["pregunta"], faltan_los_dos_puntos=False).mensaje)
         for i, (debe, opciones, renglon) in enumerate(caso["mensajes"]):
             nuevas = []
             for tipo, de, a in opciones:
                 tipo = el_de(tipo, mensajes, "ningún mensaje llamado", renglon)
                 nuevas.append((tipo, el_agente(de, renglon), el_agente(a, renglon)))
             caso["mensajes"][i] = (debe, tuple(nuevas), renglon)
+    return sin_revisar
 
 
 def sin_comillas_alrededor(opcion):
@@ -9591,7 +9659,8 @@ def casos_de_archivo(ruta):
         raise ErrorMate(f"no pude leer el archivo de casos '{ruta}'")
     casos, grupo, con_reglas = [], [], False
     for numero, renglon in enumerate(contenido.split("\n"), 1):
-        renglon = "".join(c for c in renglon if c not in _INVISIBLES).strip()
+        entero = "".join(c for c in renglon if c not in _INVISIBLES)
+        renglon = entero.strip()
         if not renglon or renglon.startswith("#"):
             continue
         try:
@@ -9602,8 +9671,10 @@ def casos_de_archivo(ruta):
         if regla is None:
             if con_reglas:  # las reglas de arriba cerraron el grupo: acá empieza otro
                 grupo, con_reglas = [], False
+            # sangria y debajo (de otra pregunta): para avisar una regla mal escrita
             grupo.append({"renglon": numero, "pregunta": renglon, "reglas": [],
-                          "mensajes": []})
+                          "mensajes": [], "sangria": entero[:1] in (" ", "\t"),
+                          "debajo": bool(grupo)})
             casos.append(grupo[-1])
         elif not grupo:
             raise ErrorMate(f"{ruta}:{numero}: esta regla no tiene una pregunta arriba. "
@@ -9621,6 +9692,11 @@ def casos_de_archivo(ruta):
             if quizas_viaje(caso["pregunta"]) is not None:
                 raise ErrorMate(f"{ruta}:{caso['renglon']}: "
                                 + viaje_mal_escrito(caso["pregunta"]).mensaje)
+            if caso["sangria"] and empieza_como_regla(caso):
+                # "hola" y debajo, con sangría, "no tiene que viaja: Reponer"
+                raise ErrorMate(
+                    f"{ruta}:{caso['renglon']}: este renglón parece una regla, pero no la "
+                    f"entiendo. {COMO_VAN_LAS_REGLAS}. {COMO_VAN_LOS_MENSAJES}")
         raise ErrorMate(
             f"{ruta}:{grupo[0]['renglon']}: a esta pregunta le falta decir qué se espera de "
             "la respuesta. " + COMO_VAN_LAS_REGLAS)
@@ -9656,10 +9732,12 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
     ni bitácora, ni los archivos que el programa escriba.
     Un mensaje mandado con 'enviar' no llega en el momento: en la corrida de verdad se
     entrega cuando el programa vuelve a preguntarle a un agente, o al terminar. Con
-    entregar_lo_enviado (un caso con reglas de mensajes), lo que quedó mandado por ESTA
-    pregunta se entrega cuando el programa vuelve a pedir por teclado, y cuenta en viajes
-    y en charla; lo que muestren los agentes en ese momento no entra en la respuesta (el
-    cliente lo vería después). Sin eso queda sin entregar, como siempre."""
+    entregar_lo_enviado (un caso con reglas de mensajes), si quedó algo mandado por ESTA
+    pregunta, la cola se vacía entera y en su orden cuando el programa vuelve a pedir por
+    teclado. Lo de esta pregunta cuenta en viajes y en charla; lo que estaba mandado de
+    antes también se entrega (el agente lo recibe primero, como en la corrida de verdad),
+    pero ni cuenta ni se muestra. Lo que muestren los agentes en ese momento no entra en
+    la respuesta (el cliente lo vería después). Sin eso queda sin entregar, como siempre."""
     mostrado, corte, charla = [], {}, []
 
     def de_este_caso(en_cola):
@@ -9680,16 +9758,15 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
             corte["hasta"] = len(mostrado)
             cola = interprete.cola
             if entregar_lo_enviado and any(map(de_este_caso, cola)):
-                de_antes = [en_cola for en_cola in cola if not de_este_caso(en_cola)]
-                for en_cola in de_antes:
-                    cola.remove(en_cola)
+                # La cola se vacía entera y en su orden, como en la corrida de verdad: si
+                # antes de la pregunta quedó algo mandado (un inventario), llega primero.
+                # entregar() no lo cuenta ni lo muestra, pero el agente lo recibe.
                 charla.append("  ·     (lo que sigue quedó mandado con 'enviar': llega "
                               "después de contestarle al cliente)")
                 try:
                     interprete.vaciar_cola()
                 except ErrorMate as e:  # (un tope de Mate: se informa como cualquier otro)
                     corte["error"] = e
-                cola.extend(de_antes)
             corte["sin_entregar"] = [
                 (msg.tipo, rem.nombre if rem else _EL_PROGRAMA, dest.nombre)
                 for rem, dest, msg, sobre in cola
@@ -9736,6 +9813,7 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
             "consultas": list(interprete.ia_historial), "agentes": agentes,
             "viajes": list(interprete.viajes) if "desde" in corte else [],
             "charla": list(charla) if "desde" in corte else [],
+            "vivos": [agente.nombre for agente in interprete.vivos],
             "sin_entregar": corte.get("sin_entregar", []),
             "gasto": {nombre: gasto_limpio(agente.gasto)
                       for nombre, agente in interprete.agentes.items() if agente.gasto},
@@ -9818,7 +9896,7 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         return 1
     archivo_memoria = archivo_de(ruta, "memoria.json")
     try:
-        revisar_viajes(casos, arbol, args[1])
+        sin_revisar = revisar_viajes(casos, arbol, args[1])
         memoria = leer_memoria(archivo_memoria)[0]
     except ErrorMate as e:
         avisar(e.mensaje)
@@ -9832,6 +9910,11 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
     mostrar(f"Va a hacer hasta {total} consulta(s) a la IA: una por cada pregunta que el "
             "programa no")
     mostrar("conteste solo (si salta un freno, esa pregunta consulta una vez más).")
+    if any(caso["mensajes"] for caso in casos) and consulta_a_la_ia(arbol):
+        # (P124) ahí también se entrega lo mandado con 'enviar': puede haber más consultas
+        mostrar("Pueden ser más: en los casos con reglas de mensajes también se entrega lo "
+                "mandado con")
+        mostrar("'enviar', y un agente que consulta a la IA al recibirlo suma una consulta.")
     if not simulada and total > MAX_CONSULTAS_IA and "--sin-limite" not in opciones:
         mostrar(f"Ojo: Mate corta el ensayo a las {MAX_CONSULTAS_IA} consultas de verdad. "
                 "Si hacen falta más, agregá --sin-limite.")
@@ -9919,6 +10002,14 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                    f", y {mudas} sin comprobar")
                 + ("" if falla is None and not mudas else
                    f"   (renglón {caso['renglon']} de {de_casos})"))
+        for renglon, nombre in sin_revisar[:]:
+            # (P121) Una copia con el nombre armado al correr: recién ahora se sabe si existe.
+            if any(regla[2] == renglon for regla in caso["mensajes"]) and not dado["error"] \
+                    and para_comparar(nombre) not in map(para_comparar, dado["vivos"]):
+                sin_revisar.remove((renglon, nombre))
+                mostrar(f"      Ojo: en este caso no hubo ningún agente llamado '{nombre}' "
+                        f"(renglón {renglon} de {de_casos}).")
+                mostrar("      Si el nombre está mal escrito, esa regla no mira nada.")
         if muda is not None:
             # El motivo se muestra entero una sola vez: con el modelo apagado es el mismo
             # en todos los casos.
@@ -9960,7 +10051,14 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 if falla["charla"]:
                     mostrar("      La conversación de este caso (lo que se dijeron los "
                             "agentes, en orden):")
-                    for renglon in falla["charla"]:
+                    charla, salteados = falla["charla"], 0
+                    if len(charla) > MAX_RENGLONES_DE_CHARLA:  # (agentes en bucle)
+                        salteados = len(charla) - MAX_RENGLONES_DE_CHARLA
+                        charla = charla[:MAX_RENGLONES_DE_CHARLA - 10] + [None] + charla[-10:]
+                    for renglon in charla:
+                        if renglon is None:
+                            renglon = (f"  ·     ... (acá van {salteados} renglones más, "
+                                       "que no se muestran) ...")
                         mostrar("        " + (renglon if len(renglon) <= 300
                                               else renglon[:300].rstrip() + "..."))
                 else:

@@ -2195,6 +2195,9 @@ cuanto salen 3 yerbas?
   del informe esos mensajes van debajo del renglón "lo que sigue quedó mandado con 'enviar'".
   Lo que un agente muestre al recibirlos no entra en `tiene que decir:` ni en `no puede
   decir:`, porque el cliente lo vería después de su respuesta, no adentro.
+  La entrega va **en el mismo orden que en una corrida de verdad**: si el programa había
+  dejado algo mandado antes de la pregunta (un inventario que le manda a Depósito al
+  arrancar), eso llega primero y el agente lo recibe, aunque no se cuente ni se muestre.
 - **Un mensaje por regla.** Después de `de` y de `a` va solo el nombre de un agente (o `el
   programa`, o una copia hecha con `crear ... llamado`, con su nombre entero: `Vendedor
   Centro`). Si tienen que viajar dos mensajes, va un renglón `tiene que viajar:` para cada uno.
@@ -2204,13 +2207,21 @@ cuanto salen 3 yerbas?
   qué renglón está (y cuál se parece): si no, un `no tiene que viajar:` con el nombre mal
   escrito pasaría siempre. Lo mismo con una regla mal armada: el orden al revés (`Reservar a
   Deposito de Ventas`), sin terminar (`Reservar de Ventas a`), con palabras de más (`de
-  Ventas hacia Deposito`), dos mensajes separados con coma, o una copia que el programa no
-  crea. La única que no se puede revisar antes es una copia cuyo nombre se arma mientras el
-  programa corre (`llamado "Sucursal " + nombre`).
+  Ventas hacia Deposito`), dos mensajes separados con coma, `del programa` en vez de `de el
+  programa`, o una copia que el programa no crea. La única que no se puede revisar antes es
+  una copia cuyo nombre se arma mientras el programa corre (`llamado "Sucursal " + nombre`):
+  esa se mira después de ensayar el caso, y si no hubo ningún agente con ese nombre el
+  informe lo avisa debajo del caso ("Ojo: en este caso no hubo ningún agente llamado
+  'Vendedor Oeste'..."), porque con el nombre mal escrito la regla no mira nada.
 - Una pregunta de un cliente que habla de viajar ("puede viajar mi pedido hoy", "el pedido
   viaja: hoy o mañana?") sigue siendo una pregunta. Mate la toma por una regla mal escrita
   solo si tiene la forma de una (`tiene que viajar Reponer`, sin los dos puntos; `tiene que
-  biajar: Reponer`) o si nombra un mensaje del programa.
+  biajar: Reponer`) o si nombra un mensaje del programa. También si está debajo de otra
+  pregunta, empieza como una regla, habla de viajar y nombra un mensaje (`no tiene que
+  viaja: Reponer`, `no tiene que viajar el reponer`, `no viaja: Reponer`): antes quedaba
+  como una pregunta más y la regla no se miraba. Si un renglón así **es** una pregunta de
+  un cliente ("Tiene que viajar Juan"), terminala con un signo de pregunta y Mate la toma
+  como pregunta; el error lo recuerda.
 
 Cuando un caso de un equipo falla (por los mensajes o por lo que contestó), el informe muestra
 **la conversación de esa pregunta**: los mismos renglones que muestra `correr --traza`,
@@ -2234,6 +2245,15 @@ numerados desde 1. Este es el del primer caso de arriba, con un equipo al que le
 Un caso que falla **solo** por los mensajes no deja una lección propuesta: qué mensajes viajan
 lo decide el programa, y una lección es un pedido a la IA. Con un mostrador de un solo agente
 el informe es el de siempre, sin la conversación (salvo que el caso tenga reglas de mensajes).
+
+Si los agentes se quedan mandándose mensajes sin parar, Mate corta ("se superaron 100000
+mensajes") y el informe muestra los primeros 50 renglones de la conversación y los últimos
+10, y dice cuántos hay en el medio.
+
+Antes de empezar, `ensayar` dice cuántas consultas a la IA va a hacer como mucho (una por
+pregunta). Si hay casos con reglas de mensajes y el programa consulta a la IA, avisa que
+"pueden ser más": al entregar lo mandado con `enviar`, un agente que consulta a la IA cuando
+lo recibe suma una consulta que en un caso sin reglas de mensajes no se hace.
 
 Dos cosas más del informe:
 
