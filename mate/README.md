@@ -5,7 +5,7 @@ Mate es un lenguaje de programación chico, con palabras en castellano. Sirve pa
 escribís las reglas (qué precios puede nombrar, qué no puede prometer, cuánto puede gastar por
 día) y Mate revisa cada respuesta de la IA antes de que salga.
 
-Versión 0.6. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
+Versión 0.7. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
 Se escribe con el Bloc de notas y se corre desde PowerShell.
 
 ```
@@ -106,11 +106,11 @@ o la página `docs\index.html`, que explica los pasos.
 | Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
 | Que una IA te escriba un programa en Mate | `python mate\mate.py guia` imprime una página para pegarle antes de pedírselo |
 | Contarle a otra persona qué es Mate | La página `docs\index.html` (está fuera de la carpeta `mate`): un solo archivo que se ve bien en el celular |
-| Saber qué cambió en esta versión | [Qué cambió en la 0.6](#qué-cambió-en-la-06) |
+| Saber qué cambió en esta versión | [Qué cambió en la 0.7](#qué-cambió-en-la-07) |
 
 **Para qué no sirve todavía:** no atiende por WhatsApp ni por una página web (la charla es por
 teclado, en PowerShell); es un proyecto nuevo, de una sola persona, sin comunidad; y es lento
-y chico al lado de Python. El detalle está en [Límites de la versión 0.6](#límites-de-la-versión-06).
+y chico al lado de Python. El detalle está en [Límites de la versión 0.7](#límites-de-la-versión-07).
 
 ## El curso
 
@@ -3005,7 +3005,7 @@ python mate\pruebas\velocidad.py
 Si igual algo queda lento, la salida es escribir esa parte en Python y llamarla con
 [`usar python`](#funciones-escritas-en-python-usar-python): ahí corre a la velocidad de Python.
 
-## Qué se está sumando para la 0.7
+## Qué cambió en la 0.7
 
 La 0.7 es para que los agentes **hablen entre sí**, no solo con una persona. Nada de lo que
 entró agrega una palabra ni una función incluida, y un programa que no lo usa corre igual
@@ -3021,6 +3021,10 @@ que en la 0.6:
 | `usar buzon "deposito.mate"`: un agente le manda un mensaje a un agente de **otro programa** de la misma carpeta. El mensaje queda en un buzón (un archivo) y se entrega, validado con el contrato, cuando ese otro programa corre. La orden `buzon deposito.mate` muestra qué hay esperando | [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón) |
 
 El detalle está en `MEJORAS.md`, mejoras 124, 125 y 126.
+
+Una sola cosa de la 0.7 puede frenar algo viejo: `buzon` pasó a ser una orden (ver
+[Qué cambió y puede frenar un programa viejo](#qué-cambió-y-puede-frenar-un-programa-viejo)).
+Lo que todavía no hace está en [Límites de la versión 0.7](#límites-de-la-versión-07).
 
 ## Qué cambió en la 0.6
 
@@ -3096,11 +3100,12 @@ y entonces los comandos que Mate sugiere en pantalla se escriben `mate ...` en v
 ## Qué cambió y puede frenar un programa viejo
 
 Varias mejoras vuelven error cosas que antes corrían. Esta tabla junta todo lo que cambió
-desde la versión 0.2 hasta la 0.6 (`python mate\mate.py --version` dice cuál tenés). Si un
+desde la versión 0.2 hasta la 0.7 (`python mate\mate.py --version` dice cuál tenés). Si un
 archivo viejo deja de andar, casi seguro es por una de estas:
 
 | Qué pasa ahora | Cómo se arregla |
 |---|---|
+| `buzon` es una orden (0.7): `python mate\mate.py buzon deposito.mate` muestra el buzón de ese programa, y `buzon` sola ya no corre un archivo llamado `buzon.mate` (pide el programa). Dentro de un programa `buzon` sigue sirviendo como nombre: solo significa otra cosa después de `usar` | Escribir la orden entera: `correr buzon.mate` |
 | `leer_tabla` da un error si el renglón de los títulos está repetido más abajo en la planilla (0.6); antes ese renglón llegaba como un producto más, de nombre "producto" | Borrar de la planilla el renglón que dice el error |
 | `ensayar` es una orden (0.6): `python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` ensaya un programa contra una lista de casos. Un programa llamado `ensayar.mate` se sigue corriendo con `ensayar` sola, como antes | Nada |
 | `nuevo mostrador` crea un archivo más, `<nombre>_casos.txt` (0.6), y no crea nada si ya hay uno con ese nombre | Nada, o elegir otro nombre |
@@ -3238,15 +3243,27 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
 órdenes nuevas: si tenías un programa llamado `propuestas.mate`, se corre con
 `correr propuestas.mate`.
 
-## Límites de la versión 0.6
+## Límites de la versión 0.7
 
 - Los agentes corren todos dentro del mismo programa, de a uno y en orden (por eso el resultado
   es siempre el mismo). Un agente puede consultarle a una IA de verdad con `consultar_ia`,
   pero cada consulta es suelta (la IA no recuerda la anterior: lo que tenga que saber va en
-  la pregunta) y los programas todavía no se conectan entre máquinas. Con el buzón (0.7) dos
+  la pregunta) y los programas todavía no se conectan entre máquinas. Con el buzón dos
   programas de la misma carpeta se mandan mensajes, pero ninguno se queda escuchando: cada
   uno recibe cuando lo corren y manda cuando termina (ver los límites en
   [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón)).
+- El buzón es para programas de la **misma carpeta** de una misma computadora, sin red. Un
+  programa atiende cualquier sobre bien armado que encuentre en su buzón, aunque no conozca al
+  que lo manda: la carpeta tiene que ser de confianza. No se probó en una Windows de verdad.
+- El equipo (`nuevo equipo` y el ejemplo 13) anota solo con un `si`, pero no entiende todo lo
+  que se le escribe: un `si` seguido de un emoji o de un signo que lo niega ("si 👎") vale como
+  sí; "bueno", "claro" o "dale nomás" no valen como sí y hay que repetir el pedido; un Enter
+  solo no borra lo que esperaba el `si`; Ventas pregunta "¿Lo anoto?" antes de mirar si el
+  stock alcanza; y con una presentación como "pack x 6" la pregunta dice "Son 6 packs enteros"
+  sin aclarar que no son 6 unidades. Un pedido ya anotado no se anula desde la charla (el
+  stock se corrige con un `ingreso`). Un equipo creado con una versión anterior es una copia
+  fija: para tener lo nuevo hay que crearlo otra vez. Todo se probó con `--ia-simulada` (ver
+  [Un equipo propio](#un-equipo-propio-nuevo-equipo)).
 - Todo lo que trae `usar` queda en un único espacio de nombres: dos archivos no pueden declarar
   algo con el mismo nombre.
 - La memoria de un programa es un archivo al lado del programa, pensado para una persona y una

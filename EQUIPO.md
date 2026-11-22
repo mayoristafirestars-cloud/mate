@@ -2562,6 +2562,179 @@ renglón de "bultos" de P166 y el matiz del README de P104. Después: P167, P169
 bajos de la vuelta 3 (P106 a P110). El orden del dueño sigue igual: primero A, después B; nada
 de B todavía.
 
+### Cambio 1, vuelta de cierre (segunda parte) — cerrado (R y P aprobaron; quedan solo problemas bajos)
+
+Es la vuelta 5 del equipo del negocio, la que el registro de arriba dejaba pendiente por P162.
+Esta vez el revisor y el agente de pruebas aprobaron los dos, sin problemas altos ni medios.
+Con eso quedan aprobados los tres cambios de la 0.7 y el integrador hizo el cierre de verdad:
+`VERSION` pasó a `"0.7"`.
+
+**Qué se hizo** (implementador, dos commits locales, `ebf676a` y `68bccc9`; sin push, sin tocar
+`main`, `VERSION` ni este archivo)
+- **Nada se anota sin un "si"** (`ebf676a`, decisión del coordinador para cortar de raíz la
+  familia P102, P162, P163, P103 y P104, en vez de seguir cerrando frases de a una). Ventas ya
+  no anota directo: con un pedido claro contesta "Entendí: 6 x Cerveza rubia (pack x 6) a
+  $ 7.200,00 cada uno: total $ 43.200,00. Son 6 packs enteros. ¿Lo anoto? Contestá si o no." y
+  recién con un sí claro, como única cosa de la respuesta, le pide la reserva a Depósito. Los
+  bultos van en palabras, con el contraste cuando la presentación lo permite ("Son 10 bolsones
+  enteros (no 10 paquetes)."). El ingreso de mercadería también pregunta antes de sumar ("¿Lo
+  sumo?"). El pedido pendiente es estado de Ventas, no recordado: no pasa de una corrida a la
+  otra. Las reglas que deciden qué es duda no se tocaron: la confirmación se suma.
+- `ensayar` admite casos de más de un renglón: debajo de la pregunta, `después: si`. Las reglas
+  miran lo contestado (y lo que viajó) desde el último renglón, y el informe de un caso que
+  falla muestra lo contestado antes.
+- **Un no a la rioplatense ya no se toma como sí** (`68bccc9`, el problema medio que R había
+  encontrado sobre `ebf676a`): "ok, dejá", "dale, dejá nomás", "si, mejor deja" y "ok,
+  cancelalo" contestan "Listo: no anoté nada." Al sí lo acompaña solo la cortesía (porfa,
+  gracias, "por favor", "muchas gracias"); "mejor" y "nomás" acompañan solo al no; "dejá" pasó
+  a las palabras de no. "ok mejor", "por confirmar", "dale nomás" no son ni sí ni no: avisan
+  "No anoté lo de antes" y no anotan.
+- **Lo que espera el "si" no sobrevive a un comando ni a irse**: un texto que parece comando de
+  PowerShell borra el pedido o el ingreso pendiente y lo avisa (función nueva
+  `lo_que_no_quedo()`); con `listo` o `chau` y algo pendiente, antes de despedirse sale "(Ojo,
+  antes de irte. Ventas: No anoté lo de antes (6 x Yerba mate): no me contestaste que sí.)".
+- `ensayar` (`casos_de_archivo` en `mate.py`): un `después:` debajo de una regla, o "después
+  si" sin los dos puntos debajo de una pregunta, dan error con archivo y renglón. "después si
+  puedo paso" sigue siendo una pregunta.
+- Pruebas agregadas entre las dos: el ejemplo 13 pasa de 30 a 39, el equipo creado de 18 a 24,
+  los casos de muestra de 12 a 22; en pytest, las frases de la familia en corrida limpia, las
+  dos parametrizadas (ejemplo y equipo creado) del no a la rioplatense y una de `ensayar`.
+- README, MEJORAS y los encabezados del ejemplo 13 y del equipo creado al día: qué acompaña al
+  sí, qué es un no, qué pasa con un comando o al irse, la excepción del Enter solo y el orden
+  de `después:`.
+
+**No se hizo** (declarado por el implementador): un Enter solo sigue sin borrar el pendiente
+(a propósito: no contesta nada; avisado en el README y fijado por prueba); el aviso entre
+paréntesis que nombra una medida ("(no 2 litros)", "(no 10 kg)", este último fijado por una
+prueba que ya estaba); "pack x 6" y "caja x 6" sin el "(no 6 ...)" (es el texto de la decisión
+del coordinador); la presentación vacía que muestra "()" (P169); no se mira el stock antes de
+preguntar; el si/no cuenta como una consulta más en el total de la charla; el ruido aceptado
+en el sí ("si -", "si...", "si si", "ok dale", "sip"); las muletillas de sí pegadas a un
+pedido ("si quiero 5 yerbas", P111) siguen sin recibir la pregunta (lado seguro); los equipos
+creados antes y la clase 13 del curso siguen como estaban; y con `--traza` aparece un
+`DejarDeEsperar` de más al salir.
+
+**Qué hizo el integrador de cierre (I)** (este commit)
+- `VERSION = "0.7"` en `mate/mate.py` y "Mate 0.7" en `docs/index.html`.
+- README de `mate/`: "Versión 0.7."; "Qué se está sumando para la 0.7" pasó a llamarse "Qué
+  cambió en la 0.7"; "Límites de la versión 0.7" (con dos límites nuevos: el buzón y el
+  equipo); la tabla de lo que puede frenar un programa viejo va "desde la versión 0.2 hasta la
+  0.7" y suma un renglón: `buzon` es una orden y sola ya no corre un `buzon.mate` (lo comprobé
+  contra el `mate.py` de `e78f2e9`, que sí lo corría; es P177). Una nota en MEJORAS (mejora
+  124).
+- Pruebas que afirman el número, ajustadas sin aflojar: `test_version_0_6_y_el_readme_lo_dice`
+  pasó a `test_version_0_7_y_el_readme_lo_dice` (afirma todo lo que afirmaba, con 0.7, y además
+  que no quedó "Versión 0.6.", "Límites de la versión 0.6" ni "se está sumando", el orden de
+  los títulos 0.7 → 0.6 → 0.5, las frases y los enlaces de la sección de la 0.7 y de los
+  límites; lo de la sección de la 0.6 se sigue afirmando igual); "Versión 0.7" en el primer
+  pantallazo; `mate.VERSION == "0.7"` en la prueba del tope; "(Mate 0.7)" en la del informe de
+  errores de uso; y el título "## Qué cambió en la 0.7" en las cinco pruebas que partían el
+  README por el título viejo. Una prueba nueva: `test_buzon_sola_ya_no_corre_buzon_mate`.
+- No tocó el ejemplo 13, el equipo creado, el buzón ni ninguna regla de qué se anota.
+
+**Quién revisó y quién probó**: revisor (R) y agente de pruebas (P), cada uno sobre una copia
+del repositorio en una carpeta propia de `mktemp -d`, ya borrada, los dos sobre `68bccc9` (R
+miró también `ebf676a`). Integrador de cierre (I): la versión, las tres corridas, un recorrido
+corto en una carpeta propia y este registro. El especialista en seguridad no pasó por estos
+commits.
+
+**Veredictos**: R **aprueba** (tres apuntes, todos bajos). P **aprueba** (ocho apuntes, todos
+bajos). Altos: ninguno. Medios: ninguno. Cambio 1 **cerrado**.
+
+**Pruebas** (Linux, `MATE_SIN_REGISTRO=1`, Python 3.13.18)
+- Sobre `68bccc9`, antes del cambio de versión (implementador, R y P, los tres con el mismo
+  número): `pytest mate/pruebas mate/modelo` 1126 pasan, 0 fallan (unos 243 s); `probar
+  mate/ejemplos` 113 de 113, en 22 archivos; `probar mate/curso` 37 de 37, en 26 archivos.
+- Con la versión en 0.7 (I): `python3 -m pytest mate/pruebas mate/modelo -q -p
+  no:cacheprovider` **1127 pasan, 0 fallan** (254 s; es 1126 más la prueba nueva de `buzon`);
+  `probar mate/ejemplos` **113 de 113, en 22 archivos**; `probar mate/curso` **37 de 37, en 26
+  archivos**. Después, `git status --short` muestra solo los archivos de este commit, y en
+  `mate/ejemplos` ninguna memoria ni carpeta `.buzon`.
+- La primera corrida de I, con `VERSION` ya en 0.7, dio 1126 pasan y 1 falla:
+  `test_informe_resume_el_registro` esperaba "(Mate 0.6)" en el informe. Era otra prueba que
+  afirma el número; se le cambió solo el número y la corrida completa se repitió entera.
+- Recorrido de I sobre un equipo recién creado (`nuevo equipo neg`, carpeta propia): `--version`
+  y `ayuda` dicen "Mate 0.7"; `verificar` "sin errores"; `probar` 24 de 24; `ensayar
+  --ia-simulada` 22 de 22. Cada charla en corrida limpia, mirando la memoria guardada:
+  "quiero 6 yerbas" + "si" deja Yerba mate en 34; + "ok, dejá" contesta "Listo: no anoté nada."
+  y queda en 40; + "chau" avisa "(Ojo, antes de irte...)" y queda en 40; "quiero un bolson x 10
+  de yerba" pregunta "Son 10 bolsones enteros (no 10 paquetes)" y con "no" queda en 40 (**P162
+  resuelto**); "ingreso 30 azucar" + "si" deja Azúcar en 55. **P171 reproducido**: "quiero 6
+  yerbas" + "si 👎" anota y deja Yerba mate en 34.
+- R: por código, el único `preguntar Reservar` fuera de las pruebas está en Ventas detrás de
+  `esperaba != nada y es_un_si(c.dicho)`, y el único `preguntar Ingreso` en `anotar_ingreso()`;
+  no hay otro camino que descuente o sume. Unas 140 respuestas a "quiero 6 yerbas" mirando la
+  memoria: anotan solo las de sí claro. Equipo creado: 24 de 24 y 22 de 22.
+- P: unas 430 charlas por tubería con `--ia-simulada`, cada una en copia limpia. Ninguna frase
+  sola descontó stock (0 de 150); de 115 respuestas a la pregunta de Ventas, ninguna que no sea
+  un sí claro anotó. Pedido + otro pedido + si anota solo el segundo. El pendiente no pasa de
+  una corrida a otra. Los criterios del cambio 1 revisados de nuevo. `probar mate/ejemplos`,
+  equipo creado y `ensayar` también en Python 3.10, 3.11, 3.12 y 3.14 (pytest completo solo en
+  3.13). P159: los `candado` quedan `-rw-r--r--`.
+- Pruebas viejas tocadas por el implementador: los renglones quitados en `68bccc9` son conteos
+  que subieron (37 a 39, 22 a 24, 20 a 22 casos, 19 a 21) y comentarios; en `ebf676a`, las
+  charlas que afirmaban "Anotado" directo, reemplazadas por las mismas con el "si" intercalado,
+  como pide la decisión (R las miró una por una; P por arriba, y lo declara).
+
+**Criterios de aceptación del cambio 1**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| `nuevo equipo mi_negocio` crea los archivos, pasa `verificar` y `probar` | cumple | 3 archivos, "sin errores", 24 de 24, `ensayar --ia-simulada` 22 de 22 (R, P, I) |
+| Con `--traza` se ve Ventas → Depósito → Compras | cumple | `Reservar` de Ventas a Depósito y `Reponer` a Compras después del "si" (P) |
+| Un pedido descuenta stock y el stock sobrevive entre corridas | cumple | 40 a 37 con el "si", Azúcar 25 → 5 → 2 en dos corridas (P). Sin el "si" no descuenta nada: P162, P163, P104 y la frase de P103 preguntan primero (R, P, I). Con la X se pierde lo anotado (P80 de fondo, avisado) |
+| Pedir más de lo que hay no vende | cumple | "quiero 100 yerbas" + "si": "quedan 40; no llego a 100" (R, P). Pregunta antes de mirar el stock (P173) |
+| Al bajar del mínimo sale UN pedido de reposición | cumple | un solo `Reponer` para azúcar con dos ventas (P) |
+| Ningún agente toca el estado de otro | cumple | el pendiente es estado de Ventas; el stock sigue siendo solo de Depósito (R, por código) |
+| Para todo: pruebas que ya había, sin aflojar | cumple | 1127 / 113 de 113 / 37 de 37; cambiaron conteos, las charlas que ahora llevan el "si" y el número de versión |
+| Para todo: topes, red, claves, README/`ayuda`/MEJORAS | cumple, con pendientes bajos | no se tocó el lenguaje (36 palabras, 48 funciones); README leído contra la conducta (R); `VERSION`, README y página en 0.7 (I). El curso no cuenta el buzón (resto de P133) |
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|---|
+| P171 | Un "si" seguido de un signo o emoji que lo niega, o de un número que no es ASCII, se toma como sí y descuenta: "si 👎", "ok ❌", "si :(", "si ３" (dígito de ancho completo), "si ½", "si ⁶", "si ⑥", "si ɴᴏ". `palabras_de()` descarta esos caracteres y queda solo el "si". Con dígitos comunes ("si 3", "si, x2", "si -2") no anota. El implementador había declarado el ruido ("si -", "si...") diciendo que ninguno era un no tomado por sí, y "si 👎" lo es | R; reproducido por I | baja | sí (desde `ebf676a`) | pendiente; avisado en "Límites de la versión 0.7". Poco probable en un teclado de PC |
+| P172 | `test_buzon_ctrl_c_despues_de_atender_uno_de_dos` falló una vez por `TimeoutExpired` cuando la batería corrió junto con decenas de procesos de Mate; sola pasa y la batería sin carga pasa (tres corridas completas de I, ninguna falla de esa prueba). Es sensibilidad al tiempo de la prueba, no del cambio | R | baja | sí | pendiente: correr la batería sin otra carga (va con P148) |
+| P173 | Ventas pide el "si" aunque el pedido no se pueda cumplir: "quiero 100 yerbas" (hay 40) y "quiero 2 fideos" (stock 0) preguntan "¿Lo anoto?" y recién después del "si" dicen que no alcanza. No descuenta nada; es un paso de más | R, P, implementador | baja | no (viene con la confirmación) | aceptado como límite, avisado en el README; consecuencia de que Ventas no mira el stock de Depósito |
+| P174 | Un Enter solo (o solo espacios) entre la pregunta y el "si" no borra lo pendiente: "quiero 3 yerbas", Enter, "si" anota | R, P, implementador | baja | no | aceptado como decisión: un Enter no contesta nada. Avisado en el README y fijado por prueba. Si el dueño quiere que también lo borre, es un cambio chico |
+| P175 | Formas corrientes de decir que sí no anotan (lado seguro, no tocan stock): "bueno", "claro", "si claro", "obvio", "de una", "bueno dale", "dale nomás", "si nomas", "anotá", "yes", "afirmativo", "si señor". Contestan "No anoté lo de antes" y hay que repetir el pedido. "correcto", "exacto", "sip", "okey", "ok ok", "si dale" y "si por favor" sí anotan. "listo" como respuesta cierra la charla sin anotar (lo avisa) | P, R | baja | no | pendiente (si entra); avisado en "Límites de la versión 0.7" |
+| P176 | Un pedido que no se vende por falta de stock deja igual un `Reponer` anotado ("quiero 2 fideos" + "si" con stock 0), y en la memoria el `quedan` de `a_reponer` queda con el número del primer aviso (5) aunque la pantalla diga "quedan 2" después de la segunda venta | P | baja | sí (en `7ed5195` da lo mismo) | pendiente (si entra) |
+| P177 | `buzon` sola ya no corre un programa llamado `buzon.mate` (pide el programa y sale con 2); con el `mate.py` de la 0.6 lo corría. `correr buzon.mate` anda. No estaba en la tabla de lo que puede frenar un programa viejo | I | baja | sí (desde el cambio 3) | **resuelto como aviso**: renglón nuevo en esa tabla y una prueba. La conducta no se tocó (`ensayar` y `nuevo` solas sí siguen corriendo el archivo; `buzon` quedó distinta) |
+| P178 | Detalles de la confirmación: el si/no cuenta como una consulta más en el total de la charla; con `--traza` sale un `DejarDeEsperar` de más al terminar o ante un comando; "(no 10 paquetes)" sale también en un pedido bien dicho de 10 bolsones; el contraste a veces elige una medida ("6 botellas de 2 litros": "Son 2 bultos enteros (no 2 litros)"); en `ensayar` las reglas miran solo el último renglón (un `no tiene que viajar: Reservar` pasa aunque `Reservar` haya viajado con un `después: si` anterior; documentado) | implementador, P, R | baja | no | aceptados como límites; el de `ensayar` está en el README |
+| P162 | Repetir la presentación con "x N" anotaba N bultos | P (vuelta de cierre) | media | sí | **resuelto**: pregunta con la cuenta y los bultos y no anota sin el "si" (R, P, I). Resto, bajo: con "pack x 6" o "caja x 6" (sin sustantivo adentro) la pregunta dice "Son 6 packs enteros." sin el "(no 6 ...)"; el total ($ 43.200,00) se ve y un "no" lo frena. Es el texto que pidió el coordinador (va con P164) |
+| P163 | "quiero N unidades de X" anotaba N bultos | P | baja | sí | **resuelto**: "quiero 10 unidades de yerba" pregunta "Son 10 bolsones enteros (no 10 paquetes)" (R, P) |
+| P104 | "hola, 5 yerbas para retirar" anotaba 5 | R, P (vuelta 3) | baja | sí | **resuelto**: pregunta por 5 bolsones y no anota sin el "si" (R, P) |
+| P103 (resto) | "compro 10 yerbas" sin tilde anotaba | — | baja | sí | **resuelto**: pregunta primero (P) |
+| P92, P133 | `VERSION` en 0.6; README y página sin contar la 0.7 | — | baja | sí | **resueltos** (I). Resto de P133: el curso y el README de la raíz no cuentan el buzón; `ayuda` sí |
+| P111 | Muletilla de sí pegada a un pedido ("si quiero 5 yerbas", "dale, quiero 5 yerbas") | vuelta 3 | baja | sí | sigue: no recibe la pregunta ni anota (lado seguro) |
+| P164, P169 | Presentación sin sustantivo ("caja x 6"); presentación vacía que muestra "()" | — | baja | sí | siguen. P164 ya no anota sin el "si". P169 se ve ahora también en la pregunta ("10 x Servilletas ()", P) |
+| P105 a P110, P165 a P168, P170, P80 de fondo, P85 a P88, P91, P94 | ver las vueltas anteriores | — | baja | — | sin cambio; nadie los volvió a mirar uno por uno. Los que eran "se anota de más" ya no descuentan sin el "si" |
+
+No verificado por nadie en esta vuelta: Windows, una IA de verdad (todo con `--ia-simulada`),
+cerrar la ventana con la X, y `pytest` completo fuera de Python 3.13. P declara que no comparó
+renglón por renglón el README contra la conducta ni las pruebas viejas tocadas (eso lo hizo R).
+Estos dos commits y el de cierre no pasaron por el especialista en seguridad.
+
+**Decisiones técnicas nuevas**
+- **Confirmar antes de anotar** (coordinador): en vez de seguir sumando reglas para adivinar qué
+  quiso decir el cliente, todo lo que saca o suma stock pasa por una pregunta del programa y un
+  sí explícito. Las reglas de duda quedan como estaban, adelante de la pregunta.
+- El sí tiene que ser lo único de la respuesta, más cortesía. Cualquier otra cosa (otra
+  consulta, otro pedido, un comando, irse) borra lo pendiente y lo avisa; el único que no lo
+  borra es un Enter solo.
+- Un "si" contesta solo lo último que se preguntó (el pedido o el ingreso, no los dos): Ventas
+  y Depósito se avisan con el mensaje `DejarDeEsperar`.
+- Lo pendiente no es `recordado`: no pasa a la corrida siguiente.
+- "Anotado" lo dice solo el programa: el freno de la IA de Ventas lo prohíbe.
+- En `ensayar`, los `después:` van arriba de las reglas y las reglas miran el último renglón.
+- Integrador: al cerrar no cambió conducta. `buzon` sola (P177) se avisó en el README en vez
+  de tocar la orden, porque cambiarla pedía revisión y la vuelta ya estaba aprobada.
+
+**Lo que queda** para después del cierre: P171 y P175 (qué cuenta como sí), P173 (mirar el stock
+antes de preguntar), P176, el resto de P162/P164 y P169 (prolijidad de la pregunta), el resto
+de P133 (el curso y el buzón), P172 con P148 (la batería y el tiempo). Y lo de siempre: una
+Windows de verdad y una IA de verdad (P11, P149). Antes de B, P161 (1).
+
 ## Diseño del buzón (resumen)
 
 El alcance pedía una etapa de diseño revisada antes de programar el cambio 3, y esa etapa no
@@ -2570,6 +2743,10 @@ de cierre, leyendo el README ("Dos programas que se hablan: el buzón") y `mate/
 tramo "Buzón entre programas (0.7)") sobre `ea475e7`. Dice qué decisiones tiene hoy el buzón;
 no dice quién las revisó antes de programar ni qué alternativas se discutieron, porque eso no
 está escrito en ningún lado. Lo que se probó de cada una está en las vueltas del cambio 3.
+
+Al cerrar la 0.7 el integrador lo cotejó otra vez contra `mate/mate.py`: los commits posteriores
+a `ea475e7` no tocaron el tramo del buzón, y los topes y el formato del sobre son los mismos.
+Se sumó un solo punto, el de la orden `buzon` sola.
 
 - **Sin red y sin nada que instalar.** Un mensaje para otro programa es un archivo; se entrega
   cuando ese otro programa corre. Solo entre programas de la **misma carpeta** (sin
@@ -2625,6 +2802,9 @@ está escrito en ningún lado. Lo que se probó de cada una está en las vueltas
   como archivo de datos, sin permiso de ejecución. `escribir_archivo` y `agregar_a_archivo` no
   escriben dentro de una carpeta `.buzon` ni en la memoria de un programa nombrado con
   `usar buzon`.
+- **La orden `buzon` lleva siempre el programa** (`buzon deposito.mate`) y solo mira. `buzon`
+  sola no corre un archivo `buzon.mate`, a diferencia de `ensayar` y `nuevo` (P177, avisado en
+  el README).
 - **Solo `correr` usa el buzón.** `probar`, `ensayar`, `verificar` y la `consola` no leen ni
   escriben ninguno. En una prueba lo enviado se ve con `mensajes_enviados()` y el otro agente
   se reemplaza con `simular`. `correr --ia-simulada` sí escribe buzones de verdad (P155). La
@@ -2638,6 +2818,143 @@ está escrito en ningún lado. Lo que se probó de cada una está en las vueltas
   corrió en una Windows de verdad (P149).
 
 ## Estado final de la 0.7
+
+**Estado de hoy** (integrador de cierre; rama `equipo/mate-0.7`, sobre `68bccc9` más el commit
+de cierre que trae este registro; todo en commits locales, sin subir nada y sin tocar `main`).
+Desde el estado anterior hubo dos commits de código del implementador (`ebf676a` y `68bccc9`),
+revisados y probados, y el commit de cierre del integrador (versión, README, pruebas del
+número de versión, MEJORAS y este registro). Los estados anteriores quedan más abajo, como
+historia.
+
+**La 0.7 queda CERRADA.** Los tres cambios están aprobados por el revisor y por el agente de
+pruebas, sin problemas altos ni medios abiertos. `VERSION` es `"0.7"`, `--version` y `ayuda`
+dicen "Mate 0.7", el README dice "Versión 0.7.", "Qué cambió en la 0.7" y "Límites de la
+versión 0.7", y la página de presentación dice "Mate 0.7". Cerrada quiere decir eso: lo
+acordado está hecho, revisado y probado en Linux con IA simulada. No quiere decir probada en
+Windows ni con una IA de verdad, ni subida: falta que el dueño la pruebe y decida subirla.
+
+| Cambio | Vueltas | Estado | Quién aprobó | Qué queda |
+|---|---|---|---|---|
+| 1. Equipo del negocio (ejemplo 13 y `nuevo equipo`) | 5 (tres, más la de cierre en dos partes) | **aprobado** | R y P | nada que frene. P162 (el medio que frenaba), P163, P104 y el resto de P103 resueltos con la confirmación: nada se anota sin un "si". Bajos: P171 a P178, y los de antes que siguen (P105 a P111, P164 a P170 y los de fondo) |
+| 2. Ensayar la conversación entre agentes | 3 (más `después: si`, que entró en la vuelta de cierre) | **aprobado** | R y P | nada; bajos |
+| 3. Buzón entre programas (la base de B) | 2 | **aprobado** | R y P | nada; bajos. El diseño tiene un resumen armado después ("Diseño del buzón (resumen)", arriba); la revisión ANTES de programar que pedía el alcance sigue sin registro, y ya no se puede reponer |
+| Seguridad del conjunto | 2 pasadas | **aprobado sobre `e3d228e`** | especialista en seguridad | quedan P160 y P161. Los commits posteriores (`88e353c`, `ea475e7`, `ebf676a`, `68bccc9` y el de cierre) **no pasaron por el especialista**: tocan el ejemplo 13, las pruebas, la documentación y, de `mate.py`, el texto del equipo creado, el modo del `candado`, la lectura del archivo de casos de `ensayar` y el número de versión |
+| Versión | — | **0.7** | integrador de cierre | P92 y P133 resueltos en lo que toca a `VERSION`, README y página. Resto de P133: el curso y el README de la raíz no cuentan el buzón |
+
+Sobre el orden del dueño (primero A, después B): lo hecho es A más la base de B (el buzón, en
+una misma PC y sin red). De B no se hizo nada. A está cerrado; antes de empezar B hay que
+resolver P161 (1).
+
+**Números de las pruebas** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`, con la
+versión ya en 0.7)
+
+| Comando | Hoy (cierre, 0.7) | Estado anterior (`ea475e7`) | Punto de partida de la 0.7 (`e78f2e9`) |
+|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1127 pasan, 0 fallan (254 s) | 1110 pasan, 0 fallan | 883 pasan, 0 fallan |
+| `python3 mate/mate.py probar mate/ejemplos` | 113 de 113, en 22 archivos | 104 de 104, en 22 archivos | 66 de 66, en 18 archivos |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37, en 26 archivos | 30 de 30, en 24 archivos |
+
+Sobre `68bccc9` (antes del cambio de versión) el implementador, R y P dieron los tres 1126 /
+113 de 113 / 37 de 37; la diferencia de uno es la prueba nueva de `buzon` sola. Después de las
+tres corridas `git status --short` mostró solo los archivos del commit de cierre y en
+`mate/ejemplos` no quedó ninguna memoria ni carpeta `.buzon`. El equipo creado con `nuevo
+equipo` da `probar` 24 de 24 (antes 18) y `ensayar --ia-simulada` 22 de 22 (antes 12); el
+ejemplo 13, 39 de 39 (antes 30). La batería tarda entre 240 y 265 s: hay que correrla con un
+tope largo y sin otra carga en la máquina (P148, P172).
+
+Dos cosas para saber de esos números:
+- La primera corrida completa del integrador con la versión en 0.7 dio 1 falla
+  (`test_informe_resume_el_registro` esperaba "(Mate 0.6)"). Era una prueba más que afirma el
+  número; se le cambió el número y se corrió todo de nuevo: 1127 pasan.
+- Las pruebas que cambiaron en el cierre son las que afirman el número de versión o el título
+  "Qué se está sumando para la 0.7" (ahora "Qué cambió en la 0.7"). Ninguna se sacó; la de la
+  versión afirma más que antes.
+
+**Recorrido de hoy** (integrador, carpeta propia de `mktemp -d`, ya borrada; equipo recién
+creado con `nuevo equipo neg`; cada charla en corrida limpia, mirando la memoria guardada)
+
+| Qué se escribió | Qué dio |
+|---|---|
+| `--version`, `ayuda` | "Mate 0.7 (Python 3.13)", "Mate 0.7: un lenguaje chico, con palabras en español." |
+| `verificar`, `probar`, `ensayar --ia-simulada` | "sin errores", 24 de 24, 22 de 22 |
+| `quiero 6 yerbas` y después `si` | pregunta "Son 6 bolsones enteros. ¿Lo anoto? Contestá si o no."; con el si, "Anotado: 6 x Yerba mate..."; Yerba mate queda en 34 |
+| `quiero 6 yerbas` y después `ok, dejá` | "Listo: no anoté nada."; queda en 40 |
+| `quiero 6 yerbas` y después `chau` | "(Ojo, antes de irte. Ventas: No anoté lo de antes (6 x Yerba mate): no me contestaste que sí.)"; queda en 40 |
+| `quiero un bolson x 10 de yerba` y después `no` | pregunta "Son 10 bolsones enteros (no 10 paquetes)"; queda en 40: **P162 resuelto** |
+| `ingreso 30 azucar` y después `si` | pregunta "Son 30 bolsas enteras. ¿Lo sumo?"; Azúcar queda en 55 |
+| `quiero 6 yerbas` y después `si 👎` | anota; Yerba mate queda en 34: **P171 reproducido** (bajo) |
+| `buzon` sola, con un `buzon.mate` en la carpeta | pide el programa y sale con 2; `correr buzon.mate` lo corre (P177, avisado) |
+
+El recorrido largo del dueño (la segunda corrida, `ensayar` con memoria vieja, el buzón paso a
+paso) está en el estado sobre `e3d228e`, abajo. Hoy cambia que cada pedido y cada ingreso
+llevan un `si` detrás, y que los conteos son 24 de 24 y 22 de 22.
+
+**Pendientes, por gravedad**
+
+Altos: ninguno. Medios: ninguno.
+
+Para decidir el dueño:
+- Si un Enter solo tiene que borrar lo que esperaba el "si" (P174). Hoy no lo borra, a
+  propósito.
+- Si "bueno", "claro", "dale nomás" tienen que valer como sí (P175). Hoy no valen: lado seguro.
+- La decisión que venía de antes: nombrar una medida sin la unidad de venta ("quiero 2 azucar
+  de 10 kg") pregunta en vez de dar la cuenta.
+- Si conviene una pasada del especialista en seguridad por los commits posteriores a `e3d228e`
+  antes de subir.
+
+Bajos que conviene mirar primero:
+- P161 (1): cualquier sobre bien armado se entrega; **antes de B**. Avisado en "Límites de la
+  versión 0.7".
+- P171: "si 👎", "ok ❌", "si ３" se toman como sí y descuentan. Es el único caso conocido en que
+  algo que no es un sí claro anota.
+- P173: Ventas pregunta "¿Lo anoto?" antes de saber si el stock alcanza.
+- P162 (resto) y P164: con "pack x 6" la pregunta no lleva el "(no 6 ...)". P178: el contraste
+  a veces nombra una medida ("(no 2 litros)"). P169: "()" con la presentación vacía.
+- P176: un pedido que no se vende deja igual un `Reponer`; el `quedan` guardado es el del
+  primer aviso.
+- P154 y P161 (2): caracteres de control de un sobre escrito a mano llegan a la pantalla.
+- P152 y P156: con Ctrl+C se pierde sin aviso lo que estaba en la cola para otro agente del
+  mismo programa; con varias ventanas del mismo programa se puede perder un envío.
+- P153 y P136: el `.gitignore` tapa una memoria olvidada en `mate/ejemplos`, que rompe una prueba.
+- P172 y P148: la batería tarda más de cuatro minutos y una prueba del buzón es sensible a la
+  carga de la máquina.
+- P133 (resto): el curso y el README de la raíz no cuentan el buzón.
+
+Los demás bajos abiertos (ninguno traba):
+- Cambio 1: P105 a P111, P165 a P168, P170, P175, P178, P80 de fondo, P85, P86, P87, P88, P91, P94.
+- Cambio 2: P115, P120, P125, P127, P128 a P132.
+- Cambio 3: P137, P140, P142 y P147 a medias; P150, P151, P155, P157.
+- Seguridad: P160 y el resto de P161.
+- De todos: P11 y P149 (Windows y una IA de verdad).
+- Sin registro: la revisión del diseño del buzón antes de programar. El resumen de arriba
+  cuenta las decisiones que hoy tiene el buzón, armado después desde el README y el código.
+
+Resueltos desde el estado anterior: P162 (medio), P163, P104, el resto de P103, P92 y P133 en
+lo de la versión; P177 quedó avisado. Un equipo creado antes de `68bccc9` es una copia fija y
+sigue anotando como entonces: hay que crearlo de nuevo.
+
+**Lo que no se pudo probar**
+- **Windows de verdad**: nada de la 0.7 se corrió ahí. En particular el candado
+  (`msvcrt.locking`), el paso a `rechazados`, los comandos con `py`, Ctrl+C (esas pruebas se
+  saltean en Windows) y P160.
+- **Ollama y Claude de verdad**: todo fue con `--ia-simulada`. No se sabe cómo contesta una IA
+  real a lo que Ventas le deriva, ni cuánto gasta.
+- `pytest` completo en otra versión de Python que la 3.13. P corrió `probar mate/ejemplos`, el
+  equipo creado y `ensayar` en 3.10, 3.11, 3.12 y 3.14, sobre `68bccc9`.
+- Cerrar la ventana con la X.
+
+**Para el dueño, en Windows**: valen los comandos del estado sobre `e3d228e`, abajo. Cambia
+que `py mate\mate.py ayuda` tiene que decir "Mate 0.7", que `probar mi_negocio.mate` da 24 de
+24 y `ensayar` 22 de 22 sobre un equipo recién creado, y que en la charla cada pedido lleva su
+`si`: `quiero 20 azucar`, `si`, `quiero 3 yerbas`, `si`, `quiero 100 harina`, `si` (tiene que
+decir que no alcanza), `chau`; en la segunda corrida `ingreso 30 azucar`, `si`. Para ver que
+no anota de más: `quiero un bolson x 10 de yerba` y después `no`.
+
+**Lo que sigue**: que el dueño lo pruebe en Windows y con una IA de verdad y decida si se sube
+(nada se subió ni se mezcló con `main`). Después, los bajos de arriba, empezando por P171 y
+P173. Para B: primero P161 (1).
+
+### Estado anterior, sobre `ea475e7` (historia: antes de la segunda parte de la vuelta de cierre)
 
 **Estado de hoy** (integrador de cierre, sobre `ea475e7`; rama `equipo/mate-0.7`, todo en
 commits locales, sin subir nada y sin tocar `main`). Desde el estado anterior hubo dos commits

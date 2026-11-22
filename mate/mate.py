@@ -41,7 +41,7 @@ import types
 import unicodedata
 from collections import deque
 
-VERSION = "0.6"
+VERSION = "0.7"
 
 # El tope para que Mate siga siendo chico (mejora 90): no puede haber más palabras propias
 # ni más funciones incluidas que estas. Para agregar una hay que sacar otra, o discutir el

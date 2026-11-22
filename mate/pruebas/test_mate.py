@@ -3533,22 +3533,53 @@ def test_la_orden_consola(capsys, monkeypatch):
 
 
 # Mejora 89: versión 0.3 (después 0.4: agentes que recuerdan y aprenden; 0.5: más rápido y
-# con puente a Python; y ahora 0.6: el mostrador con reglas, 'nuevo mostrador' y 'ensayar')
+# con puente a Python; 0.6: el mostrador con reglas, 'nuevo mostrador' y 'ensayar'; y ahora
+# 0.7: agentes que se hablan entre sí, 'nuevo equipo', la conversación en 'ensayar' y el buzón)
 
-def test_version_0_6_y_el_readme_lo_dice(capsys):
-    assert mate.VERSION == "0.6"
+def test_version_0_7_y_el_readme_lo_dice(capsys):
+    assert mate.VERSION == "0.7"
     leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
-    assert "Versión 0.6." in leeme and "## Límites de la versión 0.6" in leeme
-    assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.6", "")
-    assert "desde la versión 0.2 hasta la 0.6" in leeme and "versión 0.3" not in leeme
+    assert "Versión 0.7." in leeme and "## Límites de la versión 0.7" in leeme
+    assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.7", "")
+    assert "desde la versión 0.2 hasta la 0.7" in leeme and "versión 0.3" not in leeme
     # el número viejo no quedó en ningún título ni enlace que hable de "esta versión"
     assert "Versión 0.5." not in leeme and "Límites de la versión 0.5" not in leeme
     assert "hasta la 0.5 (" not in leeme
-    assert "[Qué cambió en la 0.6](#qué-cambió-en-la-06)" in leeme
-    assert "[Límites de la versión 0.6](#límites-de-la-versión-06)" in leeme
+    assert "Versión 0.6." not in leeme and "Límites de la versión 0.6" not in leeme
+    assert "hasta la 0.6 (" not in leeme and "límites-de-la-versión-06" not in leeme
+    assert "se está sumando" not in leeme
+    assert "[Qué cambió en la 0.7](#qué-cambió-en-la-07)" in leeme
+    assert "[Límites de la versión 0.7](#límites-de-la-versión-07)" in leeme
     titulos = re.findall(r"(?m)^## (.+)$", leeme)
+    assert titulos.index("Qué cambió en la 0.7") + 1 == titulos.index("Qué cambió en la 0.6")
     assert titulos.index("Qué cambió en la 0.6") + 1 == titulos.index("Qué cambió en la 0.5")
-    # lo de la 0.6 está en su sección, y sus enlaces llevan a títulos que existen
+    todos_los_titulos = re.findall(r"(?m)^#{2,3} (.+)$", leeme)
+
+    def el_titulo_existe(ancla):
+        return any(ancla == re.sub(r"[^\w\- ]", "", t.lower()).replace(" ", "-")
+                   for t in todos_los_titulos)
+    # lo de la 0.7 está en su sección, y sus enlaces llevan a títulos que existen
+    novedades_07 = leeme.split("## Qué cambió en la 0.7")[1].split("\n## ")[0]
+    for frase in ["13_equipo_del_negocio.mate", "`nuevo equipo mi_negocio`", "clase 13 del curso",
+                  "`tiene que viajar: Reponer de Deposito a Compras`", "**no anota sin un `si`**",
+                  "`después: si`", '`usar buzon "deposito.mate"`', "`buzon deposito.mate`",
+                  "igual\nque en la 0.6", "mejoras 124, 125 y 126", "`buzon` pasó a ser una orden"]:
+        assert frase in novedades_07, frase
+    anclas = re.findall(r"\]\(#([^)]+)\)", novedades_07)
+    assert len(anclas) >= 7
+    for ancla in anclas:
+        assert el_titulo_existe(ancla), ancla
+    # los límites de la 0.7 cuentan lo del equipo y lo del buzón, y sus enlaces existen
+    limites = leeme.split("## Límites de la versión 0.7")[1].split("\n## ")[0]
+    for frase in ["misma carpeta", "sin red", "anota solo con un `si`", "Enter\n  solo",
+                  "es una copia\n  fija", "`--ia-simulada`"]:
+        assert frase in limites, frase
+    for ancla in re.findall(r"\]\(#([^)]+)\)", limites):
+        assert el_titulo_existe(ancla), ancla
+    # la orden nueva que puede frenar algo viejo está en la tabla
+    frenan = leeme.split("## Qué cambió y puede frenar un programa viejo")[1].split("\n## ")[0]
+    assert "| `buzon` es una orden (0.7)" in frenan and "`correr buzon.mate`" in frenan
+    # lo de la 0.6 sigue en su sección, y sus enlaces llevan a títulos que existen
     novedades = leeme.split("## Qué cambió en la 0.6")[1].split("\n## ")[0]
     for frase in ["12_mostrador_con_reglas.mate", "`nuevo mostrador mi_negocio`", "`ensayar ",
                   "`py mate\\mate.py ...`", "títulos está repetido", "un precio o un stock",
@@ -3557,13 +3588,24 @@ def test_version_0_6_y_el_readme_lo_dice(capsys):
     anclas = re.findall(r"\]\(#([^)]+)\)", novedades)
     assert len(anclas) >= 7
     for ancla in anclas:
-        assert any(ancla == re.sub(r"[^\w\- ]", "", t.lower()).replace(" ", "-")
-                   for t in re.findall(r"(?m)^#{2,3} (.+)$", leeme)), ancla
+        assert el_titulo_existe(ancla), ancla
     assert mate.main(["--version"]) == 0
-    assert capsys.readouterr().out.startswith("Mate 0.6 ")
+    assert capsys.readouterr().out.startswith("Mate 0.7 ")
     # la página de presentación dice el mismo número
     pagina = (RAIZ.parent / "docs" / "index.html").read_text(encoding="utf-8")
-    assert '<span class="marca">Mate 0.6</span>' in pagina and "Mate 0.5" not in pagina
+    assert '<span class="marca">Mate 0.7</span>' in pagina and "Mate 0.6" not in pagina
+    assert "Mate 0.5" not in pagina
+
+
+def test_buzon_sola_ya_no_corre_buzon_mate(tmp_path, capsys, monkeypatch):
+    # (0.7) lo que avisa la tabla de "puede frenar un programa viejo"
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "buzon.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    assert mate.main(["buzon"]) == 2
+    salida = capsys.readouterr()
+    assert "hola" not in salida.out and "'buzon' lleva el programa" in salida.err
+    assert mate.main(["correr", "buzon.mate"]) == 0
+    assert capsys.readouterr().out == "hola\n"
 
 
 # Mejora 90: el tope para que Mate siga siendo chico
@@ -6723,7 +6765,7 @@ def test_informe_resume_el_registro(tmp_path, con_registro):
     renglones = out.splitlines()
     assert renglones[0] == "Informe de errores de uso de Mate"
     assert re.fullmatch(r"Hay 6 error\(es\) de uso anotado\(s\), del \d\d/\d\d/\d{4} \d\d:\d\d "
-                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.6\)\.", renglones[1])
+                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.7\)\.", renglones[1])
     assert renglones[3:6] == [
         "Los más frecuentes:",
         "    4 veces  antes de correr: no existe '<nombre>'",
@@ -9466,7 +9508,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
         "Qué cambió y puede frenar un programa viejo")
     primer_pantallazo = leeme[:leeme.index("## Por dónde empezar")]
     for frase in ["Mate es un lenguaje de programación chico, con palabras en castellano",
-                  "Versión 0.6", "Add python.exe to PATH", "instalar.bat", "mate --version",
+                  "Versión 0.7", "Add python.exe to PATH", "instalar.bat", "mate --version",
                   "No toca el PATH ni el registro", ".\\mate\\instalar.bat quitar",
                   "Todavía no se probó en una Windows de verdad", "python mate\\mate.py curso"]:
         assert frase in primer_pantallazo, frase
@@ -9504,7 +9546,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
     ayuda = mate.texto_de_ayuda()
     assert "  curso  " in ayuda and "  curso 1  " in ayuda
     assert max(len(r) for r in ayuda.splitlines()) <= 100
-    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.6"
+    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.7"
 
 
 # ───────────────────── Correcciones de la revisión de la 0.5 (mejora 120) ─────────────────────
@@ -12884,13 +12926,13 @@ def test_el_equipo_esta_documentado_y_la_ayuda_lo_nombra(capsys):
                   "no admite pregunta de (programa) a Deposito con 'Reservar'"]:
         assert frase in seccion, frase
     for frase in ["| `nuevo equipo mi_negocio` |", "| `13_equipo_del_negocio.mate` |",
-                  "(#un-equipo-propio-nuevo-equipo)", "## Qué se está sumando para la 0.7",
+                  "(#un-equipo-propio-nuevo-equipo)", "## Qué cambió en la 0.7",
                   "| 13 | Un equipo de agentes que se hablan",
                   "En `mate\\curso` hay trece clases"]:
         assert frase in readme, frase
     # los enlaces de lo nuevo llevan a títulos que existen
     titulos = re.findall(r"(?m)^#{2,3} (.+)$", readme)
-    for parte in (seccion, readme.split("## Qué se está sumando para la 0.7")[1].split("\n## ")[0]):
+    for parte in (seccion, readme.split("## Qué cambió en la 0.7")[1].split("\n## ")[0]):
         for ancla in re.findall(r"\]\(#([^)]+)\)", parte):
             assert any(ancla == re.sub(r"[^\w\- ]", "", t.lower()).replace(" ", "-")
                        for t in titulos), ancla
@@ -13236,7 +13278,7 @@ def test_ensayar_la_conversacion_esta_documentado():
     assert "tiene que viajar: Reservar de Ventas a" in mate.texto_de_guia()
     readme = (RAIZ / "README.md").read_text(encoding="utf-8")
     assert "(#ensayar-la-conversación-de-un-equipo)" in readme.split(
-        "## Qué se está sumando para la 0.7")[1].split("\n## ")[0]
+        "## Qué cambió en la 0.7")[1].split("\n## ")[0]
     seccion = readme.split("### Ensayar la conversación de un equipo")[1].split("\n## ")[0]
     for frase in ["tiene que viajar: Reponer de Deposito a Compras", "no tiene que viajar: Reservar",
                   "`el programa`", "Las **respuestas** (`responder`) también",
@@ -15532,7 +15574,7 @@ def test_buzon_esta_documentado():
                   "`escribir_archivo` y\n`agregar_a_archivo` no escriben ahí"]:
         assert frase in seccion, frase
     assert "| `buzon deposito.mate` | muestra qué hay en el buzón de ese programa" in leeme
-    sumando = leeme.split("## Qué se está sumando para la 0.7")[1].split("\n## ")[0]
+    sumando = leeme.split("## Qué cambió en la 0.7")[1].split("\n## ")[0]
     assert '| `usar buzon "deposito.mate"`' in sumando and "mejoras 124, 125 y 126" in sumando
     assert "El buzón entre\n  programas de la 0.7 **tampoco gastó nada**" in leeme
     mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
@@ -15903,7 +15945,7 @@ def test_buzon_la_vuelta_2_esta_documentada():
         assert frase in seccion, frase
     assert "El orden** está asegurado" not in seccion
     # La fila del buzón está pegada a su tabla (antes quedaba suelta, tras un renglón en blanco).
-    sumando = leeme.split("## Qué se está sumando para la 0.7")[1].split("\n## ")[0]
+    sumando = leeme.split("## Qué cambió en la 0.7")[1].split("\n## ")[0]
     filas = sumando.split("| Qué hay de nuevo |")[1].split("\n\n")[0].splitlines()
     assert any(fila.startswith('| `usar buzon "deposito.mate"`') for fila in filas)
     assert all(fila.startswith("|") for fila in filas[1:])
