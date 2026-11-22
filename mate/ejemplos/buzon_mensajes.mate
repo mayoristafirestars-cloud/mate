@@ -1,0 +1,9 @@
+# Los mensajes que cruzan entre buzon_ventas.mate y buzon_deposito.mate.
+# Están en un solo archivo, y los dos programas lo traen con 'usar': así los dos dicen
+# lo mismo, y si un día cambia un campo se cambia en un solo lugar.
+
+# 'pedido' es el dato propio de cada reserva: si el mismo pedido llega dos veces (porque
+# alguien corrió Ventas dos veces), Depósito se da cuenta y no descuenta de nuevo.
+mensaje Reservar { pedido: texto, producto: texto, cantidad: numero desde 1 hasta 100 } responde Reservado
+mensaje Reservado { pedido: texto, hecho: logico, quedan: numero desde 0 }
+mensaje Vender { pedido: texto, producto: texto, cantidad: numero }

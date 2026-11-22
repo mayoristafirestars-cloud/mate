@@ -1,0 +1,69 @@
+# Dos programas que se mandan mensajes por el buzón (0.7). Este es Ventas; el otro,
+# buzon_deposito.mate, es el dueño del stock. Están en la misma carpeta.
+#
+#   python mate\mate.py correr mate\ejemplos\buzon_ventas.mate     (deja la reserva en el buzón)
+#   python mate\mate.py correr mate\ejemplos\buzon_deposito.mate   (la atiende y contesta)
+#   python mate\mate.py correr mate\ejemplos\buzon_ventas.mate     (recibe la contestación)
+#
+# El mensaje sale cuando este programa termina, y Depósito lo recibe cuando lo corren.
+# Para ver qué hay esperando:  python mate\mate.py buzon mate\ejemplos\buzon_deposito.mate
+
+usar "buzon_mensajes.mate"
+# Con esto, los agentes de ese otro programa quedan como destino de 'enviar'.
+# (No se les puede 'preguntar': ese programa puede no estar corriendo.)
+usar buzon "buzon_deposito.mate"
+
+agente Ventas {
+    # Los pedidos que todavía no contestó Depósito. Se recuerda de una corrida a la otra.
+    estado recordado esperando = []
+
+    al recibir Vender como v {
+        esperando = agregar(esperando, v.pedido)
+        enviar Reservar { pedido: v.pedido, producto: v.producto, cantidad: v.cantidad } a Deposito
+    }
+    # La contestación de Depósito llega acá, en una corrida de más adelante.
+    al recibir Reservado como r {
+        esperando = quitar(esperando, r.pedido)
+        si r.hecho {
+            mostrar("Pedido {r.pedido}: reservado. Quedan {r.quedan}.")
+        } sino {
+            mostrar("Pedido {r.pedido}: no hay stock.")
+        }
+    }
+    # Si Depósito no pudo atender la reserva (no cumplía su contrato, o falló), avisa.
+    al fallar como f {
+        mostrar("Depósito no pudo con el pedido {f.mensaje.pedido}: {f.motivo}")
+    }
+}
+
+enviar Vender { pedido: "A-17", producto: "yerba", cantidad: 2 } a Ventas
+
+# ── Las pruebas: 'probar' no escribe ningún buzón de verdad ──
+
+prueba "el pedido sale para Depósito y no se escribe ningún buzón" {
+    enviar Vender { pedido: "P-1", producto: "yerba", cantidad: 2 } a Ventas
+    sea salidos = mensajes_enviados("Reservar")
+    asegurar largo(salidos) == 1
+    asegurar salidos[0].a == "Deposito"
+    asegurar salidos[0].mensaje.cantidad == 2
+}
+
+prueba "lo que conteste Depósito se prueba con simular" {
+    # En esta prueba, Depósito contesta esto en el momento (sin buzón).
+    simular Deposito al recibir Reservar como r {
+        responder Reservado { pedido: r.pedido, hecho: verdadero, quedan: 8 }
+    }
+    enviar Vender { pedido: "P-2", producto: "yerba", cantidad: 2 } a Ventas
+    sea vueltas = mensajes_enviados("Reservado")
+    asegurar largo(vueltas) == 1
+    asegurar vueltas[0].a == "Ventas"
+}
+
+prueba "la llegada de la contestación se prueba mandándola desde la prueba" {
+    enviar Reservado { pedido: "P-3", hecho: falso, quedan: 0 } a Ventas
+    asegurar largo(mensajes_enviados("Reservado")) == 1
+}
+
+prueba "el contrato frena una cantidad imposible antes de que salga" {
+    asegurar falla { Reservar { pedido: "P-4", producto: "yerba", cantidad: 500 } }
+}
