@@ -105,6 +105,24 @@ entre vuelta y vuelta, y por este registro.
   lo heredan los subprocesos). Las pruebas que miran `py` o `mate` ponen su valor. No hace
   falta un `conftest.py` común: `mate/modelo` pasa igual en la simulación.
 
+- (C1, v3) En el ejemplo 12 la frase se parte en los signos de puntuación (`palabras_y_cortes()`
+  deja una marca en , . ; : ? ! ( ); `palabras_de()` devuelve lo mismo que antes). Un punto o
+  una coma entre dos cifras sigue siendo parte del número.
+- (C1, v3) El "no" se busca para atrás hasta el corte anterior o un "pero", sin tope de
+  palabras (un tope volvería a confirmar envíos negados en frases largas), y para adelante en
+  las tres palabras que siguen a la de envío, sin cortar en la coma ("¿envío? no, gracias").
+  Costos aceptados por R: sin comas, un "no" de otra cosa antes de la palabra de envío deja
+  solo el total; "mandame 12 yerbas, no voy a poder ir" también.
+- (C1, v3) Niegan además: "jamás", "nada (de)", "nadie", "ningún", "olvidate", "dejalo". "Sin"
+  no niega hacia adelante ("sin falta") y "nada más" tampoco. "No sé" es excepción solo si
+  sigue "si", "cómo", "cuándo", "dónde", "qué", "cuánto", "cuál", "bien" o un corte.
+- (C1, v3) Sigue el criterio de la v2: con negación y pedido el programa calla sobre el envío
+  (no se pasó a una "regla neutra": cambiaría respuestas ya aprobadas).
+- (C1, v3) El nombre del producto se saca de la frase también en plural (`es_del_nombre()`)
+  antes de buscar el envío; `misma_palabra()` compara primero tal cual y después "ces"/"zes".
+- (C1, v3) "2 pan lactal" con "Pan" y "Pan dulce" cotiza Pan: "lactal" no está en la planilla
+  y no se distingue de "2 pan por favor". Aceptado por R; anotado en el README.
+
 ## Punto de partida
 
 - Rama creada desde `main` en `7a4cf4f`.
@@ -265,3 +283,88 @@ tiene que sugerir `py mate\mate.py curso`, y `py -m pytest mate\pruebas mate\mod
 no:cacheprovider` tiene que dar todo verde; (2) preguntarle al dueño si devoluciones y
 cancelaciones van a la IA con frenos (como ahora) o a una respuesta fija.
 Para el cambio 2: P19, además de lo anotado en la vuelta 1.
+
+### Cambio 1, vuelta 3 — NO cerrado (queda un problema medio: P22)
+
+**Qué se implementó** (commit `dd95608`, implementador; `mate/mate.py` no se tocó)
+- Ejemplo 12: el "no" después de la palabra de envío, lejos o dicho de otra forma da solo el
+  total (P15); "2 panes dulces" cotiza el Pan dulce (P16); "12 mandiocas" ya no es un pedido
+  de envío (P17); un "no" de otra cosa separado por una coma ya no apaga el envío (P18).
+  2 pruebas más en el ejemplo (20) y 2 ampliadas.
+- README: el párrafo "El envío" y "Algunos casos que conviene conocer" dicen dónde se busca el
+  "no" y qué queda afuera. MEJORAS 121: punto "Tercera vuelta".
+- Pruebas de Python: ninguna nueva; se ampliaron las dos del ejemplo 12. Única prueba vieja
+  tocada: "18 de 18" pasó a "20 de 20". Ninguna afirma menos (R, P).
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `dd95608`)
+- `pytest mate/pruebas mate/modelo`: 798 pasan, 0 fallan (igual que la vuelta 2); también con
+  `MATE_ORDEN=py` en el entorno.
+- `probar mate/ejemplos`: 64 de 64, en 18 archivos. `probar mate/curso`: 30 de 30, en 24 archivos.
+- Ejemplo 12: `verificar` "sin errores"; `probar` 20 de 20. Después, `git status` vacío.
+
+**Flujos cruzados comprobados por el integrador**
+- Ejemplo 12 con modelo propio de mentira (127.0.0.1, `MATE_IA_PROPIA` + clave de mentira), en
+  una carpeta temporal: los dos pedidos del criterio dan $ 117.606,00 con envío sí y
+  $ 175.000,00 con envío no; "12 yerbas, el envio no hace falta" y "12 yerbas sin envio" dan
+  solo el total; "no, 12 yerbas con envio" da envío sí. El servidor recibió 0 pedidos y la
+  traza no tiene ninguna Consulta. No se creó memoria ni bitácora.
+- Mismo modelo diciendo "12 fideos salen $ 10,80 y te hago un descuento": "hola, que tienen?"
+  y "no quiero 3 yerbas" llegan al modelo (4 pedidos: 2 por cada una), salta el freno y sale
+  la reserva; quedan 2 lecciones propuestas y `propuestas` las muestra. La clave no aparece
+  en la salida, la traza, la memoria ni la bitácora.
+- Windows simulado (`os.name`="nt", lanzador puesto a mano): `py` da `py mate\mate.py`; sin
+  lanzador o con `python` da `python mate\mate.py`; `MATE_ORDEN=mate` da `mate`;
+  `MATE_ORDEN=py` da `py mate\mate.py`. Pasan las 7 pruebas de la orden y del ejemplo 12.
+- `nuevo mostrador` y `ensayar` siguen sin existir ("no conozco la orden"): esos cruces, y
+  las sugerencias con `py` en las órdenes nuevas, quedan para los cambios 2 y 3.
+
+**Estado de los problemas de la vuelta 2**
+
+| # | Estado | Evidencia |
+|---|---|---|
+| P15 | resuelto (quedan P22 y P24) | las 17 frases de los dos informes dan solo el total, más las que R y P probaron por su cuenta ("envío: no", "(sin envío)", "envio ni loco") |
+| P16 | resuelto | "2 panes dulces" da Pan dulce; "2 pan" y "2 panes" dan Pan (R, P, I) |
+| P17 | resuelto | "12 mandiocas" solo el total; "12 mandiocas con envio" da sí (R, P, I) |
+| P18 | mejorado; el resto queda como decisión | con coma contestan el envío; sin coma callan, y el README lo dice (R, P) |
+| P19 | pasa al cambio 2 | sin cambios |
+| P20, P21 | descartados (ya estaban) | sin cambios |
+| P11 | sigue pendiente del dueño | no hay Windows acá |
+
+**Problemas nuevos de la vuelta 3**
+
+| # | Problema | Quién | Gravedad | Estado |
+|---|---|---|---|---|
+| P22 | Ejemplo 12: si un producto de la planilla tiene "sin" o "no" en el nombre ("Yerba sin palo", "Galletitas sin sal", "Arroz no se pasa"), "12 yerbas sin envio", "12 yerba mate sin envio" y "12 arroz no me lo mandes" contestan "Con envío: sí". `entender()` saca de la frase todas las palabras de los nombres de los productos nombrados antes de buscar el envío, y con ellas se van "sin" y "no". Viene de la vuelta 2; el README promete "sin" | R; reproducido por I | media | pendiente (vuelta 4) |
+| P23 | "12 yerbas, no tengo necesidad de envio" y "12 yerbas, no puedo recibir envios" dan "sí": "no tengo" y "no puedo" son excepción aunque nieguen | R | baja | pendiente (vuelta 4 si entra: acotarlas como "no sé", o anotarlo en el README) |
+| P24 | Un "no" a más de tres palabras después de la palabra de envío, o dicho de otra forma, da "sí" ("el envio esta vez mejor no", "el envio la verdad que no lo quiero", "lo del envio mejor dejemoslo") | R, P | baja | aceptado como límite conocido: el README lo avisa. Si se toca: alargar la ventana hasta el próximo signo y sumar "dejemos" |
+| P25 | "12 yerbas, no se si quiero envio" y "¿envío? No sé" dan "sí" | P | baja | descartado: decisión documentada, y lo que dice es cierto para 12 unidades |
+| P26 | Pedidos de envío con un "no" cerca callan ("12 yerbas con envio, no te olvides", "mandame 12 yerbas. No hay apuro", "12 yerbas sin falta mandalas") | P | baja | descartado: calla, no afirma nada falso; está en el README |
+| P27 | "no quiero 3 yerbas con envio" se cotiza (3 yerbas, sin frase de envío) en vez de ir a la IA | Impl. | baja | pendiente, no exigido: R prefiere que vaya a la IA como "otra cosa" |
+| P28 | "no me alcanza, 12 yerbas con envio" da solo el total ("alcanza" cuenta como palabra de envío) | Impl. | — | descartado: calla y es una frase rara (R) |
+
+El integrador no arregló nada en esta vuelta: P22 es lógica del ejemplo 12 (no de
+integración), necesita revisión independiente y va al implementador.
+
+**Criterios de aceptación del cambio 1**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| El 12 pasa `verificar` y `probar`, comentado | cumple | "sin errores"; 20 de 20; pasa la prueba de los ejemplos graduales (R, P, I) |
+| Los dos pedidos, exactos y sin IA | cumple | $ 117.606,00 con envío sí; $ 175.000,00 con envío no; 0 pedidos al modelo de mentira y 0 Consulta en la traza (R, P con 4 modelos, I) |
+| Lo demás va a la IA con frenos | cumple | "hola" y "no quiero 3 yerbas" llegan al modelo; el precio inventado termina en la reserva (R, P, I) |
+| Comandos con `py` / `mate` / como antes | cumple solo simulado | `mate.py` sin cambios desde `77a74fa`; simulación de P e I; sin probar en Windows real (P11) |
+| El manual dice qué va en cada lugar | cumple, con una promesa a corregir | con la planilla de muestra el README coincide frase por frase (R, P); "sin" no vale si un producto lo tiene en el nombre (P22) |
+| Para todo: pruebas, ejemplos, curso | cumple en Linux; Windows con `py` solo simulado | 798 / 64 de 64 / 30 de 30 |
+| Para todo: nada nuevo sin usarlo, `probar` limpio, claves | cumple | intérprete sin tocar; `git status` vacío tras pytest y `probar`; clave de mentira ausente de salida y archivos (P, I) |
+
+**Para la vuelta 4**: P22 (obligatorio): al armar `sin_nombre` no sacar las palabras de
+negación (las de `niega()`), o sacar solo las que `es_de_envio()` tomaría por envío; agregar
+a la prueba una planilla con "Yerba sin palo" y las frases "12 yerbas sin envio", "12 yerba
+mate sin envio" y "12 yerba sin palo sin flete". Si entran: P23 y P27.
+Para el coordinador (sin cambios): falta la corrida del dueño en Windows (`py mate\mate.py
+curso 99` y `py -m pytest mate\pruebas mate\modelo -q -p no:cacheprovider`) y su decisión
+sobre devoluciones y cancelaciones.
+Para el cambio 2: `nuevo mostrador` hereda del ejemplo 12 `palabras_y_cortes()`,
+`es_del_nombre()` y también P22 si no se arregla antes; la planilla del dueño puede tener
+productos "sin palo", "sin sal", "sin TACC". Si la planilla tiene "Pan dulce" y "Dulce de
+leche", "2 panes dulces" contesta "de a un producto por vez": no es falla (R). Sigue P19.
