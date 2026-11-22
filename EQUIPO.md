@@ -1678,3 +1678,154 @@ mentira) y si la memoria que borró el implementador tenía algo de antes.
 como prueba. Si entran, porque tocan el mismo tramo: P115, P116, P117 y P89. Sigue pendiente
 la vuelta 4 del cambio 1 (P102). El orden del dueño sigue igual: primero A, después B; nada de
 B todavía.
+
+### Cambio 2: ensayar la conversación entre agentes, vuelta 2 — NO cerrado
+
+Revisor y agente de pruebas no aprobaron. Queda UN problema medio nuevo, que los dos
+encontraron por separado: P119 (al entregar lo mandado con `enviar` por la pregunta, el ensayo
+se saltea lo que el programa había mandado antes y seguía en la cola; el agente recibe los
+mensajes en otro orden que en la corrida de verdad). Los tres medios de la vuelta 1 (P112, P113
+y P114) quedan resueltos en los caminos del registro, y también P116 y P117.
+
+Nota del integrador: el cambio 1 sigue NO cerrado (queda P102, vuelta 4 pendiente). Nada de B
+se empezó: el orden del dueño sigue siendo primero A, después B.
+
+**Qué se hizo** (commit `4b7f812`, implementador; local, sin push, sin tocar `main` ni este
+archivo). Tocó `mate.py`, `test_mate.py`, `casos_del_equipo.txt`, README y MEJORAS.
+- P112: en un caso con reglas de mensajes, cuando el programa vuelve a pedir por teclado se
+  entrega lo que quedó mandado con `enviar` por esa pregunta y cuenta como que viajó. En la
+  conversación va debajo del renglón "lo que sigue quedó mandado con 'enviar': llega después de
+  contestarle al cliente". Lo que muestren los agentes en esa entrega no entra en la respuesta.
+  También anda con un `enviar` del programa principal.
+- P114: lo mandado con `enviar` antes de la pregunta ya no se adelanta. Si llega mientras se
+  atiende la pregunta, no se cuenta ni se muestra. Un caso sin reglas de mensajes no entrega
+  nada de más. El caso de P de la vuelta 1 (`cadena.mate`) vuelve a dar 1 de 1 y quedó como prueba.
+- P113: después de `de` y de `a` vale solo el nombre exacto de un agente, `el programa` o una
+  copia que el programa crea con `crear ... llamado "..."`. Cortan con código 2 y renglón el
+  orden al revés, la regla sin destino, `y Reserva`, `hacia`, `zzz`, los paréntesis y la copia
+  que no existe, con `tiene que viajar` y con `no tiene que viajar`.
+- P116: dos mensajes separados con coma dan un error que dice que va un mensaje por regla.
+- P115: se sacó "viaja" de la lista de errores de tipeo; las tres preguntas del registro
+  vuelven a ser preguntas. Se toma por regla mal escrita lo que tiene forma de regla.
+- P117: el informe escribe "el programa" en "No cumple", como enseñan el README y los casos.
+- P89: cuando algún caso falla y los agentes tienen algo recordado, el informe termina con un
+  aviso ("Ojo: ... arrancan cada pregunta con lo que recuerdan...") que nombra `--olvidar`. Si
+  todos pasan no dice nada.
+- Casos de muestra del equipo (y los que crea `nuevo equipo`): se sumó "ingreso 30 azucar" con
+  reglas sobre Ingreso, Llego y SigueFaltando. Ahora son 10. El encabezado explica `el
+  programa` y "un mensaje por regla".
+- 38 pruebas nuevas (con las parametrizadas) al final de `test_mate.py`.
+- README (sección "Ensayar la conversación de un equipo") y MEJORAS 125 (nota de la vuelta 2).
+  No se tocó el lenguaje: siguen 36 palabras y 48 funciones incluidas.
+
+**No se hizo** (declarado por el implementador): probar en una Windows de verdad ni contra una
+IA real; `pytest` completo solo en 3.13 (las otras versiones no tienen pytest instalado; en
+3.10, 3.11, 3.12 y 3.14 corrió `nuevo equipo`, `probar`, `ensayar` con los casos de muestra y
+`probar` de ejemplos, y en 3.10 y 3.14 también el curso); sigue sin poder exigirse orden,
+cantidad ni campos (P118); P89 quedó como aviso, no como arreglo; una copia cuyo nombre se arma
+al correr no se revisa antes de ensayar (dicho en el README; ver P121); el "en respuesta al N"
+puede quedar corrido (P122); un caso sin reglas de mensajes con un solo agente no muestra el
+renglón de lo mandado con `enviar` (P126); no tocó `ayuda`, la guía, la clase 13 ni el
+encabezado del ejemplo 13. Además dejó cosas fuera del repositorio: instaló Python 3.10 y 3.14
+con `uv python install` (quedaron en la carpeta de uv del usuario) y dejó en `/tmp` varias
+carpetas temporales propias con copias de ejemplos (P127).
+
+**Quién revisó y quién probó**: revisor (R) y agente de pruebas (P), cada uno sobre una copia
+del commit `4b7f812` en una carpeta temporal propia, ya borrada. Integrador (I): las tres
+corridas, dos reproducciones y este registro; no tocó código ni pruebas.
+
+**Veredictos**: R **no aprueba** (un medio: P119; seis bajos). P **no aprueba** (un medio:
+P119; siete bajos). Cambio 2 **NO cerrado**.
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `4b7f812`, Python 3.13.18)
+- `pytest mate/pruebas mate/modelo`: 993 pasan, 0 fallan (antes 955). Implementador, R y P
+  dieron el mismo número.
+- `probar mate/ejemplos`: 92 de 92, en 19 archivos. `probar mate/curso`: 37 de 37, en 26 archivos.
+- Después de todo, `git status --short` vacío y ninguna memoria en `mate/ejemplos`.
+- Reproducido por I, en una carpeta temporal propia (ya borrada):
+  - Equipo creado con `nuevo equipo`: `ensayar` con los casos de muestra da 10 de 10. P112
+    arreglado: "ingreso 30 azucar" con `no tiene que viajar: Llego` da 0 de 1 y muestra
+    "Deposito → Compras: Llego" debajo del renglón de lo mandado con `enviar`.
+  - P119, con el programa de P (`enviar Inventario { stock: 40 }` antes del primer `leer()` y
+    `enviar Ingreso { cantidad: 30 }` por la pregunta): `correr --traza` muestra "Deposito →
+    Compras: Bien { quedan: 70 }"; `ensayar` da 0 de 1, muestra "Deposito → Compras: Falta {
+    quedan: 30 }" y dice "Hay que cambiar el programa (o el caso)".
+  - P120: "hola" con `no tiene que viaja: Reponer` y `no puede decir: zzz` da "2 de 2 casos
+    pasaron" y gasta 2 consultas.
+- R y P compararon contra el `mate.py` anterior al cambio 2 (commit `5433170`): los ejemplos
+  10, 11 y 12 con `casos.txt` (P también con `--veces=3`) y el 13 con los casos viejos dan el
+  mismo informe (diff vacío).
+- Pruebas viejas tocadas (R revisó los renglones quitados): solo conteos de los casos de
+  muestra ("9 de 9" pasó a "10 de 10", "8 de 9" a "9 de 10" y `len == 9` a 10). Ninguna se
+  quitó ni afirma menos.
+- Otras versiones: P corrió con Python 3.10.20 y 3.14.6 el ejemplo 13 con
+  `casos_del_equipo.txt` (10 de 10) y sus casos propios, con el mismo resultado que en 3.13. El
+  implementador declara 3.10, 3.11, 3.12 y 3.14 sin pytest. I y R corrieron solo con 3.13.
+  Nadie corrió `pytest` fuera de 3.13, ni en una Windows de verdad, ni contra una IA real.
+
+**Criterios de aceptación del cambio 2**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| Un caso puede decir "tiene que viajar X de A a B" y "no tiene que viajar X" | cumple en el camino normal; no cumple en un caso angosto | 10 de 10 con los casos de muestra; lo mandado con `enviar` por la pregunta cuenta (P112: R, P, I); 25 reglas mal armadas (R) y 27 (P) cortan con archivo:renglón (P113, P116); copias con `de`, tildes y ñ en el nombre andan. Falla si quedó algo mandado antes de la pregunta: `no tiene que viajar: Llego` pasa aunque Llego viaja de verdad (P119) |
+| Falla con un mensaje claro que muestra la conversación | cumple, con una reserva | código 1, "No cumple: ..." con `el programa` (P117), conversación numerada; el informe del README con `stock_minimo = 0` se reproduce igual (P). En P119 la conversación que muestra no es la de la corrida de verdad |
+| Los casos viejos siguen andando igual | cumple, con un resto bajo | diff vacío contra `5433170` en los ejemplos 10, 11, 12 y 13 (R, P); el programa de P con `enviar` antes de leer vuelve a dar lo mismo que antes del cambio (P114). Resto: cuatro preguntas raras con forma de regla siguen cortando (P115) |
+| Para todo: pruebas que ya había, sin aflojar | cumple | 993 / 92 de 92 / 37 de 37; pruebas viejas tocadas solo en el conteo de casos de muestra |
+| Para todo: topes, red, claves, README/`ayuda`/MEJORAS | cumple, con pendientes | 36 palabras y 48 funciones; `ensayar` no cambia ni crea la memoria (mismo md5: R, P); sin claves ni datos personales en el diff. README y MEJORAS 125 no dicen que lo mandado antes no se entrega (P119) y prometen tomar por regla mal escrita lo que "nombra un mensaje del programa" (P120) |
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|---|
+| P119 | En un caso con reglas de mensajes, la entrega de lo mandado con `enviar` se hace FUERA DE ORDEN cuando en la cola todavía hay algo mandado antes de la pregunta: `preguntar_al_programa()` aparta lo de antes, entrega solo lo de la pregunta y vuelve a poner lo de antes. En la corrida de verdad llega primero lo de antes. Si eso prepara al agente (un inventario mandado con `enviar`), el ensayo muestra una conversación que no ocurre: con el programa bien fallan `tiene que viajar: Llego de Deposito a Compras` y `no tiene que viajar: SigueFaltando`, y `no tiene que viajar: Llego` PASA aunque Llego viaja (falso aprobado, la misma clase que P112). Si el agente comprueba con `asegurar` que ya recibió el inventario, el ensayo dice "El programa falló". Alcance angosto: programa que prepara un agente con `enviar` antes del primer `leer()`, sin un `preguntar` en el medio, y pregunta que se atiende con otro `enviar`. No afecta al ejemplo 13 ni a `nuevo equipo`. La prueba `test_un_caso_viejo_contesta_igual...` fija "ni se entrega" sin mirar el orden; README y MEJORAS 125 no lo avisan | R, P (cada uno con un programa propio); reproducido por I | media | no (nace del arreglo de P112 y P114) | pendiente (vuelta 3, obligatorio): no apartar lo de antes; entregarlo en su orden sin contarlo ni mostrarlo. Con los programas de R y de P como prueba, comparando con `correr --traza` |
+| P120 | Una regla de mensajes con la palabra clave mal escrita pasa en silencio como una pregunta más cuando debajo hay otras reglas: `no tiene que viaja: Reponer` (cortaba en la vuelta 1; se perdió al arreglar P115), `no tiene que viajar el reponer`, `no tiene que viajar; Reponer`, `no tiene que vijar: Reponer`, `no viaja: Reponer`. El informe la lista como "✓ no tiene que viaja: Reponer", cuenta un caso de más y gasta una consulta. El README promete avisar lo que "nombra un mensaje del programa". Si es la única regla del caso corta, pero señala el renglón de la pregunta. La misma clase ya existía en la 0.6 con `no puede dice:` | R, P; reproducido por I | baja | en parte (`viaja:` es retroceso de esta vuelta) | pendiente (vuelta 3 si entra): avisar un renglón con sangría, debajo de una pregunta, que empieza con "no tiene que", "tiene que", "no puede" o "debe" y nombra un mensaje del programa |
+| P115 | Resto: siguen cortando con código 2 preguntas que valían antes del cambio 2: "Tiene que viajar Juan", "debe viajar Pedido a Rosario", "el pedido tiene que viajar: hoy", "tiene que viajar: hoy". Las tres del registro ya dan igual que antes; P probó 30 renglones de clientes que hablan de viajar y 23 siguen siendo preguntas | R | baja | no | resuelto en lo del registro; el resto queda aceptado (son preguntas raras para un mostrador y el error dice el renglón). Va contra P120: aflojar acá abre más reglas mal escritas en silencio |
+| P121 | Si el programa tiene UN `crear Agente llamado <algo que no es texto fijo>` (aunque esté en una función que nunca se llama), cualquier cosa que empiece con el nombre de ese agente pasa la revisión: `no tiene que viajar: Pedido a Vendedor Centro y Caja` da 1 de 1. El README avisa el límite de la copia con nombre armado, pero no que apaga la revisión para todas las copias de ese agente | R | baja | no | pendiente (vuelta 3 si entra): como mínimo decirlo en el README; mejor, avisar en el informe que esa regla no se pudo revisar |
+| P122 | El "en respuesta al N" de la conversación del informe queda corrido en uno cuando un mensaje de antes de la pregunta se entrega intercalado. Qué mensajes se cuentan está bien | implementador (declarado), P (reproducido); R no lo reprodujo | baja | no | pendiente (vuelta 3 si entra; toca el mismo tramo que P119) |
+| P123 | Si dos agentes entran en bucle con `enviar`, un caso con reglas de mensajes no se cuelga (corta con "se superaron 100000 mensajes"), pero el informe vuelca la conversación entera: 100.015 renglones, 6,6 MB. No hay tope de cantidad de renglones | P | baja | no | pendiente (vuelta 3 si entra): mostrar los primeros y los últimos renglones y decir cuántos se saltearon |
+| P124 | La cuenta que se anuncia antes de ensayar ("hasta N consultas a la IA: una por cada pregunta") se queda corta cuando un agente consulta a la IA al recibir un `enviar` que ahora se entrega: con 2 preguntas anuncia "hasta 2" y hace 4. Con la IA de verdad cada una se paga | P | baja | no | pendiente (vuelta 3 si entra): ajustar el texto del anuncio para los casos con reglas de mensajes |
+| P125 | Errores poco claros, todos con código 2: `Reservar del programa a Ventas` no sugiere "de el programa"; una copia llamada "a" o un agente llamado A no se pueden nombrar después de `de` | P | baja | no | pendiente (prolijidad): aceptar "del programa" |
+| P126 | Un caso de equipo SIN reglas de mensajes que falla y donde habló un solo agente no muestra ni la conversación ni el renglón de lo mandado con `enviar` | implementador (declarado), P | baja | no | aceptado: así el informe de un solo agente queda como en la 0.6; el README lo dice |
+| P127 | El implementador dejó cosas fuera del repositorio: Python 3.10 y 3.14 instalados con `uv python install` en la carpeta de uv del usuario, y varias carpetas temporales propias en `/tmp` | implementador (declarado) | baja | no | avisado al dueño; I no borró nada porque no las creó. Para adelante: cada agente borra sus carpetas al terminar |
+| P112 | Lo mandado con `enviar` mientras se atiende la pregunta no contaba | R, P, I | media | — | resuelto en el camino del registro (ejemplo 13, `nuevo equipo`, `enviar` del programa y en cadena). Su resto es P119 |
+| P113 | Reglas mal armadas pasaban en silencio | R, P | media | — | resuelto (25 reglas de R y 27 de P cortan con renglón). Resto bajo: P121 |
+| P114 | Un caso viejo cambiaba de resultado | R, P | media | — | resuelto (diff vacío contra `5433170`; con prueba) |
+| P116 | Dos mensajes con coma daban un error que no orientaba | P | baja | — | resuelto ("En cada regla va un solo mensaje") |
+| P117 | El informe escribía "(programa)" en "No cumple" | P | baja | — | resuelto |
+| P89 | `ensayar` arranca con el stock que Depósito recuerda, no con el de la planilla: después de vender de verdad, los casos de muestra dan 9 de 10. Ahora el informe termina con el aviso y nombra `--olvidar`; si todos los casos pasan no dice nada | R, P | baja | sí (cambio 1) | aceptado como aviso (R y P lo dan por bueno para esta vuelta) |
+| P118 | No se puede exigir el orden de los mensajes, cuántas veces viaja uno ni mirar sus campos | implementador | baja | sí | aceptado como límite de la 0.7 |
+| P11 | Sin probar en una Windows de verdad (`py`, PowerShell, Bloc de notas) ni contra una IA real | implementador, R, P, I | baja | sí | pendiente del dueño |
+
+Siguen abiertos del cambio 1, sin cambio en esta vuelta: P102 (medio, vuelta 4 obligatoria),
+P103 a P111, P80 de fondo, P85, P86, P87, P88, P91, P92 y P94.
+
+No verificado por nadie en esta vuelta: Windows, la IA de verdad, y `pytest` completo en
+Python 3.10, 3.11, 3.12 y 3.14 (en esas versiones solo se corrieron `probar` y `ensayar`).
+
+**Decisiones técnicas nuevas**
+- La entrega de lo mandado con `enviar` se hace solo en casos con reglas de mensajes. Así un
+  caso viejo da exactamente lo mismo que antes del cambio 2: sin consultas, errores ni textos
+  nuevos por una entrega que antes no ocurría.
+- Lo que un agente muestra al recibir un `enviar` entregado después de contestar no entra en
+  `tiene que decir` ni en `no puede decir`: en la corrida de verdad el cliente lo ve después.
+- Si un agente falla al recibir ese `enviar`, el caso con reglas de mensajes falla con "El
+  programa falló". El mismo caso sin reglas de mensajes no lo entrega y pasa como siempre.
+- Lo "de antes de la pregunta" se reconoce por el número de conversación del mensaje: no se
+  cuenta, no se muestra y no gasta número. Hoy además se aparta de la cola al entregar lo de
+  la pregunta; esa parte es la causa de P119 y se revierte en la vuelta 3 (se entrega en su
+  orden, sin contar ni mostrar). `leer()` adentro de un agente está prohibido por el lenguaje,
+  así que el filtro no deja afuera mensajes de un agente que lee del teclado (R).
+- No se usa la sangría para decidir si un renglón es una regla mal escrita (lo sugería el
+  registro de la vuelta 1): pruebas viejas exigen error en renglones sin sangría. Se decide por
+  la forma del renglón. Consecuencia: P120.
+- El orden invertido (`a X de Y`) da error en vez de aceptarse: un nombre de copia puede llevar
+  "de" adentro y aceptar los dos órdenes sería ambiguo.
+- El aviso de memoria (P89) sale también en un mostrador de un solo agente con estado
+  recordado cuando un caso falla. Es un renglón al final; no cambia qué casos pasan.
+- Integrador: P119 queda medio (R y P coinciden) porque da un falso aprobado de "no tiene que
+  viajar" y contradice el criterio "el ensayo muestra la conversación". No arregló nada en esta
+  vuelta: el arreglo cambia cuándo se vacía la cola y pide prueba y revisión independiente.
+
+**Para la vuelta 3 del cambio 2**: P119 (obligatorio), con los programas de R y P como
+prueba. Si entran, porque tocan el mismo tramo: P122, P120, P121, P123, P124 y P125. Sigue
+pendiente la vuelta 4 del cambio 1 (P102). Primero A, después B; nada de B todavía.
