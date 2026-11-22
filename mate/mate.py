@@ -4639,6 +4639,7 @@ class Interprete:
         self.ia_usadas = 0  # cuántas de esa lista ya se dieron
         self.ia_consultas = 0  # consultas de verdad en esta corrida
         self.ia_historial = []  # en una prueba: lo que se le consultó a la IA
+        self.ensayando = False  # la orden 'ensayar': ia_historial se llena igual que ahí
         # Lo que aprenden los agentes (0.4). Solo 'correr' con un archivo lo llena: con
         # 'probar', en la consola y en las pruebas queda así, y nada toca el disco.
         self.recordando = False  # si los 'estado recordado' se recuperan de la memoria
@@ -5267,7 +5268,7 @@ class Interprete:
                     self.trazar(f"   con la lección {i}: {recortado(leccion)}", None, hondo)
             consulta = {"agente": quien, "instrucciones": instrucciones,
                         "pregunta": pregunta, "respuesta": None}
-            if self.en_prueba:
+            if self.en_prueba or self.ensayando:
                 self.ia_historial.append(consulta)
             try:
                 if self.ia_simulada:
@@ -5546,7 +5547,7 @@ class Interprete:
                        "Mañana vuelve a consultar sola.")
                     + " El tope se cambia en los 'frenos' del agente, y la cuenta se ve con:  "
                     f"{como_se_llama()} bitacora {para_pegar(self.archivo or 'programa.mate')}"))
-            if self.en_prueba and not anotadas:
+            if (self.en_prueba or self.ensayando) and not anotadas:
                 anotadas.append({"agente": quien, "instrucciones": instrucciones,
                                  "pregunta": pregunta, "respuesta": None, "freno": que})
                 self.ia_historial.append(anotadas[-1])
@@ -7660,6 +7661,8 @@ FUNCIONES INCLUIDAS (no hay otras)
           si minusculas(dicho) == "chau" {{ romper }}
           mostrar("Dijiste: {{dicho}}")
       }}
+  (La orden 'ensayar programa.mate casos.txt' prueba un programa así sin tipear: escribe
+  cada pregunta del archivo en el primer leer() y mira lo que el programa muestra después.)
 - consultar_ia(instrucciones, pregunta) le pregunta a una IA de verdad (Claude) y devuelve su
   respuesta como texto. Sirve adentro de un agente: el agente arma la pregunta, consulta y
   responde con su mensaje de siempre. Es paga y necesita la clave en la variable de entorno
@@ -8466,8 +8469,10 @@ def orden_curso(args, avisar, carpeta=None, mostrar=print):
 CARPETA_DE_EJEMPLOS = "ejemplos"
 EJEMPLO_DEL_MOSTRADOR = "12_mostrador_con_reglas.mate"
 PLANILLA_DE_MUESTRA = "precios.csv"
+CASOS_DE_MUESTRA = "casos.txt"  # los casos para la orden 'ensayar' (más abajo)
 _MOSTRADOR_DESDE = "\n# La regla del envío:"
 _MOSTRADOR_HASTA = "\n# ── Las pruebas"
+_CASOS_DESDE = "# Cómo se escribe"  # (en casos.txt: de ahí para abajo se copia tal cual)
 # (nombres de archivo que Windows no deja usar)
 _NOMBRES_DE_WINDOWS = ("con", "prn", "aux", "nul") + tuple(
     f"{p}{n}" for p in ("com", "lpt") for n in range(1, 10))
@@ -8503,6 +8508,9 @@ _ENCABEZADO_DEL_MOSTRADOR = """\
 #   Para atender con la IA de verdad:
 #          «ORDEN» correr «PROGRAMA»
 #   Para salir de la charla, escribí chau.
+#   Para ensayarlo: Mate le hace las preguntas anotadas en «CASOS» (se abre con el Bloc
+#   de notas) y dice cuáles contestó bien. Sirve para saber si una lección funcionó:
+#          «ORDEN» ensayar «PROGRAMA» «CASOS» --ia-simulada
 #
 # Las pruebas del final usan una lista fija, no tu planilla: siguen pasando aunque cambies
 # los productos, los precios o el número del envío. Una sola mira tu planilla, para
@@ -8595,19 +8603,23 @@ def orden_para_esta_carpeta():
 
 def archivos_del_mostrador(nombre, orden, carpeta_de_mate=None, fin_de_renglon=None):
     """Lo que crea 'nuevo mostrador <nombre>': {nombre del archivo: su contenido, en
-    bytes}. Falla con un ErrorMate si en la carpeta de Mate falta el ejemplo, o si ya no
-    tiene los dos títulos que marcan qué parte se copia."""
+    bytes}: el programa, la planilla y los casos para 'ensayar', en ese orden. Falla con un
+    ErrorMate si en la carpeta de Mate falta el ejemplo, o si ya no tiene los dos títulos
+    que marcan qué parte se copia."""
     carpeta = os.path.join(carpeta_de_mate or os.path.dirname(os.path.abspath(__file__)),
                            CARPETA_DE_EJEMPLOS)
     programa, planilla = f"{nombre}.mate", f"{nombre}_precios.csv"
+    casos = f"{nombre}_casos.txt"
     try:
         ejemplo = leer_fuente(os.path.join(carpeta, EJEMPLO_DEL_MOSTRADOR))
         with open(os.path.join(carpeta, PLANILLA_DE_MUESTRA), "rb") as f:
             muestra = f.read()
+        de_muestra = leer_fuente(os.path.join(carpeta, CASOS_DE_MUESTRA))
     except OSError:
         raise ErrorMate(
-            f"para crear un mostrador hacen falta {EJEMPLO_DEL_MOSTRADOR} y "
-            f"{PLANILLA_DE_MUESTRA}, que vienen con Mate, y no los encuentro en "
+            f"para crear un mostrador hacen falta {EJEMPLO_DEL_MOSTRADOR}, "
+            f"{PLANILLA_DE_MUESTRA} y {CASOS_DE_MUESTRA}, que vienen con Mate, y no los "
+            f"encuentro en "
             f"{para_pegar(carpeta)}. Si copiaste solo mate.py, bajá Mate de nuevo con todas "
             "sus carpetas", familia="archivo")
     desde, hasta = ejemplo.find(_MOSTRADOR_DESDE), ejemplo.find(_MOSTRADOR_HASTA)
@@ -8619,12 +8631,23 @@ def archivos_del_mostrador(nombre, orden, carpeta_de_mate=None, fin_de_renglon=N
     cuerpo = ejemplo[desde + 1:hasta + 1].replace(PLANILLA_DE_MUESTRA, planilla)
     texto = (_ENCABEZADO_DEL_MOSTRADOR + "\n" + cuerpo + _PRUEBAS_DEL_MOSTRADOR)
     for marca, valor in (("«PROGRAMA»", programa), ("«PLANILLA»", planilla),
-                         ("«ORDEN»", orden)):
+                         ("«CASOS»", casos), ("«ORDEN»", orden)):
         texto = texto.replace(marca, valor)
+    # Los casos de muestra traen, de nota, cómo se ensaya el ejemplo 12: acá va cómo se
+    # ensaya este mostrador (desde el título 'Cómo se escribe' es el mismo archivo).
+    corte = de_muestra.find(_CASOS_DESDE)
+    de_muestra = (f"# Casos para ensayar {programa}: lo que pregunta un cliente y lo que la "
+                  "respuesta\n# tiene que decir (o no puede decir). Es tuyo: cambialos y "
+                  "agregá los que quieras.\n#\n# Cómo se usa, en PowerShell, parado en "
+                  "la carpeta donde está este archivo:\n"
+                  f"#     {orden} ensayar {programa} {casos} --ia-simulada\n"
+                  "# (sin --ia-simulada contesta la IA de verdad: así se ve si una lección "
+                  "funcionó)\n#\n") + de_muestra[max(corte, 0):]
     # Con la marca del principio y los fines de renglón de esta computadora: así el Bloc
     # de notas de cualquier Windows lo muestra bien. (Mate lee las dos formas.)
-    texto = texto.replace("\n", os.linesep if fin_de_renglon is None else fin_de_renglon)
-    return {programa: texto.encode("utf-8-sig"), planilla: muestra}
+    fin = os.linesep if fin_de_renglon is None else fin_de_renglon
+    return {programa: texto.replace("\n", fin).encode("utf-8-sig"), planilla: muestra,
+            casos: de_muestra.replace("\n", fin).encode("utf-8-sig")}
 
 
 def orden_nuevo(args, avisar, mostrar=print):
@@ -8665,10 +8688,11 @@ def orden_nuevo(args, avisar, mostrar=print):
     except ErrorMate as e:
         avisar(e.mensaje, "al escribir la orden: 'nuevo mostrador' sin los ejemplos de Mate")
         return 1
-    programa, planilla = list(archivos)
-    # Nada se pisa: ni el programa, ni la planilla, ni la memoria o la bitácora que haya
-    # dejado un programa viejo con ese nombre (el nuevo heredaría sus lecciones).
-    ya_estan = [a for a in (programa, programa + ".txt", planilla,
+    programa, planilla, casos = list(archivos)
+    # Nada se pisa: ni el programa, ni la planilla, ni los casos, ni la memoria o la
+    # bitácora que haya dejado un programa viejo con ese nombre (el nuevo heredaría sus
+    # lecciones).
+    ya_estan = [a for a in (programa, programa + ".txt", planilla, casos,
                             archivo_de(programa, "memoria.json"),
                             archivo_de(programa, "bitacora.txt")) if os.path.lexists(a)]
     if ya_estan:
@@ -8698,9 +8722,10 @@ def orden_nuevo(args, avisar, mostrar=print):
         return 1
     ancho = max(len(a) for a in archivos)
     for renglon in (
-            f"Listo. Creé dos archivos en {para_pegar(os.getcwd())}:",
+            f"Listo. Creé tres archivos en {para_pegar(os.getcwd())}:",
             f"  {programa.ljust(ancho)}   el programa del mostrador",
             f"  {planilla.ljust(ancho)}   la planilla de precios, con productos de muestra",
+            f"  {casos.ljust(ancho)}   preguntas de clientes para ensayar el mostrador",
             "",
             "Los pasos que siguen (cada comando se puede copiar tal cual):",
             "  1. Comprobar que quedó todo bien:",
@@ -8713,12 +8738,411 @@ def orden_nuevo(args, avisar, mostrar=print):
             f"       notepad {planilla}",
             "  4. Comprobar de nuevo (paso 1) y atender con la IA de verdad:",
             f"       {orden} correr {programa}",
+            f"  5. Ensayarlo: Mate le hace las preguntas de {casos} y dice cuáles",
+            "     contestó bien (sin --ia-simulada contesta la IA de verdad):",
+            f"       {orden} ensayar {programa} {casos} --ia-simulada",
             "",
             f"Arriba de todo, {programa} dice qué más se puede cambiar (desde cuántas "
             "unidades",
             f"hay envío, por ejemplo). Para abrirlo:  notepad {programa}"):
         mostrar(renglon)
     return 0
+
+
+# ─────────────── La orden 'ensayar': un programa contra una lista de casos (0.6) ───────────────
+# 'ensayar programa.mate casos.txt' le hace al programa cada pregunta del archivo de casos y
+# dice cuáles contestó bien. Sirve para saber si una lección (o un cambio en el programa)
+# funcionó, sin tipear pregunta por pregunta.
+#
+# Cómo se le hace una pregunta a un programa cualquiera: se le REEMPLAZA EL TECLADO. Por
+# cada pregunta el programa corre entero, de cero; su primer leer() recibe la pregunta, y
+# la respuesta es todo lo que muestra desde ahí hasta que vuelve a pedir algo por teclado
+# (ahí se lo corta) o termina. No se eligió "declarar qué agente y qué mensaje atienden al
+# cliente" porque en el ejemplo 12 (y en lo que crea 'nuevo mostrador') los pedidos con
+# cantidad los contesta el PROGRAMA antes de llegar al agente: hablarle al agente directo
+# ensayaría otra cosa que la que ve el cliente. Así, además, no hay que tocar el programa.
+#
+# Un ensayo no deja rastros: no guarda la memoria ni la bitácora, no cuenta consultas en el
+# archivo, y lo que el programa escriba con agregar_a_archivo() queda en el aire (como con
+# 'probar'). Sí LEE la memoria: los agentes ensayan con sus lecciones aprobadas, que es lo
+# que se quiere comprobar. Lo único que escribe, al final, son las lecciones PROPUESTAS de
+# los casos que fallaron (las mismas de la orden 'propuestas': nadie las usa sin aprobar).
+
+MAX_VECES = 20  # --veces=N: cuántas veces se repite cada caso, como mucho
+MAX_CASOS = 200  # preguntas en un archivo de casos
+_REGLA_DE_CASO = re.compile(r"(?is)(no\s+)?(tiene\s+que|debe|puede)\s+decir\s*:(.*)")
+_PARECE_REGLA = ("tiene que decir", "no tiene que decir", "debe decir", "no debe decir",
+                 "puede decir", "no puede decir")
+COMO_VAN_LAS_REGLAS = ('Las reglas van debajo de la pregunta y se escriben así:  '
+                       'tiene que decir: sin envío   o   no puede decir: descuento')
+
+
+class _FinDelEnsayo(BaseException):
+    """El programa ensayado volvió a pedir algo por teclado: ya contestó, se lo corta ahí.
+    (No es un ErrorMate: ni 'intentar' ni 'al fallar' del programa lo pueden atajar.)"""
+
+
+def para_comparar(texto):
+    """Como se comparan la respuesta y lo que pide una regla: sin mirar mayúsculas, tildes
+    ni cuántos espacios hay."""
+    return " ".join(sin_tildes(texto).split())
+
+
+def regla_de_caso(renglon):
+    """Si el renglón es una regla: (verdadero si 'tiene que decir', los textos que valen).
+    Si es una pregunta, None. Si parece una regla mal escrita, un ErrorMate."""
+    regla = _REGLA_DE_CASO.fullmatch(renglon)
+    if regla and (regla.group(1) or regla.group(2).lower() != "puede"):
+        opciones = tuple(" ".join(o.split()) for o in regla.group(3).split("|") if o.strip())
+        if not opciones:
+            raise ErrorMate("a esta regla le falta el texto, después de los dos puntos. "
+                            + COMO_VAN_LAS_REGLAS)
+        return not regla.group(1), opciones
+    if para_comparar(renglon).startswith(_PARECE_REGLA):
+        raise ErrorMate("este renglón parece una regla, pero no la entiendo"
+                        + ("" if ":" in renglon else " (le faltan los dos puntos)")
+                        + ". " + COMO_VAN_LAS_REGLAS)
+    return None
+
+
+def regla_escrita(regla):
+    """La regla como se le muestra a la persona: tiene que decir "sin envío"."""
+    debe, opciones = regla
+    return ("tiene que decir " if debe else "no puede decir ") + (
+        " o " if debe else " ni ").join(f'"{o}"' for o in opciones)
+
+
+def casos_de_archivo(ruta):
+    """Lee el archivo de casos de 'ensayar'. Devuelve [{"renglon", "pregunta", "reglas"}],
+    o falla con un ErrorMate que dice el renglón. Una o más preguntas seguidas (una por
+    renglón) comparten las reglas que tienen debajo; # es una nota."""
+    try:
+        contenido = leer_fuente(ruta)
+    except FileNotFoundError:
+        raise ErrorMate(f"no encuentro el archivo de casos '{ruta}'")
+    except (OSError, ErrorMate):
+        raise ErrorMate(f"no pude leer el archivo de casos '{ruta}'")
+    casos, grupo, con_reglas = [], [], False
+    for numero, renglon in enumerate(contenido.split("\n"), 1):
+        renglon = "".join(c for c in renglon if c not in _INVISIBLES).strip()
+        if not renglon or renglon.startswith("#"):
+            continue
+        try:
+            regla = regla_de_caso(renglon)
+        except ErrorMate as e:
+            raise ErrorMate(f"{ruta}:{numero}: {e.mensaje}")
+        if regla is None:
+            if con_reglas:  # las reglas de arriba cerraron el grupo: acá empieza otro
+                grupo, con_reglas = [], False
+            grupo.append({"renglon": numero, "pregunta": renglon, "reglas": []})
+            casos.append(grupo[-1])
+        elif not grupo:
+            raise ErrorMate(f"{ruta}:{numero}: esta regla no tiene una pregunta arriba. "
+                            "Primero va la pregunta del cliente, en un renglón, y debajo "
+                            "sus reglas")
+        else:
+            for caso in grupo:
+                caso["reglas"].append(regla)
+            con_reglas = True
+    if grupo and not con_reglas:
+        raise ErrorMate(
+            f"{ruta}:{grupo[0]['renglon']}: a esta pregunta le falta decir qué se espera de "
+            "la respuesta. " + COMO_VAN_LAS_REGLAS)
+    if not casos:
+        raise ErrorMate(f"el archivo de casos '{ruta}' no tiene ninguna pregunta. Va la "
+                        "pregunta del cliente en un renglón y debajo sus reglas. "
+                        + COMO_VAN_LAS_REGLAS)
+    if len(casos) > MAX_CASOS:
+        raise ErrorMate(f"el archivo de casos '{ruta}' tiene {len(casos)} preguntas y el "
+                        f"tope es {MAX_CASOS}: partilo en dos archivos")
+    return casos
+
+
+def reglas_incumplidas(respuesta, reglas):
+    """Las reglas del caso que esa respuesta no cumple."""
+    dicho = para_comparar(respuesta)
+    return [regla for regla in reglas
+            if any(para_comparar(opcion) in dicho for opcion in regla[1]) != regla[0]]
+
+
+def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=(),
+                          consultas=0, sin_limite=False):
+    """Corre el programa de cero y le 'teclea' esa pregunta en su primer leer(). Devuelve
+    un mapa: pidio (si llegó a pedir algo por teclado), respuesta (lo que mostró desde ahí
+    hasta que volvió a pedir, o hasta el final), antes (lo que mostró antes), error (el
+    texto, o None), limite (si lo cortó un tope de Mate), consultas (las que le hizo a la
+    IA, como en consultas_ia()), agentes (los que consultaron), gasto y hechas (las
+    cuentas, para la pregunta que sigue). No toca el disco: ni memoria, ni bitácora, ni
+    los archivos que el programa escriba."""
+    mostrado, corte = [], {}
+
+    def entrada(_):
+        if "desde" not in corte:
+            corte["desde"] = len(mostrado)
+            return pregunta
+        corte.setdefault("hasta", len(mostrado))
+        raise _FinDelEnsayo()
+
+    interprete = Interprete(salida=lambda texto: mostrado.append(str(texto)))
+    interprete.archivo, interprete.entrada, interprete.ensayando = ruta, entrada, True
+    interprete.archivos_de_prueba = {}  # lo que escriba no llega al disco
+    interprete.ia_simulada, interprete.ia_respuestas = bool(simulada), list(respuestas)
+    interprete.ia_consultas = consultas  # el tope de consultas de verdad es del ensayo entero
+    if sin_limite:
+        interprete.max_pasos = None
+    # Los agentes arrancan con lo que dice la memoria (sus lecciones, sobre todo), en una
+    # copia: nada de lo que pase acá vuelve al archivo.
+    interprete.memoria, interprete.recordando = json.loads(json.dumps(memoria)), True
+    error = limite = None
+    try:
+        interprete.correr(analizar(leer_fuente(ruta), ruta))
+    except _FinDelEnsayo:
+        pass
+    except ErrorMate as e:
+        error = error_escrito(ruta, e.linea, interprete.con_camino(e.mensaje, e))[0]
+        limite = e.clase == "limite"
+    except OSError:
+        error = f"no pude abrir {ruta}"
+    if error is None and interprete.errores_agentes:
+        error = interprete.errores_agentes[0]
+    desde = corte.get("desde", len(mostrado))
+    molde_de = {agente.nombre: agente.decl[2] for agente in interprete.vivos}
+    agentes = []
+    for consulta in interprete.ia_historial:
+        agente = molde_de.get(consulta["agente"], consulta["agente"])
+        if agente in interprete.agentes and agente not in agentes:
+            agentes.append(agente)
+    return {"pidio": "desde" in corte,
+            "respuesta": "\n".join(mostrado[desde:corte.get("hasta")]).strip(),
+            "antes": mostrado[:desde], "error": error, "limite": bool(limite),
+            "consultas": list(interprete.ia_historial), "agentes": agentes,
+            "gasto": {nombre: gasto_limpio(agente.gasto)
+                      for nombre, agente in interprete.agentes.items() if agente.gasto},
+            "hechas": interprete.ia_consultas}
+
+
+def leccion_de_un_caso(caso, incumplidas):
+    """La lección que se propone cuando un caso falla: la pregunta y lo que no cumplió."""
+    return (f"Cuando te pregunten algo como {recortado(caso['pregunta'], 80)}, tu respuesta "
+            + " y ".join(regla_escrita(regla) for regla in incumplidas) + ".")
+
+
+def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
+    """La orden 'ensayar programa.mate casos.txt': le hace al programa cada pregunta del
+    archivo de casos (--veces=N: N veces cada una), muestra el informe y deja una lección
+    propuesta por cada caso que falló. Devuelve el código de salida: 0 si pasaron todos."""
+    orden = orden_para_esta_carpeta()
+    ejemplo = f"{orden} ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada"
+    if len(args) == 2 and args[0].lower().endswith(".txt") and args[1].lower().endswith(
+            (".mate", ".mate.txt")) and not args[0].lower().endswith(".mate.txt"):
+        avisar("primero va el programa y después el archivo de casos:  "
+               f"{orden} ensayar {para_pegar(args[1])} {para_pegar(args[0])}",
+               "al escribir la orden: 'ensayar' con los archivos al revés", True)
+        return 2
+    if len(args) != 2:
+        avisar("'ensayar' lleva el programa y el archivo de casos (las preguntas de los "
+               "clientes y lo que la respuesta tiene que decir)"
+               + (f", y recibió {len(args)} cosas (un nombre con espacios va entre comillas)"
+                  if len(args) > 2 else "") + f". Por ejemplo:  {ejemplo}",
+               "al escribir la orden: 'ensayar' sin el programa o sin los casos", True)
+        return 2
+    for opcion, por_que in (("--traza", "muestra un informe, no la conversación"),
+                            ("--olvidar", "nunca cambia lo que recuerdan los agentes")):
+        if opcion in opciones:
+            avisar(f"{opcion} no va con 'ensayar' ({por_que}). Para ver una charla paso a "
+                   f"paso:  {orden} correr {para_pegar(args[0])} --traza")
+            return 2
+    ruta, problema = _ubicar(args[0])
+    if problema:
+        avisar(problema, "al escribir la orden: no está el archivo"
+               if problema.startswith("no encuentro") else None)
+        return 2
+    programa, de_casos = os.path.basename(ruta), os.path.basename(args[1])
+    simulada = "--ia-simulada" in opciones
+    try:
+        casos = casos_de_archivo(args[1])
+        preparadas = respuestas_de_archivo(respuestas) if respuestas else []
+        # Quién va a contestar las consultas: se dice antes de empezar, porque puede costar.
+        if simulada:
+            contesta = "la IA simulada: no sale a la red y no gasta nada"
+        elif direccion_de_ia_propia():
+            modelo = os.environ.get("MATE_MODELO", "").strip().strip("\"'").strip()
+            contesta = (f"tu modelo propio{f' ({modelo})' if modelo else ''}, en "
+                        f"{direccion_de_ia_propia()}")
+        elif not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+            raise ErrorMate(
+                "para ensayar hay que decir quién contesta las consultas a la IA, y no hay "
+                "clave ni modelo propio. Sin gastar nada, agregá --ia-simulada:\n"
+                f"  {orden} ensayar {para_pegar(args[0])} {para_pegar(args[1])} "
+                "--ia-simulada\n"
+                'Con tu modelo propio, antes escribí:  $env:MATE_IA_PROPIA = "ollama"\n'
+                "Con Claude, la clave va en ANTHROPIC_API_KEY (y cada consulta se paga)")
+        else:
+            clave_de_ia()
+            contesta = f"Claude ({modelo_de_ia()}): cada consulta se paga"
+    except ErrorMate as e:
+        avisar(e.mensaje)
+        return 2
+    try:
+        con_errores = bool(verificar(analizar(leer_fuente(ruta), ruta)))
+    except OSError:
+        avisar(f"no pude abrir {ruta}")
+        return 2
+    except ErrorMate:
+        con_errores = True
+    if con_errores:
+        avisar(f"{ruta} tiene errores, y así no se puede ensayar. Miralos con:  "
+               f"{orden} verificar {para_pegar(args[0])}")
+        return 1
+    archivo_memoria = archivo_de(ruta, "memoria.json")
+    try:
+        memoria = leer_memoria(archivo_memoria)[0]
+    except ErrorMate as e:
+        avisar(e.mensaje)
+        return 2
+
+    veces = veces or 1
+    total = len(casos) * veces
+    mostrar(f"Ensayo de {programa} con {de_casos}: {len(casos)} pregunta(s)"
+            + (f", {veces} veces cada una" if veces > 1 else "") + ".")
+    mostrar(f"Contesta {contesta}.")
+    mostrar(f"Va a hacer hasta {total} consulta(s) a la IA: una por cada pregunta que el "
+            "programa no")
+    mostrar("conteste solo (si salta un freno, esa pregunta consulta una vez más).")
+    if not simulada and total > MAX_CONSULTAS_IA and "--sin-limite" not in opciones:
+        mostrar(f"Ojo: Mate corta el ensayo a las {MAX_CONSULTAS_IA} consultas de verdad. "
+                "Si hacen falta más, agregá --sin-limite.")
+    for agente, ficha in memoria.items():
+        if ficha["lecciones"]:
+            mostrar(f"{agente} ensaya con las lecciones que ya tiene aprobadas "
+                    f"({len(ficha['lecciones'])}).")
+    mostrar("")
+    sys.stdout.flush()
+
+    bien, mal = simbolo("✓", "OK"), simbolo("✗", "FALLA")
+    pasaron, consultas, sin_respuesta, frenadas, a_proponer, cortado = 0, 0, 0, 0, [], None
+    hechas, viva = 0, json.loads(json.dumps(memoria))  # (viva: la memoria, con la cuenta al día)
+    for caso in casos:
+        pasadas, falla = 0, None
+        for vez in range(1, veces + 1):
+            dado = preguntar_al_programa(ruta, caso["pregunta"], viva, simulada, preparadas,
+                                         hechas, "--sin-limite" in opciones)
+            # (se cuentan las que la IA contestó: no las que frenó un tope antes de salir)
+            contestadas = sum(c["respuesta"] is not None for c in dado["consultas"])
+            hechas, consultas = dado["hechas"], consultas + contestadas
+            sin_respuesta += len(dado["consultas"]) - contestadas
+            frenadas += any(consulta.get("freno") for consulta in dado["consultas"])
+            for agente, gasto in dado["gasto"].items():
+                viva.setdefault(agente, {"estado": {}, "lecciones": []})["gasto"] = gasto
+            if not dado["pidio"]:
+                # Ni llegó a leer la pregunta: con las demás va a pasar lo mismo.
+                for renglon in dado["antes"][-5:]:
+                    mostrar(f"      | {renglon}")
+                if dado["error"]:
+                    avisar(f"no pude ensayar: {programa} falló antes de pedir la consulta "
+                           f"del cliente.\n{dado['error']}")
+                    return 1
+                avisar(f"no pude ensayar: {programa} terminó sin pedir nada por teclado"
+                       + (" (arriba está lo último que mostró)" if dado["antes"] else "")
+                       + ". 'ensayar' le escribe cada pregunta al programa donde el programa "
+                       'espera al cliente, con leer(): por ejemplo  sea dicho = '
+                       'leer("Cliente:", "chau")')
+                return 2
+            incumplidas = [] if dado["error"] else reglas_incumplidas(
+                dado["respuesta"], caso["reglas"])
+            if not dado["error"] and not incumplidas:
+                pasadas += 1
+            elif falla is None:
+                falla = dict(dado, vez=vez, incumplidas=incumplidas)
+            if dado["limite"]:
+                cortado = dado["error"]
+                break
+        pasaron += pasadas == veces
+        mostrar(f"  {bien if pasadas == veces else mal} {caso['pregunta']}"
+                + (f": pasó {pasadas} de {veces}" if veces > 1 else "")
+                + ("" if falla is None else f"   (renglón {caso['renglon']} de {de_casos})"))
+        if falla is not None:
+            cual = f" (la vez {falla['vez']})" if veces > 1 else ""
+            partes = falla["respuesta"].split("\n") if falla["respuesta"] else ["(nada)"]
+            mostrar(f"      Contestó{cual}: {partes[0]}")
+            for parte in partes[1:]:
+                mostrar(f"          {parte}")
+            for regla in falla["incumplidas"]:
+                mostrar(f"      No cumple: {regla_escrita(regla)}")
+            if falla["error"]:
+                mostrar(f"      El programa falló: {falla['error']}")
+            for consulta in falla["consultas"]:
+                if consulta.get("freno"):
+                    mostrar(f"      Saltó un freno de {consulta['agente']}: {consulta['freno']}"
+                            + ("" if consulta["respuesta"] is None else
+                               f". La IA había dicho: {recortado(consulta['respuesta'], 200)}"))
+            if falla["error"]:
+                pass
+            elif not falla["consultas"]:
+                mostrar("      Esta respuesta la dio el programa, sin consultar a la IA: una "
+                        "lección no la cambia. Hay que cambiar el programa (o el caso).")
+            elif all(consulta["respuesta"] is None for consulta in falla["consultas"]):
+                mostrar("      La IA no llegó a contestar esta pregunta (no anduvo, o el "
+                        "agente llegó a su tope): no queda una lección propuesta.")
+            elif not falla["agentes"]:
+                mostrar("      La consulta a la IA la hizo el programa, no un agente: no hay "
+                        "a quién dejarle una lección.")
+            else:
+                for agente in falla["agentes"]:
+                    a_proponer.append((
+                        agente, leccion_de_un_caso(caso, falla["incumplidas"]),
+                        f"falló un caso del ensayo ({de_casos}, renglón {caso['renglon']}). "
+                        f"Contestó: {recortado(falla['respuesta'], 200)}"))
+        sys.stdout.flush()
+        if cortado:
+            break
+
+    mostrar("")
+    if cortado:
+        mostrar("El ensayo se cortó ahí y no siguió con los casos que faltaban:")
+        mostrar(f"  {cortado}")
+    mostrar(f"{pasaron} de {len(casos)} casos pasaron"
+            + (f" las {veces} veces" if veces > 1 else "") + "."
+            + (f" Consultas a la IA: {consultas}" + (" (simuladas: no se pagan)." if simulada
+                                                    else ".") if consultas else
+               "" if sin_respuesta else " No hizo falta consultar a la IA."))
+    if sin_respuesta:
+        mostrar(f"{sin_respuesta} consulta(s) quedaron sin respuesta de la IA (no anduvo, o "
+                "un agente llegó a su tope).")
+    if frenadas:
+        mostrar(f"En {frenadas} pregunta(s) saltó un freno: lo que dijo la IA no pasaba y "
+                "Mate no lo dejó salir así.")
+    if a_proponer:
+        # Las propuestas van a la memoria que está AHORA en el disco (pudo cambiar mientras
+        # se ensayaba), y es lo único que se le agrega.
+        try:
+            en_disco = leer_memoria(archivo_memoria)[0]
+        except ErrorMate as e:
+            avisar(f"aviso: no dejé las lecciones propuestas: {e.mensaje}")
+            return 1
+        fecha, nuevas = datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), 0
+        for agente, texto, motivo in a_proponer:
+            ficha = en_disco.setdefault(agente, {"estado": {}, "lecciones": []})
+            antes = ficha.get("propuestas", [])
+            ficha["propuestas"] = sumar_propuesta(antes, ficha["lecciones"], texto, motivo, fecha)
+            nuevas += ficha["propuestas"] is not antes
+            if not ficha["propuestas"]:
+                del ficha["propuestas"]
+        if nuevas:
+            problema = guardar_memoria(archivo_memoria, programa, en_disco)
+            if problema:
+                avisar(f"aviso: {problema}")
+                return 1
+            mostrar(f"Por los casos que fallaron quedó {nuevas} lección(es) propuesta(s). "
+                    "Ningún agente las usa")
+            mostrar("hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):")
+        else:
+            mostrar("Las lecciones de los casos que fallaron ya estaban propuestas o "
+                    "aprobadas. Para verlas:")
+        mostrar(f"  {orden} propuestas {para_pegar(args[0])}")
+        mostrar("Una propuesta es un borrador: si la aprobás, ensayá de nuevo para ver si "
+                "alcanzó.")
+    return 0 if pasaron == len(casos) and not cortado else 1
 
 
 def texto_de_ayuda():
@@ -8744,6 +9168,12 @@ def texto_de_ayuda():
         "  nuevo mostrador mi_negocio   crea en esta carpeta un mostrador propio, listo para",
         "                           usar: mi_negocio.mate y su planilla de muestra,",
         "                           mi_negocio_precios.csv. No pisa archivos que ya estén",
+        "  ensayar mi_negocio.mate mi_negocio_casos.txt   le hace al programa las preguntas",
+        "                           de ese archivo (se escribe con el Bloc de notas: la",
+        "                           pregunta del cliente y, debajo, 'tiene que decir: ...' o",
+        "                           'no puede decir: ...') y dice cuáles contestó bien. Los",
+        "                           casos que fallan quedan como lección propuesta. Con",
+        "                           --ia-simulada no gasta; sin eso contesta la IA de verdad",
         "",
         "Para que un agente aprenda (mirá 'ayuda recordado'):",
         '  corregir  archivo.mate Mostrador "la lección"   le anota una lección a ese agente',
@@ -8794,6 +9224,8 @@ def texto_de_ayuda():
         "  --ia-simulada consultar_ia() no sale a la red ni gasta: da su respuesta preparada",
         "  --ia-simulada=respuestas.txt   ...o las que están escritas en ese archivo",
         "  --olvidar     con 'correr': los agentes arrancan de cero, sin lo que recordaban",
+        "  --veces=5     con 'ensayar': repite cada caso esa cantidad de veces (una IA no",
+        "                contesta siempre igual) y dice, de cada uno, 'pasó 4 de 5'",
         "  --sin-registro  esta vez no anota nada en el registro de errores de uso",
         "  --depurar     si Mate falla por dentro, muestra el detalle técnico",
         "  --version     dice qué versión de Mate es",
@@ -9414,7 +9846,7 @@ def probar_varios(pedidos, opciones, avisar):
 # no), nunca con la orden 'probar', y se apaga con MATE_SIN_REGISTRO=1 o --sin-registro.
 
 ORDENES_SABIDAS = ORDENES + ORDENES_DE_MEMORIA + ("ayuda", "guia", "consola", "informe",
-                                                  "curso", "nuevo")
+                                                  "curso", "nuevo", "ensayar")
 _FECHA_DE_REGISTRO = "%d/%m/%Y %H:%M"
 _LARGO_A_TAPAR = 800
 # Cómo es una opción ('--traza', '-h', '--borrar=2'). Lo que empieza con guion y no tiene
@@ -9983,6 +10415,7 @@ def _main(argv, donde):
     alias = {"-h": "--ayuda", "--help": "--ayuda", "-?": "--ayuda", "/?": "--ayuda"}
     opciones, args, conversacion, respuestas, borrar = set(), [], None, None, None
     guardar_en = None  # guia --guardar=guia.txt: la salida va a ese archivo, no a la pantalla
+    veces = None  # ensayar --veces=5: cuántas veces se repite cada caso
     for a in argv:
         corrige = bool(args) and sin_tildes(args[0].lower()) == "corregir"
         if a.lower() in alias:
@@ -10012,6 +10445,15 @@ def _main(argv, donde):
                 avisar(f"no guardo en '{guardar_en}' para no pisar un programa: elegí otro "
                        "nombre, por ejemplo --guardar=guia.txt")
                 return 2
+        elif a.lower().startswith("--veces"):
+            valor = a[len("--veces="):].strip('"')
+            if not a.lower().startswith("--veces=") or not (
+                    valor.isascii() and valor.isdigit() and 1 <= int(valor) <= MAX_VECES):
+                avisar("a --veces le falta decir cuántas veces se repite cada caso (un "
+                       f"número del 1 al {MAX_VECES}), por ejemplo: ensayar mi_negocio.mate "
+                       "mi_negocio_casos.txt --veces=5")
+                return 2
+            veces = int(valor)
         elif a.lower().startswith("--traza="):
             conversacion = a[len("--traza="):].strip('"')
             if not conversacion:
@@ -10027,11 +10469,11 @@ def _main(argv, donde):
             args.append(a)  # con 'corregir', la lección puede empezar con un guion: "-10% a..."
         elif a.startswith("-") and a != "-":
             if a.lower() not in OPCIONES:
-                todas = OPCIONES + ("--borrar", "--guardar")
+                todas = OPCIONES + ("--veces", "--borrar", "--guardar")
                 nombre, igual, valor = a.partition("=")
                 parecidas = difflib.get_close_matches(nombre.lower(), todas, 1)
                 con_valor = parecidas and parecidas[0] in ("--borrar", "--traza", "--ia-simulada",
-                                                          "--guardar")
+                                                          "--guardar", "--veces")
                 avisar(f"no conozco la opción {a}" + (
                     f", ¿quisiste decir {parecidas[0]}{igual + valor if con_valor else ''}?"
                     if parecidas else ". Las opciones son: " + ", ".join(todas))
@@ -10052,7 +10494,8 @@ def _main(argv, donde):
         return 0
     if args and args[0].lower() == "ayuda" and len(args) >= 2 and not (
             len(args) == 2 and sin_tildes(args[1].lower()) in ORDENES + (
-                "ayuda", "guia", "consola", "informe", "curso", "nuevo") + ORDENES_DE_MEMORIA[:2]):
+                "ayuda", "guia", "consola", "informe", "curso", "nuevo", "ensayar")
+            + ORDENES_DE_MEMORIA[:2]):
         # 'ayuda si', 'ayuda largo', 'ayuda al fallar'
         return ayuda_de_palabra(" ".join(args[1:]), print, avisar)
     if "--ayuda" in opciones or (args and args[0].lower() == "ayuda"):
@@ -10102,6 +10545,16 @@ def _main(argv, donde):
             len(args) == 1 and (os.path.isfile("nuevo") or os.path.isfile("nuevo.mate"))):
         # ('nuevo' sola, con un nuevo.mate en la carpeta, sigue corriendo ese programa)
         return orden_nuevo(args[1:], avisar)
+    ensaya = sin_tildes(args[0].lower()) == "ensayar" and not (
+        len(args) == 1 and (os.path.isfile("ensayar") or os.path.isfile("ensayar.mate")))
+    if veces is not None and not ensaya:
+        avisar("--veces va con 'ensayar': repite cada caso esa cantidad de veces, por "
+               "ejemplo: ensayar mi_negocio.mate mi_negocio_casos.txt --veces=5")
+        return 2
+    if ensaya:
+        # ('ensayar' sola, con un ensayar.mate en la carpeta, sigue corriendo ese programa)
+        return orden_ensayar(args[1:], opciones | ({"--traza"} if conversacion else set()),
+                             respuestas, veces, avisar)
     if args[0].lower() == "consola":
         if len(args) > 1:
             avisar("'consola' va sola, sin archivo: ahí adentro se escriben los renglones")
@@ -10155,8 +10608,8 @@ def _main(argv, donde):
         avisar(f"no conozco la orden '{args[0]}'" + (
             f", ¿quisiste decir '{parecidas[0]}'?" if parecidas
             else ". Las órdenes son: correr, probar, verificar, consola, guia, ayuda, "
-                 "curso, nuevo, corregir, lecciones, propuestas, proponer, bitacora e "
-                 "informe"),
+                 "curso, nuevo, ensayar, corregir, lecciones, propuestas, proponer, "
+                 "bitacora e informe"),
             "al escribir la orden: orden que no existe")
         return 2
     if not archivos:

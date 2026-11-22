@@ -514,6 +514,11 @@ Terminaste el curso. Para seguir:
   carpeta donde lo quieras tener, la orden `nuevo mostrador mi_negocio` (después de
   `python mate\mate.py`, como las demás) crea el programa y su planilla de precios de
   muestra, y te dice los pasos que siguen. No pisa archivos que ya estén.
+- Para saber si una lección funcionó sin tipear las preguntas una por una está la orden
+  `ensayar`: anotás en un archivo de texto lo que pregunta un cliente y, debajo, renglones
+  como `tiene que decir: sin envío` o `no puede decir: descuento`; Mate le hace esas
+  preguntas al mostrador y te dice cuáles contestó bien. `nuevo mostrador` te deja un
+  archivo de casos de muestra, y el README lo explica en "Ensayar un mostrador".
 - `mate\README.md` tiene todo Mate, tema por tema.
 - `python mate\mate.py guia` imprime una página con todo el lenguaje para pegarle a un
   asistente de IA (Claude, por ejemplo) antes de pedirle que te escriba un programa.

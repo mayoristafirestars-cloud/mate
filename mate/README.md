@@ -100,6 +100,7 @@ o la página `docs\index.html`, que explica los pasos.
 |---|---|
 | Aprender desde cero, sin saber programar | El **curso**: `python mate\mate.py curso`. Son 12 clases cortas, de "hola" a un mostrador con IA, lista de precios, frenos y lecciones. Están en `mate\curso` (ver [El curso](#el-curso)) |
 | Armar el mostrador de tu negocio sin copiar archivos a mano | `python mate\mate.py nuevo mostrador mi_negocio` crea el programa y su planilla de precios en la carpeta donde estás (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
+| Saber si una lección funcionó, sin tipear pregunta por pregunta | `python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` le hace al mostrador las preguntas que anotaste y dice cuáles contestó bien (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)) |
 | Ver programas terminados | `mate\ejemplos`: once programas comentados renglón por renglón (la tabla está en [Primeros pasos en Windows](#primeros-pasos-en-windows)) |
 | Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
 | Que una IA te escriba un programa en Mate | `python mate\mate.py guia` imprime una página para pegarle antes de pedírselo |
@@ -306,6 +307,7 @@ notepad guia.txt
 | `consola` | abre la consola, para probar renglones sueltos sin crear un archivo |
 | `curso` | lista las clases del curso y dice cómo abrir cada una; `curso 3` muestra la clase 3 (ver [El curso](#el-curso)) |
 | `nuevo mostrador mi_negocio` | crea en la carpeta donde estás un mostrador propio, listo para usar: `mi_negocio.mate` y su planilla de muestra `mi_negocio_precios.csv`. No pisa archivos que ya estén (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
+| `ensayar mi_negocio.mate mi_negocio_casos.txt` | le hace al programa las preguntas de ese archivo de casos y dice cuáles contestó bien; los casos que fallan quedan como lección propuesta. Con `--veces=5` repite cada caso (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)) |
 | `corregir archivo.mate Mostrador "..."` | le anota una lección a ese agente, sin tocar el programa (ver [Mate aprende](#mate-aprende)) |
 | `lecciones archivo.mate` | muestra las lecciones de cada agente; con `Mostrador --borrar=2` le borra la 2 |
 | `bitacora archivo.mate` | resume las fallas que fueron anotando los agentes de ese programa, los frenos que saltaron y cuánto consultó a la IA cada agente por día |
@@ -1590,9 +1592,12 @@ control, alcanza con `frenos { consultas_por_dia: 100000 }`.
 ### Lecciones propuestas
 
 Las [lecciones](#lecciones-corregir-a-un-agente) las escribís vos con `corregir`. Ahora Mate
-también puede **proponerlas**, de dos maneras:
+también puede **proponerlas**, de tres maneras:
 
 - **Cuando salta un freno**, queda sola una lección propuesta con lo que pasó.
+- **Cuando falla un caso de un ensayo** (la orden
+  [`ensayar`](#ensayar-un-mostrador-ensayar)), queda una con la pregunta y lo que la
+  respuesta no cumplió.
 - **Cuando una respuesta estuvo mal y se lo contás**:
 
   ```
@@ -1775,12 +1780,13 @@ python mate\mate.py nuevo mostrador mi_negocio
 
 (Si en tu computadora Python se llama con `py`, va `py`; y si esa carpeta no es la que tiene
 adentro a `mate`, va la ruta completa de `mate.py`, o la orden corta `mate` si la instalaste.)
-Mate crea dos archivos en esa carpeta y no toca nada más:
+Mate crea tres archivos en esa carpeta y no toca nada más:
 
 | Archivo | Qué es |
 |---|---|
 | `mi_negocio.mate` | el programa: el mostrador del ejemplo 12, con un encabezado que dice qué se puede cambiar sin saber programar |
 | `mi_negocio_precios.csv` | la planilla de precios, con productos de muestra, para reemplazar por los tuyos |
+| `mi_negocio_casos.txt` | preguntas de clientes y lo que la respuesta tiene que decir, para la orden [`ensayar`](#ensayar-un-mostrador-ensayar) |
 
 Al terminar muestra los pasos que siguen, con los comandos escritos para esa carpeta y para
 la forma en que llamaste a Mate (`py`, `python` o `mate`): se pueden copiar tal cual.
@@ -1796,16 +1802,20 @@ Los pasos que siguen (cada comando se puede copiar tal cual):
        notepad mi_negocio_precios.csv
   4. Comprobar de nuevo (paso 1) y atender con la IA de verdad:
        py mate\mate.py correr mi_negocio.mate
+  5. Ensayarlo: Mate le hace las preguntas de mi_negocio_casos.txt y dice cuáles
+     contestó bien (sin --ia-simulada contesta la IA de verdad):
+       py mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada
 ```
 
 Lo que hay que saber:
 
-- **Nunca pisa un archivo.** Si en la carpeta ya hay un `mi_negocio.mate` o un
-  `mi_negocio_precios.csv` (o la memoria o la bitácora de un programa viejo con ese nombre),
-  no crea nada, dice cuál encontró y sugiere otro nombre.
+- **Nunca pisa un archivo.** Si en la carpeta ya hay un `mi_negocio.mate`, un
+  `mi_negocio_precios.csv` o un `mi_negocio_casos.txt` (o la memoria o la bitácora de un
+  programa viejo con ese nombre), no crea nada, dice cuál encontró y sugiere otro nombre.
 - **El nombre** es una sola palabra: letras, números, guion o guion bajo (`mi_negocio`,
   `almacen-centro`). Se crea siempre en la carpeta donde estás parado.
-- **Los dos archivos pasan `verificar` y `probar` tal como salen.** Las pruebas del programa
+- **El programa y la planilla pasan `verificar` y `probar` tal como salen**, y los casos
+  de muestra pasan `ensayar` con `--ia-simulada`. Las pruebas del programa
   usan una lista fija que está en el mismo archivo, así que **siguen pasando cuando cambiás
   los productos, los precios o el número del envío**. Una sola prueba mira tu planilla
   ("tu planilla está bien cargada"): falla si falta una columna o si algún precio o stock no
@@ -1821,6 +1831,112 @@ Lo que hay que saber:
 - Lo que conviene cambiar está dicho arriba de todo en el programa: los productos (en la
   planilla), desde cuántas unidades hay envío (`unidades_para_envio`), cómo se presenta el
   negocio ante la IA y las palabras prohibidas.
+
+### Ensayar un mostrador: `ensayar`
+
+Cuando le anotás una lección a un agente (o cambiás algo del programa), ¿cómo sabés si
+funcionó? Hasta ahora había que abrir la charla y tipear las preguntas una por una. La orden
+`ensayar` lo hace sola: le hace al programa las preguntas que anotaste en un archivo y te dice
+cuáles contestó bien.
+
+```
+python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada
+```
+
+Primero va el programa y después el archivo de casos. Con `--ia-simulada` no sale a la red y
+no gasta nada; **sin `--ia-simulada` contesta la IA de verdad** (tu modelo propio, si está
+puesta `MATE_IA_PROPIA`; si no, Claude, y ahí cada consulta se paga). Antes de empezar Mate
+dice quién va a contestar y cuántas consultas puede llegar a hacer.
+
+**El archivo de casos** se escribe con el Bloc de notas. Va la pregunta del cliente en un
+renglón y, debajo, lo que se espera de la respuesta:
+
+```
+# Con menos de 10 unidades no hay envío, se pida como se pida.
+me mandas 5 yerbas?
+me alcanzas 8 yerbas?
+    tiene que decir: sin envío
+    no puede decir: va con envío
+
+necesito que me lleven 3 azucar a casa
+    tiene que decir: $ 29.401,50
+
+tenes cafe?
+    tiene que decir: no lo trabajamos | no trabajamos | no tenemos
+    no puede decir: descuento
+```
+
+- **Varias formas de preguntar lo mismo** van una abajo de la otra, y las reglas una sola
+  vez, debajo de todas: valen para cada una de esas preguntas.
+- `tiene que decir:` y `no puede decir:` buscan ese texto dentro de la respuesta. Da igual
+  con mayúsculas o minúsculas y con tilde o sin tilde (`sin envio` encuentra "Sin envío").
+- Con una barra `|` se dan opciones: `tiene que decir:` se cumple con cualquiera de ellas;
+  `no puede decir:` falla si aparece alguna.
+- Un renglón que empieza con `#` es una nota. Los renglones en blanco no cuentan.
+- **Ojo:** se busca el texto tal cual. `no puede decir: hay envío` también salta con "no hay
+  envío", porque adentro dice "hay envío". Conviene pedir pedazos que no se presten a
+  confusión: un importe (`$ 29.401,50`), "sin envío", "no hay stock".
+
+**El informe** dice, de cada pregunta, si pasó; y de cada una que falló, la pregunta, lo que
+contestó el programa y la regla que no cumplió. Este es el de los casos de muestra, con un
+modelo que contestó mal la última:
+
+```
+Ensayo de mi_negocio.mate con mi_negocio_casos.txt: 5 pregunta(s).
+Contesta tu modelo propio (qwen2.5:3b), en http://localhost:11434/v1/chat/completions.
+Va a hacer hasta 5 consulta(s) a la IA: una por cada pregunta que el programa no
+conteste solo (si salta un freno, esa pregunta consulta una vez más).
+
+  ✓ me mandas 5 yerbas?
+  ✓ me alcanzas 8 yerbas?
+  ✓ necesito que me lleven 3 azucar a casa
+  ✓ quiero 12 fideos con envio
+  ✗ tenes cafe?   (renglón 39 de mi_negocio_casos.txt)
+      Contestó: Mostrador: Si, tenemos cafe, es muy rico.
+      No cumple: no puede decir "si, tenemos" ni "si tenemos" ni "café a $"
+
+4 de 5 casos pasaron. Consultas a la IA: 1.
+Por los casos que fallaron quedó 1 lección(es) propuesta(s). Ningún agente las usa
+hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):
+  python mate\mate.py propuestas mi_negocio.mate
+Una propuesta es un borrador: si la aprobás, ensayá de nuevo para ver si alcanzó.
+```
+
+**Una IA no contesta siempre igual.** Con `--veces=5` cada caso se repite cinco veces (el
+tope es 20) y el informe dice cuántas pasó: `✗ tenes cafe?: pasó 4 de 5`. Un caso cuenta como
+pasado solo si pasó todas las veces. Ojo con la cuenta: 5 preguntas con `--veces=5` pueden
+ser 25 consultas (y Mate corta un ensayo a las 50 consultas de verdad, salvo con
+`--sin-limite`).
+
+Lo que hay que saber:
+
+- **Los casos que fallan quedan como lección propuesta**, igual que cuando salta un freno
+  (ver [Lecciones propuestas](#lecciones-propuestas)): el agente no la usa hasta que la
+  aprobás con `propuestas ... aprobar 1`. La redacción es fija y sale del caso ("Cuando te
+  pregunten algo como "tenes cafe?", tu respuesta no puede decir..."): tomala como un
+  borrador. Si preferís decirlo con tus palabras, descartala y anotá la tuya con `corregir`.
+  Después, ensayá de nuevo.
+- **Si la respuesta que falló la dio el programa, sin consultar a la IA**, no queda ninguna
+  propuesta y el informe lo dice: una lección no cambia esa respuesta. Hay que cambiar el
+  programa (o el caso, si lo que estaba mal era lo que esperabas). Tampoco queda una
+  propuesta si la IA no llegó a contestar (el modelo estaba apagado, o el agente llegó a su
+  tope del día): ahí no hay nada que corregirle.
+- **Un ensayo no cambia la memoria del programa.** Los agentes ensayan con las lecciones que
+  ya tienen aprobadas (eso es lo que se quiere comprobar), pero no se guarda lo que
+  "recuerdan", no se anota nada en la bitácora y las consultas del ensayo no entran en la
+  cuenta del día. Lo que el programa anota con `agregar_a_archivo` tampoco llega al disco
+  (igual que con `probar`). Lo único que se agrega al archivo de memoria son las propuestas.
+- **Cada pregunta es una charla nueva.** Por cada pregunta el programa arranca de cero, y
+  Mate se la escribe donde el programa espera al cliente: en su primer `leer`. La respuesta
+  es lo que el programa muestra desde ahí hasta que vuelve a esperar al cliente. Por eso
+  sirve con cualquier programa que charle por teclado (el ejemplo 12, lo que crea `nuevo
+  mostrador`, los mostradores del curso) sin tocarlo; y no sirve para ensayar una charla de
+  varias idas y vueltas, ni un programa que no usa `leer`.
+- **Hay que decir quién contesta.** Sin `--ia-simulada`, sin modelo propio y sin clave, Mate
+  no ensaya y te dice las tres maneras.
+- `mate\ejemplos\casos.txt` trae casos de muestra para el ejemplo 12, y `nuevo mostrador` te
+  deja una copia para tu mostrador (`mi_negocio_casos.txt`). Están escritos para la planilla
+  de muestra: cuando pongas tus productos, cambiá las preguntas y los importes.
 
 ## Referencia rápida
 
@@ -2311,6 +2427,8 @@ archivo viejo deja de andar, casi seguro es por una de estas:
 | Qué pasa ahora | Cómo se arregla |
 |---|---|
 | `leer_tabla` da un error si el renglón de los títulos está repetido más abajo en la planilla (0.6); antes ese renglón llegaba como un producto más, de nombre "producto" | Borrar de la planilla el renglón que dice el error |
+| `ensayar` es una orden (0.6): `python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` ensaya un programa contra una lista de casos. Un programa llamado `ensayar.mate` se sigue corriendo con `ensayar` sola, como antes | Nada |
+| `nuevo mostrador` crea un archivo más, `<nombre>_casos.txt` (0.6), y no crea nada si ya hay uno con ese nombre | Nada, o elegir otro nombre |
 | `nuevo` es una orden (0.6): `python mate\mate.py nuevo mostrador mi_negocio` crea un mostrador. Un programa llamado `nuevo.mate` se sigue corriendo con `nuevo` sola, como antes | Nada |
 | Con Ctrl+C mientras el programa espera en un `leer`, el aviso dice `Listo: cortaste con Ctrl+C...` (antes decía en qué línea se había cortado). El código de salida sigue siendo 130 y el aviso sigue saliendo aparte de lo que muestra el programa | Nada: es la manera de cortar una charla. Lo que recuerdan los agentes se guarda igual |
 | `propuestas`, `proponer` y `curso` son órdenes (0.5): `python mate\mate.py propuestas` ya no corre un archivo llamado `propuestas.mate`, y lo mismo las otras dos. Si en la carpeta hay un archivo con ese nombre, Mate te avisa cómo correrlo | Escribir la orden entera: `correr propuestas.mate`, `correr curso.mate` |

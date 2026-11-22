@@ -22,6 +22,9 @@
 #          python mate\mate.py correr mate\ejemplos\12_mostrador_con_reglas.mate --ia-simulada
 #   2. Para correr las pruebas de abajo:
 #          python mate\mate.py probar mate\ejemplos\12_mostrador_con_reglas.mate
+#   3. Para ensayarlo: Mate le hace las preguntas anotadas en casos.txt (está al lado; se
+#      abre con el Bloc de notas) y dice cuáles contestó bien. Va todo en un renglón:
+#          python mate\mate.py ensayar mate\ejemplos\12_mostrador_con_reglas.mate mate\ejemplos\casos.txt --ia-simulada
 #
 # Para adaptarlo: cambiá precios.csv (al lado de este archivo; tiene que tener las columnas
 # producto, presentacion, precio y stock) y el número de acá abajo. El cliente nombra cada
