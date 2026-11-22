@@ -1,12 +1,17 @@
 # Dos programas que se mandan mensajes por el buzón (0.7). Este es Ventas; el otro,
 # buzon_deposito.mate, es el dueño del stock. Están en la misma carpeta.
 #
-#   python mate\mate.py correr mate\ejemplos\buzon_ventas.mate     (deja la reserva en el buzón)
-#   python mate\mate.py correr mate\ejemplos\buzon_deposito.mate   (la atiende y contesta)
-#   python mate\mate.py correr mate\ejemplos\buzon_ventas.mate     (recibe la contestación)
+# Para probarlo, COPIÁ primero los tres archivos (buzon_ventas.mate, buzon_deposito.mate y
+# buzon_mensajes.mate) a una carpeta tuya: al correr, Mate deja al lado de cada programa su
+# memoria (.memoria.json) y su buzón (la carpeta .buzon), y acá, entre los ejemplos, molestan.
+# Parado en esa carpeta (cambiá la ruta de mate.py por la tuya):
+#
+#   python mate.py correr buzon_ventas.mate     (deja la reserva en el buzón)
+#   python mate.py correr buzon_deposito.mate   (la atiende y contesta)
+#   python mate.py correr buzon_ventas.mate     (recibe la contestación)
 #
 # El mensaje sale cuando este programa termina, y Depósito lo recibe cuando lo corren.
-# Para ver qué hay esperando:  python mate\mate.py buzon mate\ejemplos\buzon_deposito.mate
+# Para ver qué hay esperando:  python mate.py buzon buzon_deposito.mate
 
 usar "buzon_mensajes.mate"
 # Con esto, los agentes de ese otro programa quedan como destino de 'enviar'.
@@ -16,8 +21,15 @@ usar buzon "buzon_deposito.mate"
 agente Ventas {
     # Los pedidos que todavía no contestó Depósito. Se recuerda de una corrida a la otra.
     estado recordado esperando = []
+    # Los pedidos ya mandados a Depósito: el mismo pedido no se manda dos veces (este
+    # programa pide el A-17 cada vez que corre, y a Depósito le tiene que llegar una vez).
+    estado recordado mandados = []
 
     al recibir Vender como v {
+        si tiene(mandados, v.pedido) {
+            devolver
+        }
+        mandados = agregar(mandados, v.pedido)
         esperando = agregar(esperando, v.pedido)
         enviar Reservar { pedido: v.pedido, producto: v.producto, cantidad: v.cantidad } a Deposito
     }
@@ -46,6 +58,12 @@ prueba "el pedido sale para Depósito y no se escribe ningún buzón" {
     asegurar largo(salidos) == 1
     asegurar salidos[0].a == "Deposito"
     asegurar salidos[0].mensaje.cantidad == 2
+}
+
+prueba "el mismo pedido no se manda dos veces" {
+    enviar Vender { pedido: "P-5", producto: "yerba", cantidad: 1 } a Ventas
+    enviar Vender { pedido: "P-5", producto: "yerba", cantidad: 1 } a Ventas
+    asegurar largo(mensajes_enviados("Reservar")) == 1
 }
 
 prueba "lo que conteste Depósito se prueba con simular" {

@@ -2,7 +2,8 @@
 # del stock. No tiene renglones propios: cuando lo corren, atiende lo que le dejaron en
 # su buzón (la carpeta buzon_deposito.buzon) y contesta.
 #
-#   python mate\mate.py correr mate\ejemplos\buzon_deposito.mate
+#   python mate.py correr buzon_deposito.mate
+#   (copiá antes los tres archivos a una carpeta tuya: lo explica buzon_ventas.mate)
 #
 # No hace falta 'usar buzon' para contestar: 'responder' le vuelve al que envió.
 
@@ -10,7 +11,8 @@ usar "buzon_mensajes.mate"
 
 agente Deposito {
     estado recordado stock = { yerba: 10, azucar: 4 }
-    # Los pedidos ya atendidos: el mismo pedido no descuenta dos veces.
+    # Los pedidos ya atendidos: el mismo pedido no descuenta dos veces (ni se contesta
+    # de nuevo: Ventas tampoco lo manda dos veces).
     estado recordado vistos = []
 
     al recibir Reservar como r {

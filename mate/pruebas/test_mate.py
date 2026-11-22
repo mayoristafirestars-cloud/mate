@@ -15477,3 +15477,371 @@ def test_buzon_esta_documentado():
         assert (RAIZ / "ejemplos" / ejemplo).is_file()
     assert 'usar buzon "buzon_deposito.mate"' in (RAIZ / "ejemplos" / "buzon_ventas.mate").read_text(
         encoding="utf-8")
+
+
+# ── Buzón entre programas, vuelta 2 (0.7): el orden entre corridas seguidas, lo que queda
+#    en la cola cuando el programa se corta, y los avisos que faltaban ──
+
+def test_buzon_el_orden_vale_entre_corridas_seguidas_sin_esperar(tmp_path, capsys, monkeypatch):
+    import re
+    carpeta_bz(tmp_path, monkeypatch, mensajes_mate=None, deposito_mate=ANOTADOR_BZ,
+               ventas_mate='usar buzon "deposito.mate"\nsea base = numero(leer_archivo('
+                           '"base.txt"))\nenviar Anotar { n: base } a Deposito\n'
+                           'enviar Anotar { n: base + 1 } a Deposito\n')
+    esperado = []
+    for vuelta in range(8):  # una corrida atrás de la otra, en el mismo segundo
+        (tmp_path / "base.txt").write_text(str(vuelta * 10), encoding="utf-8")
+        assert orden_mate(capsys, "correr", "ventas.mate")[0] == 0
+        esperado += [vuelta * 10, vuelta * 10 + 1]
+    for vuelta in range(8, 11):  # ...y como las corre la gente: un proceso por corrida
+        (tmp_path / "base.txt").write_text(str(vuelta * 10), encoding="utf-8")
+        assert correr_bz(tmp_path, "correr", "ventas.mate")[0] == 0
+        esperado += [vuelta * 10, vuelta * 10 + 1]
+    sobres = sobres_de(tmp_path / "deposito.buzon")  # (en orden de nombre de archivo)
+    assert [s["mensaje"]["campos"]["n"] for s in sobres] == esperado
+    # el id: la hora universal, 20 cifras (las 5 primeras, las millonésimas de segundo) y
+    # el número de orden
+    assert all(re.fullmatch(r"\d{8}T\d{6}-[0-9a-f]{20}-\d{4}", s["id"]) for s in sobres)
+    assert all(int(s["id"][16:21], 16) < 1_000_000 for s in sobres)
+    corridas = [s["id"][:21] for s in sobres[::2]]
+    assert corridas == sorted(corridas) and len(set(corridas)) == 11
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+    assert (codigo, err) == (0, "")
+    assert memoria_de(tmp_path, "deposito")["agentes"]["Deposito"]["estado"]["vistos"] == esperado
+
+
+def test_buzon_dos_buzones_armados_en_el_mismo_instante_no_repiten_la_hora(tmp_path):
+    programa = tmp_path / "ventas.mate"
+    programa.write_text("", encoding="utf-8")
+    corridas = [mate.Buzon(str(programa)).corrida[:21] for _ in range(200)]
+    assert corridas == sorted(corridas) and len(set(corridas)) == 200
+
+
+MOSTRADOR_BZ = """\
+usar "mensajes.mate"
+usar buzon "deposito.mate"
+mensaje Pedir { p: texto } responde texto
+agente Ventas {
+    estado recordado anotados = []
+    al recibir Pedir como q {
+        anotados = agregar(anotados, q.p)
+        enviar Reservar { pedido: q.p, producto: "yerba", cantidad: 1 } a Deposito
+        responder "Anotado {q.p}"
+    }
+    al recibir Reservado como r { mostrar("listo {r.pedido}") }
+}
+var p = leer("Pedido:", "chau")
+mientras p != "chau" {
+    mostrar(preguntar Pedir { p: p } a Ventas)
+    escribir_archivo("ultimo.txt", p)
+    p = leer("Pedido:", "chau")
+}
+"""
+
+
+def esperar_texto_bz(archivo, texto, espera=30):
+    import time
+    limite = time.time() + espera
+    while not (archivo.exists() and archivo.read_text(encoding="utf-8-sig") == texto):
+        assert time.time() < limite, f"{archivo.name} nunca dijo {texto}"
+        time.sleep(0.02)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="acá el Ctrl+C se manda como señal")
+def test_buzon_un_mostrador_cerrado_con_ctrl_c_no_pierde_el_ultimo_mensaje(tmp_path, monkeypatch):
+    import signal
+    import time
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=MOSTRADOR_BZ)
+    # (a Ventas ya le dejaron una contestación: cortando con Ctrl+C no la va a atender)
+    dejar_bz(tmp_path / "ventas.buzon", sobre_bz(
+        7, {"tipo": "Reservado", "campos": {"pedido": "X-0", "hecho": True, "quedan": 3}},
+        de={"programa": "deposito", "agente": "Deposito"},
+        para={"programa": "ventas", "agente": "Ventas"}))
+    proceso = subprocess.Popen(
+        [sys.executable, str(RAIZ / "mate.py"), "correr", "ventas.mate"], cwd=str(tmp_path),
+        env={**os.environ, "MATE_SIN_REGISTRO": "1", "PYTHONIOENCODING": "utf-8"},
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        encoding="utf-8")
+    proceso.stdin.write("A-1\nA-2\n")
+    proceso.stdin.flush()
+    esperar_texto_bz(tmp_path / "ultimo.txt", "A-2")
+    time.sleep(0.5)  # (ya contestó "Anotado A-2" y espera el pedido siguiente)
+    proceso.send_signal(signal.SIGINT)
+    codigo, salida, err = terminar_bz(proceso)
+    assert codigo != 0 and "Traceback" not in err
+    assert "Anotado A-1" in salida and "Anotado A-2" in salida
+    # Lo anotado y lo que salió para Depósito dicen lo mismo: los dos pedidos.
+    assert memoria_de(tmp_path, "ventas")["agentes"]["Ventas"]["estado"]["anotados"] == [
+        "A-1", "A-2"]
+    assert [s["mensaje"]["campos"]["pedido"] for s in sobres_de(tmp_path / "deposito.buzon")] \
+        == ["A-1", "A-2"]
+    assert "dejé 2 mensajes para deposito.mate" in salida
+    assert "buzon" not in memoria_de(tmp_path, "ventas")  # (nada quedó "por salir")
+    # ...y avisa que lo que le habían dejado no se atendió (sigue en su buzón).
+    assert "aviso: en el buzón quedó 1 mensaje sin atender, porque el programa se cortó" in err
+    assert "listo X-0" not in salida and len(sobres_de(tmp_path / "ventas.buzon")) == 1
+    codigo, salida, err = correr_bz(tmp_path, "buzon", "ventas.mate")
+    assert "Esperan: 1 mensaje (1 de deposito.mate)" in salida and "Por salir: ninguno." in salida
+    # Depósito atiende los dos, una vez cada uno.
+    codigo, salida, err = correr_bz(tmp_path, "correr", "deposito.mate")
+    assert (codigo, err) == (0, "") and "atendí 2 mensajes (2 de ventas.mate)" in salida
+    assert memoria_de(tmp_path, "deposito")["agentes"]["Deposito"]["estado"]["vistos"] == [
+        "A-1", "A-2"]
+
+
+def test_buzon_un_error_del_programa_no_pierde_lo_que_un_agente_dejo_para_otro(tmp_path, capsys,
+                                                                             monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=MOSTRADOR_BZ.split("var p = ")[0] + (
+        'mostrar(preguntar Pedir { p: "E-1" } a Ventas)\n'
+        'enviar Reservado { pedido: "local", hecho: verdadero, quedan: 1 } a Ventas\n'
+        "sea x = 1 / 0\n"))
+    dejar_bz(tmp_path / "ventas.buzon", sobre_bz(
+        7, {"tipo": "Reservado", "campos": {"pedido": "X-0", "hecho": True, "quedan": 3}},
+        de={"programa": "deposito", "agente": "Deposito"},
+        para={"programa": "ventas", "agente": "Ventas"}))
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert codigo == 1 and "división por cero" in err
+    assert salida == ("Anotado E-1\nBuzón: dejé 1 mensaje para deposito.mate; le llega la "
+                      "próxima vez que corra.\n")
+    assert memoria_de(tmp_path, "ventas") ["agentes"]["Ventas"]["estado"]["anotados"] == ["E-1"]
+    (sobre,) = sobres_de(tmp_path / "deposito.buzon")
+    assert sobre["mensaje"]["campos"]["pedido"] == "E-1" and sobre["de"]["agente"] == "Ventas"
+    # Lo que quedó en la cola para un agente de ACÁ sigue como siempre: avisado, sin entregar.
+    assert "quedaron 1 mensaje(s) sin entregar:" in err and "(programa) -> Ventas: Reservado" in err
+    assert "-> Deposito" not in err
+    # ...y lo que le habían dejado en su buzón no se atendió: lo dice, y sigue ahí.
+    assert "aviso: en el buzón quedó 1 mensaje sin atender, porque el programa se cortó" in err
+    assert len(sobres_de(tmp_path / "ventas.buzon")) == 1
+    # Un programa que termina bien no da ese aviso.
+    (tmp_path / "ventas.mate").write_text(VENTAS_BZ, encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert (codigo, err) == (0, "") and "Pedido X-0: reservado. Quedan 3." in salida
+
+
+@pytest.mark.skipif(os.name == "nt", reason="acá el Ctrl+C se manda como señal")
+def test_buzon_ctrl_c_a_mitad_de_un_mensaje_no_manda_lo_que_ese_agente_dejo(tmp_path, monkeypatch):
+    import signal
+    carpeta_bz(tmp_path, monkeypatch, traba_py=TRABA_PY, ventas_mate="""\
+usar "mensajes.mate"
+usar buzon "deposito.mate"
+usar python "traba.py"
+agente Ventas {
+    estado recordado anotados = []
+    al recibir Vender como v {
+        anotados = agregar(anotados, v.pedido)
+        enviar Reservar { pedido: v.pedido, producto: v.producto, cantidad: v.cantidad } a Deposito
+        traba.esperar()
+    }
+}
+enviar Vender { pedido: "A-1", producto: "yerba", cantidad: 1 } a Ventas
+enviar Vender { pedido: "A-2", producto: "yerba", cantidad: 1 } a Ventas
+""")
+    proceso = lanzar_bz(tmp_path, "correr", "ventas.mate")
+    codigo, salida, err = terminar_bz(proceso)  # (sin traba: salen los dos)
+    assert (codigo, err) == (0, "") and "dejé 2 mensajes" in salida
+    for viejo in (tmp_path / "deposito.buzon").glob("*.json"):
+        viejo.unlink()
+    (tmp_path / "ventas.memoria.json").unlink()
+    (tmp_path / "trabar").write_text("", encoding="utf-8")
+    proceso = lanzar_bz(tmp_path, "correr", "ventas.mate")
+    esperar_bz(tmp_path / "atendiendo")  # (Ventas está a mitad del primer pedido)
+    proceso.send_signal(signal.SIGINT)
+    codigo, salida, err = terminar_bz(proceso)
+    assert codigo != 0 and "Traceback" not in err
+    # El estado de ese agente volvió atrás, y lo que había dejado para Depósito no sale.
+    assert memoria_de(tmp_path, "ventas") == {
+        "que_es": memoria_de(tmp_path, "ventas")["que_es"],
+        "agentes": {"Ventas": {"estado": {"anotados": []}, "lecciones": []}}}
+    assert sobres_de(tmp_path / "deposito.buzon") == [] and "dejé" not in salida
+    assert "-> Deposito" not in err  # (ni figura como pendiente: se deshizo con su estado)
+
+
+def test_buzon_en_la_consola_enviar_a_otro_programa_avisa_que_no_sale(tmp_path, monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch)
+    antes = todo_lo_que_hay(tmp_path)
+    mostrado = en_consola('usar "mensajes.mate"', 'usar buzon "deposito.mate"',
+                          'enviar Reservar { pedido: "c", producto: "yerba", cantidad: 1 } '
+                          'a Deposito', "2 + 2", "salir")
+    assert mostrado[-1] == "4"
+    (aviso,) = [r for r in mostrado if "aviso" in r]
+    assert aviso.startswith("aviso: desde la consola no sale nada para otro programa: el "
+                            "mensaje para Deposito (deposito.mate) no se escribió")
+    assert todo_lo_que_hay(tmp_path) == antes
+
+
+def test_buzon_un_mensaje_reintentado_que_vuelve_a_fallar_avisa_de_nuevo(tmp_path, capsys,
+                                                                       monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch)
+    malo = sobre_bz(1, {"tipo": "Reservar", "campos": {
+        "pedido": "M-1", "producto": "yerba", "cantidad": 500}})
+    dejar_bz(tmp_path / "deposito.buzon", malo)
+    rechazados = tmp_path / "deposito.buzon" / "rechazados"
+    ids = []
+    for intento in range(3):
+        codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+        assert codigo == 0 and "no cumple el contrato" in err
+        (falla,) = sobres_de(tmp_path / "ventas.buzon")
+        ids.append(falla["id"])
+        assert falla["clase"] == "falla" and falla["en_respuesta_a"] == malo["id"]
+        for archivo in (tmp_path / "ventas.buzon").glob("*.json"):
+            archivo.unlink()  # (Ventas ya lo atendió)
+        (ultimo,) = [p for p in rechazados.glob("*.json")]
+        ultimo.rename(tmp_path / "deposito.buzon" / ultimo.name)  # a intentarlo de nuevo
+    assert ids == [malo["id"] + ".falla", malo["id"] + ".falla-2", malo["id"] + ".falla-3"]
+    # Si el rechazo se repite porque la corrida se cortó (todavía no hay motivo anotado),
+    # el aviso lleva el mismo id: el que envió no se entera dos veces.
+    buzon = mate.Buzon(str(tmp_path / "compras.mate"))
+    assert buzon.id_de_falla("abc", str(tmp_path / "compras.buzon" / "abc.json")) == "abc.falla"
+    assert len(buzon.id_de_falla("x" * 120, "x.json")) == 120
+
+
+def test_buzon_la_orden_buzon_no_cuenta_lo_ya_atendido_ni_lo_repetido(tmp_path, capsys,
+                                                                    monkeypatch):
+    import json
+    carpeta_bz(tmp_path, monkeypatch)
+    dejar_bz(tmp_path / "deposito.buzon", sobre_bz(1))
+    assert orden_mate(capsys, "correr", "deposito.mate")[0] == 0
+    dejar_bz(tmp_path / "deposito.buzon", sobre_bz(1), "vuelve")  # ya atendido: no espera
+    dejar_bz(tmp_path / "deposito.buzon", sobre_bz(2))
+    dejar_bz(tmp_path / "deposito.buzon", sobre_bz(2), "zz-copia")  # repetido
+    (tmp_path / "deposito.buzon" / "carpeta.json").mkdir()
+    antes = todo_lo_que_hay(tmp_path)
+    codigo, salida, err = orden_mate(capsys, "buzon", "deposito.mate")
+    assert (codigo, err) == (0, "")
+    renglones = salida.splitlines()
+    assert renglones[1] == ("  Esperan: 1 mensaje (1 de ventas.mate). Se atienden la próxima "
+                            "vez que corra deposito.mate.")
+    assert renglones[2] == ("  Ya atendidos o repetidos: 2 (siguen en la carpeta; se borran "
+                            "sin entregar la próxima vez que corra deposito.mate).")
+    assert renglones[3].startswith("  No son mensajes: 1 (una carpeta o un acceso directo con "
+                                   "nombre terminado en .json: carpeta.json). Mate no los")
+    assert todo_lo_que_hay(tmp_path) == antes
+    # ...y al correr pasa eso mismo: atiende uno y borra los otros dos sin entregarlos.
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+    assert (codigo, err) == (0, "") and "atendí 1 mensaje (1 de ventas.mate)" in salida
+    assert archivos_de(tmp_path / "deposito.buzon") == ["candado", "carpeta.json"]
+    assert memoria_de(tmp_path, "deposito")["agentes"]["Deposito"]["estado"]["vistos"] == [
+        "M-1", "M-2"]
+    # Lo que no es un programa de Mate no tiene buzón.
+    (tmp_path / "efecto.py").write_text("", encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "buzon", "efecto.py")
+    assert codigo == 2 and salida == ""
+    assert "'buzon' lleva un programa de Mate (un archivo .mate), y 'efecto.py' no lo es" in err
+
+
+def test_buzon_escribir_archivo_no_pisa_la_memoria_del_otro_programa(tmp_path, capsys, monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate='usar buzon "deposito.mate"\n'
+               'escribir_archivo("deposito.memoria.json", "hola")\n')
+    (tmp_path / "deposito.memoria.json").write_text('{"agentes": {}}', encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert codigo == 1
+    assert ("escribir_archivo() no escribe en 'deposito.memoria.json': es la memoria de "
+            "deposito.mate y la lleva Mate") in err
+    assert (tmp_path / "deposito.memoria.json").read_text(encoding="utf-8") == '{"agentes": {}}'
+    (tmp_path / "ventas.mate").write_text(
+        'usar buzon "deposito.mate"\nagregar_a_archivo("DEPOSITO.memoria.json", "hola")\n',
+        encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert codigo == 1 and "es la memoria de deposito.mate" in err
+    assert (tmp_path / "deposito.memoria.json").read_text(encoding="utf-8") == '{"agentes": {}}'
+
+
+def test_buzon_la_traza_no_aconseja_preguntar_cuando_lo_mando_otro_programa(tmp_path, capsys,
+                                                                          monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate='usar "mensajes.mate"\n'
+               'usar buzon "deposito.mate"\nenviar Reservar { pedido: "S-1", producto: '
+               '"yerba", cantidad: 1 } a Deposito\n')
+    assert orden_mate(capsys, "correr", "ventas.mate")[0] == 0
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate", "--traza")
+    assert (codigo, err) == (0, "")
+    assert "la respuesta de Deposito se descartó (el mensaje llegó de otro programa y no lo " \
+           "mandó un agente: para recibirla, que lo envíe un agente de ese programa)" in salida
+    assert "usá 'preguntar'" not in salida
+
+
+@pytest.mark.parametrize("renglon, que", [
+    ("mostrar(lecciones(Deposito))", "usar lecciones() con él"),
+    ('aprender("algo", Deposito)', "usar aprender() con él"),
+    ("mostrar(Deposito.stock)", "mirarle 'stock'"),
+])
+def test_buzon_lo_que_no_se_le_puede_pedir_a_un_agente_de_otro_programa(renglon, que, tmp_path,
+                                                                       capsys, monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=f'usar buzon "deposito.mate"\n{renglon}\n')
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert codigo == 1
+    assert (f"ventas.mate:2: error: Deposito es de otro programa (deposito.mate): acá solo se "
+            f"le puede mandar un mensaje con 'enviar', no {que}") in err
+
+
+def test_buzon_usar_buzon_con_otras_mayusculas_o_con_una_carpeta(tmp_path, capsys, monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate='usar buzon "DEPOSITO.MATE"\n')
+    codigo, salida, err = orden_mate(capsys, "verificar", "ventas.mate")
+    if not (tmp_path / "DEPOSITO.MATE").exists():  # (en Windows da lo mismo, y anda)
+        assert codigo == 1 and "¿Quisiste decir 'deposito.mate'? (escribilo igual, con las " \
+                               "mismas mayúsculas)" in err
+    (tmp_path / "carp.mate").mkdir()
+    (tmp_path / "ventas.mate").write_text('usar buzon "carp.mate"\n', encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "verificar", "ventas.mate")
+    assert codigo == 1 and "ventas.mate:1: error: 'carp.mate' es una carpeta, no un programa" in err
+    assert "Quisiste decir" not in err
+
+
+def test_buzon_el_motivo_de_una_falla_escrita_a_mano_sale_en_un_renglon(tmp_path, capsys,
+                                                                      monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_BZ.split("\nenviar Vender")[0] + "\n")
+    falla = sobre_bz(1, clase="falla", motivo="porque sí\nOTRO RENGLON\r\n" + "x" * 900,
+                     de={"programa": "deposito", "agente": "Deposito"},
+                     para={"programa": "ventas", "agente": "Ventas"})
+    dejar_bz(tmp_path / "ventas.buzon", falla)
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert (codigo, err) == (0, "")
+    primero = salida.splitlines()[0]
+    assert primero.startswith("Depósito no pudo con el pedido M-1: porque sí OTRO RENGLON xxx")
+    assert primero.endswith("...") and len(primero) < 500
+    assert salida.splitlines()[1:] == ["Buzón: atendí 1 mensaje (1 de deposito.mate)."]
+
+
+def test_buzon_el_ejemplo_no_deja_un_pedido_esperando_para_siempre(tmp_path, capsys, monkeypatch):
+    import shutil
+    for nombre in ("buzon_mensajes.mate", "buzon_ventas.mate", "buzon_deposito.mate"):
+        shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre)
+    monkeypatch.chdir(tmp_path)
+    salidas = []
+    for programa in ("ventas", "deposito", "ventas", "deposito", "ventas"):
+        codigo, salida, err = orden_mate(capsys, "correr", f"buzon_{programa}.mate")
+        assert (codigo, err) == (0, "")
+        salidas.append(salida)
+    assert "Pedido A-17: reservado. Quedan 8." in salidas[2]
+    assert salidas[3] == salidas[4] == ""  # (el pedido no se manda dos veces)
+    assert memoria_de(tmp_path, "buzon_ventas")["agentes"]["Ventas"]["estado"] == {
+        "esperando": [], "mandados": ["A-17"]}
+    assert memoria_de(tmp_path, "buzon_deposito")["agentes"]["Deposito"]["estado"]["stock"] == {
+        "yerba": 8, "azucar": 4}
+
+
+def test_buzon_la_vuelta_2_esta_documentada():
+    leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    seccion = leeme.split("### Dos programas que se hablan: el buzón")[1].split("\n### ")[0]
+    for frase in ["**Para correrlo, copiá antes esos tres\narchivos a una carpeta tuya**",
+                  "**sale igual** (se guarda junto con su estado)",
+                  "**Si se lo\n  cierra con Ctrl+C manda, pero no recibe**",
+                  "aunque se corran una atrás de la\n  otra", "que el reloj de la PC se atrase",
+                  "millonésimas de segundo", "En la `consola`",
+                  "tampoco\nescriben en la memoria de un programa nombrado con `usar buzon`",
+                  "**Sin probar en una Windows de verdad**"]:
+        assert frase in seccion, frase
+    assert "El orden** está asegurado" not in seccion
+    # La fila del buzón está pegada a su tabla (antes quedaba suelta, tras un renglón en blanco).
+    sumando = leeme.split("## Qué se está sumando para la 0.7")[1].split("\n## ")[0]
+    filas = sumando.split("| Qué hay de nuevo |")[1].split("\n\n")[0].splitlines()
+    assert any(fila.startswith('| `usar buzon "deposito.mate"`') for fila in filas)
+    assert all(fila.startswith("|") for fila in filas[1:])
+    encabezado = (RAIZ / "ejemplos" / "buzon_ventas.mate").read_text(encoding="utf-8")
+    assert "COPIÁ primero los tres archivos" in encabezado.split("usar ")[0]
+    ignorados = (RAIZ.parent / ".gitignore").read_text(encoding="utf-8").split()
+    assert "*.buzon/" in ignorados and "*.memoria.json" in ignorados
+    ficha = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8").split(
+        '\n**126. Buzón entre programas: `usar buzon "deposito.mate"`**')[1].split("\n\n")[0]
+    assert "**Vuelta 2: lo que se corrigió.**" in ficha and "millonésimas de segundo" in ficha
+    ayuda = " ".join(mate.ayuda_de("buzon").split())
+    assert "lo que le llegó no se atiende: avisa cuántos quedaron" in ayuda

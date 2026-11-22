@@ -970,11 +970,16 @@ python mate\mate.py correr ventas.mate      # Pedido A-17: quedan 8.
 ```
 
 El ejemplo completo está en `ejemplos/buzon_ventas.mate`, `ejemplos/buzon_deposito.mate` y
-`ejemplos/buzon_mensajes.mate`, con sus pruebas.
+`ejemplos/buzon_mensajes.mate`, con sus pruebas. **Para correrlo, copiá antes esos tres
+archivos a una carpeta tuya**: al correr, Mate deja al lado de cada programa su memoria
+(`.memoria.json`) y la carpeta de su buzón (`.buzon`), y entre los ejemplos molestan.
 
 **La regla, en un renglón:** los mensajes para otro programa **salen cuando el programa
 termina y guarda**; los que llegaron **se atienden cuando el programa termina sus
-renglones**. Si cerrás la ventana con la X, no sale ni se guarda nada.
+renglones**. Si cerrás la ventana con la X, no sale ni se guarda nada. Si el programa se
+corta con un error o con Ctrl+C, lo que sus agentes ya habían dejado para otro programa
+**sale igual** (se guarda junto con su estado), pero lo que le llegó **no se atiende**: Mate
+avisa cuántos mensajes quedaron esperando.
 
 - **`buzon` no es una palabra nueva**: solo significa algo después de `usar` (como `python`),
   así que sigue sirviendo como nombre de variable. Tampoco hay funciones incluidas nuevas.
@@ -994,8 +999,9 @@ renglones**. Si cerrás la ventana con la X, no sale ni se guarda nada.
   lista o guardado en una variable), en `simular` dentro de una prueba y para mostrar su
   nombre. No se le puede `preguntar` (ese programa puede no estar corriendo: se le manda con
   `enviar` y la contestación se recibe con un `al recibir`), ni `crear` una copia, ni usar
-  `aprender`, `lecciones` o `a_json` con él, ni ponerlo adentro de un mensaje. Cada cosa da
-  su error, antes de correr cuando se puede saber.
+  `aprender`, `lecciones` o `a_json` con él, ni mirarle el estado, ni ponerlo adentro de un
+  mensaje. Cada cosa da su error, antes de correr cuando se puede saber. En la `consola` se
+  puede escribir el `enviar`, pero no sale nada para el otro programa, y lo avisa.
 - **El contrato se controla dos veces.** Al enviar, como siempre: si el otro agente no tiene
   ese `al recibir`, sale `Deposito no sabe recibir 'X'` en el renglón del `enviar`, y un valor
   escrito a mano que rompe la regla de su campo frena antes de correr. Y **al llegar**, con
@@ -1010,7 +1016,8 @@ renglones**. Si cerrás la ventana con la X, no sale ni se guarda nada.
   (`aviso: no entregué un mensaje del buzón: Reservar de Ventas (ventas.mate) para Deposito
   no cumple el contrato: Reservar.cantidad no puede valer 500...`), sigue con los demás y
   deja el archivo **tal como llegó** en la carpeta `rechazados`, con un `.motivo.txt` al
-  lado. Para intentarlo de nuevo alcanza con moverlo a la carpeta de arriba. Si el agente
+  lado. Para intentarlo de nuevo alcanza con moverlo a la carpeta de arriba (si vuelve a
+  fallar, el que envió recibe otro aviso). Si el agente
   **falla** mientras atiende un mensaje válido, pasa lo de siempre (su estado vuelve atrás y
   el error queda anotado) y además el mensaje va a `rechazados`: no se reintenta para
   siempre.
@@ -1034,6 +1041,8 @@ renglones**. Si cerrás la ventana con la X, no sale ni se guarda nada.
 
 - **Para mirar un buzón sin tocarlo**: `python mate\mate.py buzon deposito.mate` dice cuántos
   mensajes esperan y de quién, cuántos están por salir y cuáles se rechazaron, con el motivo.
+  Lo que sigue en la carpeta pero ya se atendió (quedó de un corte) lo cuenta aparte: no se
+  entrega de nuevo.
   (Si tenías un programa llamado `buzon.mate`, se corre con `correr buzon.mate`.)
 
 **Dónde queda cada cosa.** El buzón de `deposito.mate` es la carpeta `deposito.buzon`, al
@@ -1042,13 +1051,17 @@ qué conversación pertenece, a cuál contesta y el mensaje como lo da `a_json`)
 `rechazados` y un archivo `candado`. Esa carpeta la lleva Mate: `escribir_archivo` y
 `agregar_a_archivo` no escriben ahí. Lo que un programa ya atendió y lo que todavía tiene
 que repartir queda anotado en su archivo de memoria (`deposito.memoria.json`, en la parte
-`"buzon"`), que `corregir`, `lecciones` y `--olvidar` no tocan.
+`"buzon"`), que `corregir`, `lecciones` y `--olvidar` no tocan. Esas dos funciones tampoco
+escriben en la memoria de un programa nombrado con `usar buzon` (la de otros programas de
+la carpeta que no se nombran queda sin cuidar: no la uses como nombre de archivo).
 
 **Una sola vez, aunque se corte.** Al terminar, Mate guarda **en una sola escritura** el
 estado de los agentes, los mensajes que ya atendió y los que tiene que dejarles a otros
 programas; recién después los reparte, mueve los rechazados y borra los atendidos. Si el
 programa termina con un error o con Ctrl+C, guarda lo atendido hasta ahí y lo demás sigue
-en el buzón. Si se corta de golpe (la X de la ventana, un corte de luz), la corrida
+en el buzón; y si un agente ya había anotado algo y dejado un mensaje para otro programa
+(un mostrador que anotó el último pedido y se cierra con Ctrl+C), ese mensaje sale junto
+con lo anotado: no queda un programa sabiendo algo que el otro no. Si se corta de golpe (la X de la ventana, un corte de luz), la corrida
 siguiente termina el trabajo: lo que no se guardó se atiende de nuevo, y lo que ya se había
 guardado no se repite (cada mensaje lleva un `id`, y el que recibe anota los que ya
 atendió). Lo único que se puede repetir es lo que el agente había mostrado en pantalla.
@@ -1056,13 +1069,20 @@ atendió). Lo único que se puede repetir es lo que el agente había mostrado en
 **Lo que hay que saber (límites de esta versión):**
 
 - **Un programa no se queda escuchando.** Recibe cuando lo corren, y manda cuando termina.
-  Un mostrador abierto todo el día manda y recibe recién al salir con `chau`.
+  Un mostrador abierto todo el día manda y recibe recién al salir con `chau`. **Si se lo
+  cierra con Ctrl+C manda, pero no recibe**: avisa cuántos mensajes quedaron esperando, y
+  se atienden la próxima vez que termine solo. Quien siempre sale con Ctrl+C no recibe nunca.
 - **El buzón se atiende al final**, después de los renglones del programa (así un agente ya
   está preparado: su lista cargada, su planilla leída), en una sola pasada: lo que llegue
   mientras tanto queda para la próxima corrida. En una corrida se atienden hasta 1.000
   mensajes; si hay más, avisa y el resto espera.
-- **El orden** está asegurado entre los mensajes de un mismo programa (en el orden en que
-  los envió). Entre programas distintos no se promete orden.
+- **El orden**: los mensajes de un mismo programa llegan en el orden en que los envió,
+  dentro de una corrida y de una corrida a la siguiente, aunque se corran una atrás de la
+  otra (el nombre de cada sobre arranca con la hora en que empezó la corrida, con sus
+  millonésimas de segundo). Lo que puede desordenarlos: que el reloj de la PC se atrase
+  entre dos corridas, o dos ventanas del mismo programa abiertas a la vez. Entre programas
+  distintos no se promete orden, y el aviso de que un mensaje falló puede llegar antes que
+  las contestaciones de los demás.
 - **Correr dos veces un programa que envía manda dos mensajes.** Para que el negocio no lo
   tome dos veces, el mensaje lleva un dato propio (`pedido: "A-17"`) y el que recibe lo
   controla, como en el ejemplo.
@@ -1086,6 +1106,8 @@ atendió). Lo único que se puede repetir es lo que el agente había mostrado en
   en la carpeta ya puede editar los `.mate`. El motivo de una falla viaja tal cual al otro
   programa (puede llevar texto de un error de adentro), y la carpeta `rechazados` no se
   limpia sola.
+- **Sin probar en una Windows de verdad**: el candado del buzón y el paso a `rechazados` se
+  probaron en Linux. Si algo de esto falla con `py`, avisá.
 
 Es la base para conectar programas de distintas máquinas más adelante: el sobre nombra
 programa y agente (no rutas), todo es asíncrono, el que recibe valida y descarta lo repetido,
@@ -2864,7 +2886,6 @@ que en la 0.6:
 | `nuevo equipo mi_negocio`: crea ese equipo para tu negocio (programa, planilla y casos), sin copiar archivos a mano | [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
 | La clase 13 del curso: un equipo de agentes que se hablan | [El curso](#el-curso) |
 | En el archivo de casos de `ensayar`: `tiene que viajar: Reponer de Deposito a Compras` y `no tiene que viajar: Reponer`. Si un caso de un equipo falla, el informe muestra la conversación | [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo) |
-
 | `usar buzon "deposito.mate"`: un agente le manda un mensaje a un agente de **otro programa** de la misma carpeta. El mensaje queda en un buzón (un archivo) y se entrega, validado con el contrato, cuando ese otro programa corre. La orden `buzon deposito.mate` muestra qué hay esperando | [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón) |
 
 El detalle está en `MEJORAS.md`, mejoras 124, 125 y 126.
