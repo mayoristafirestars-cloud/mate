@@ -2188,3 +2188,189 @@ contra el que se dice haber programado. Para el dueño, en Windows:
 **Lo que sigue**: vuelta 2 del cambio 3, con P134 y P135 obligatorios (cada uno con su
 prueba) y, si entran, P136 a P139 y P143. Sigue pendiente la vuelta 4 del cambio 1 (P102) y
 dejar registrado el diseño del buzón. Primero A, después B; nada de B todavía.
+
+### Cambio 3: buzón entre programas, vuelta 2 — cerrado
+
+Revisor y agente de pruebas aprobaron. Los dos problemas medios de la vuelta 1 (P134, el orden
+entre corridas seguidas, y P135, el corte que perdía el último mensaje) quedaron resueltos y
+con prueba. Nadie encontró problemas altos ni medios; quedan solo bajos.
+
+Notas del integrador:
+- El cambio 1 sigue NO cerrado: la vuelta 4 (P102, medio) sigue sin registro en este archivo.
+  Cerrar el cambio 3 no cierra la 0.7.
+- El diseño del buzón y su revisión siguen sin estar registrados acá ni en la rama. En esta
+  vuelta el implementador se aparta de "el punto 4.4 del diseño": no pude leer ese punto, es
+  palabra suya.
+- Esto sigue siendo la base de B, no B: todo en una misma PC, sin red. El orden del dueño no
+  cambia: primero A, después B.
+- Windows sigue sin probar (P149), y ahí se saltean las pruebas de Ctrl+C, que son justo las
+  de P135. El cierre vale para lo probado en Linux.
+
+**Qué se hizo** (commit `c0f294e`, implementador; local, sin push, sin tocar `main` ni este
+archivo). Tocó `mate.py` (+181, -26 renglones), `test_mate.py` (+368, -0), README, MEJORAS,
+`buzon_ventas.mate`, `buzon_deposito.mate` y `.gitignore`.
+- P134: el id del sobre conserva la forma fecha, 20 cifras hexadecimales y número, pero usa la
+  hora universal y las 5 primeras cifras son las millonésimas de segundo (las otras 15, al
+  azar). Prueba nueva sin espera (8 corridas en un mismo proceso y 3 en procesos separados).
+  El README ya no promete de más: dice qué puede desordenar.
+- P135: al cerrar la corrida, también con error o Ctrl+C, lo que un agente ya dejó para otro
+  programa y seguía en la cola pasa a "por salir" y se guarda junto con su estado. Lo que
+  encoló un agente cortado con Ctrl+C a mitad de un mensaje se deshace junto con su estado.
+  Tres pruebas nuevas.
+- P137: un programa que se corta sin atender su buzón avisa cuántos mensajes quedaron
+  esperando. README y `ayuda buzon` dicen que con Ctrl+C manda pero no recibe.
+- P136 y P143: el encabezado del ejemplo y el README mandan a copiar los tres archivos a una
+  carpeta propia; `*.buzon/` y `*.memoria.json` entraron al `.gitignore`. Ventas ya no manda
+  dos veces el mismo pedido, así que `esperando` queda vacío (con prueba).
+- P138: la fila del buzón quedó pegada a su tabla en el README.
+- P139: en la consola, un `enviar` a otro programa avisa que no se escribió ningún buzón.
+- P140: el aviso de falla de un mensaje reintentado desde `rechazados` lleva el número del
+  intento (`.falla-2`, `.falla-3`). Si el rechazo se repite por un corte, el id no cambia.
+- P141: la orden `buzon` muestra aparte lo ya atendido o repetido, avisa de carpetas o enlaces
+  terminados en `.json` y rechaza un archivo que no es `.mate`.
+- P142: `escribir_archivo` y `agregar_a_archivo` no pisan la memoria de un programa nombrado
+  con `usar buzon`.
+- P144, P145, P146 y la primera mitad de P147 (textos): la traza ya no aconseja `preguntar`
+  cuando el mensaje vino de otro programa sin agente; `lecciones(Deposito)`, `aprender(...,
+  Deposito)` y `Deposito.stock` dicen que el agente es de otro programa; `usar buzon` sugiere
+  el archivo cuando difieren las mayúsculas y dice "es una carpeta" cuando lo es; el motivo de
+  una falla sale en un renglón y recortado.
+- Documentación: README (sección del buzón y límites), `ayuda buzon` y MEJORAS 126 con la nota
+  de la vuelta 2. 14 funciones de prueba nuevas (17 casos) y una prueba más en el ejemplo.
+
+**No se hizo** (declarado por el implementador): nada en Windows (candado, paso a `rechazados`,
+`py`; las tres pruebas nuevas de Ctrl+C se saltean ahí); `pytest` completo solo en Python 3.13;
+el orden puede fallar si el reloj de la PC se atrasa entre dos corridas o con dos ventanas del
+mismo programa (declarado en el README; no hay contador en la memoria); la segunda mitad de
+P147 (el aviso de falla puede adelantarse a las contestaciones buenas) quedó solo en el README;
+P137 quedó en aviso (un mostrador cerrado con Ctrl+C sigue sin atender su buzón); P142 no cubre
+la memoria de un programa que no se nombra con `usar buzon`; hueco de P140 si al reintentar se
+mueve también el `.motivo.txt`; P136 es solo texto y `.gitignore`; no tocó `VERSION`, el curso
+ni el README de la raíz (P133).
+
+**Quién revisó y quién probó**: revisor (R) y agente de pruebas (P), cada uno sobre una copia
+del commit `c0f294e` en una carpeta temporal propia. Integrador (I): las tres corridas, unas
+pocas comprobaciones de lectura y este registro; no tocó código ni pruebas y no reprodujo a
+mano los casos de R y P.
+
+**Veredictos**: R **aprueba** (cinco bajos). P **aprueba** (seis bajos). Cambio 3 **cerrado**.
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `c0f294e`, Python 3.13.18)
+- `pytest mate/pruebas mate/modelo`: 1096 pasan, 0 fallan, en 112 s (antes 1079).
+  Implementador, R y P dieron el mismo número (115, 116 y 117 s).
+- `probar mate/ejemplos`: 100 de 100, en 22 archivos (antes 99 de 99). `probar mate/curso`: 37
+  de 37, en 26 archivos.
+- Después de las corridas, `git status --short` vacío y ninguna memoria ni carpeta `.buzon` en
+  `mate/ejemplos` (lo miré con `ls`, porque ahora el `.gitignore` las tapa: P153).
+- Pruebas viejas (I, R y P): el diff de `mate/pruebas` y `mate/modelo` entre `1dc9de8` y
+  `c0f294e` agrega 368 renglones y no quita ninguno. Ninguna prueba se sacó ni se aflojó.
+- Topes (R): las pruebas de topes pasan y el diff no agrega palabras ni funciones incluidas.
+- P134 (R y P): 12 corridas seguidas en procesos separados llegaron 1 a 12 en orden, y las
+  contestaciones también. P lo repitió con 25 corridas en Python 3.10, 3.11, 3.12 y 3.14.
+- P135 (R y P): con error del programa después de que un agente dejó un mensaje, el mensaje
+  sale y el estado se guarda. Con Ctrl+C esperando el teclado sale "Buzón: dejé 2 mensajes
+  para deposito.mate", el buzón tiene los 2 y Ventas guarda A-1 y A-2. Ctrl+C a mitad de un
+  mensaje: ese mensaje se deshace (estado y envío) y el anterior sale.
+- El buzón no se pierde (R y P): `kill -9` del mostrador no guarda ni manda nada (coherente).
+  Ctrl+C mientras Depósito atendía 7 mensajes: guardó 3 con sus contestaciones, los otros 4
+  siguieron en el buzón y se atendieron una sola vez en la corrida siguiente (stock 50, 47,
+  43).
+- P137 (P): Ventas cerrado con Ctrl+C con 2 contestaciones esperando avisa y las atiende en la
+  corrida siguiente. También avisa si Depósito se corta porque falta su planilla.
+- Contrato (P): cantidad 500, archivo que no es JSON, mensaje mal formado y agente
+  inexistente: cada uno con su aviso, a `rechazados` con `.motivo.txt`, el mensaje bueno se
+  atiende, código 0, y al que envió le vuelve la falla.
+- P140 (R y P): reintentos desde `rechazados` mandan `.falla-2` y `.falla-3` y el que envió se
+  entera cada vez (R: tres veces).
+- P142 (R): `escribir_archivo` rechaza `deposito.memoria.json` con otras mayúsculas, `./`,
+  `sub/../`, `.tmp` y con espacio o punto al final. P139, P141, P145 y P146 comprobados por P.
+- `probar` no escribe (P): `probar`, `verificar` y `ensayar --ia-simulada` (con un "tiene que
+  viajar: Reservar de Ventas a Deposito") no crearon ni cambiaron buzones ni memoria.
+- Ejemplo (R y P): copiado a una carpeta propia, ventas, depósito, ventas da "dejé 1 mensaje",
+  "atendí 1 mensaje" y "Pedido A-17: reservado. Quedan 8."; repetir no manda ni descuenta nada.
+- Otros (P): planilla CSV cambiada entre corridas y `vendidos` recordado; `--traza` marca "al
+  buzón", "del buzón" y "en respuesta al 1"; nombres con espacios, ñ, comillas, emoji y salto
+  de renglón; memoria rota del que recibe; `deposito.buzon` tapado por un archivo; bombardeo
+  con una ventana por programa (3 que envían y Depósito, 12 rondas, 36 pedidos): nada perdido
+  ni repetido, en orden.
+- "Ningún agente toca el estado de otro" (R): al cortar a mitad de un mensaje vuelve atrás solo
+  el estado del agente que atendía y salen de la cola solo los mensajes que él encoló.
+- Otras versiones: P corrió `probar mate/ejemplos` (100 de 100) y sus casos en 3.10, 3.11, 3.12
+  y 3.14; R, una prueba corta en 3.11 y 3.12. Nadie corrió `pytest` fuera de 3.13.
+
+**Criterios de aceptación del cambio 3**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| El primero envía, termina, y al correr el segundo el mensaje llega una sola vez | cumple | R y P, con el ejemplo y con programas propios; el orden entre corridas seguidas ahora se cumple (P134) |
+| Un mensaje que no cumple el contrato del destino no se entrega y queda avisado sin cortar | cumple | P: cuatro clases de sobre malo, a `rechazados` con motivo, aviso, código 0 |
+| El buzón no se pierde si el programa se corta | cumple en Linux | R y P: error, Ctrl+C del que envía y del que recibe, `kill -9`. Reservas bajas: P152 (cola interna entre agentes del mismo programa) y P156 (varias ventanas del mismo programa). Sin probar en Windows (P149) |
+| `probar` no escribe buzones de verdad | cumple | P |
+| Para todo: pruebas que ya había, sin aflojar | cumple | 1096 / 100 de 100 / 37 de 37; 0 renglones quitados en pruebas |
+| Para todo: topes, red, claves | cumple | R: pruebas de topes y diff sin palabras ni funciones nuevas; P: sin claves ni datos personales en el diff |
+| Para todo: README, `ayuda` y MEJORAS al día | cumple, con dos imprecisiones bajas | R los leyó contra el código: P150 y P151 |
+| Una etapa de diseño revisada antes de programar | sin registro | sigue sin figurar en este archivo ni en la rama |
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|---|
+| P134 | El orden prometido no se cumplía entre corridas del mismo segundo | R y P (verificado) | media | no (vuelta 1) | resuelto, con prueba. Queda declarado en el README: puede fallar si el reloj se atrasa o con dos ventanas del mismo programa |
+| P135 | Un mostrador cerrado con Ctrl+C perdía el último mensaje para el otro programa | R y P (verificado) | media | no (vuelta 1) | resuelto, con tres pruebas (que se saltean en Windows) |
+| P136 | Correr el ejemplo del buzón dentro de `mate/ejemplos` deja la memoria ahí y rompe `test_el_ejemplo_del_agente_que_aprende` | implementador, R, P | baja | sí (P86) | a medias: solo texto y `.gitignore`; ver P153 |
+| P137 | Un mostrador cerrado con Ctrl+C no atiende su buzón | P (verificado el aviso) | baja | no (vuelta 1) | a medias: ahora avisa y está en el README; sigue sin atender. Ver P151 |
+| P138 | Fila suelta en la tabla del README | implementador | baja | no (vuelta 1) | resuelto |
+| P139 | En la consola, `enviar` a otro programa se perdía en silencio | R, P | baja | no (vuelta 1) | resuelto (avisa en cada `enviar`) |
+| P140 | El segundo aviso de falla de un reintento se descartaba como repetido | R, P | baja | no (vuelta 1) | resuelto, con un hueco: si al reintentar se borra o mueve también el `.motivo.txt`, el aviso repite el id `.falla` y se descarta callado (P lo reprodujo) |
+| P141 | La orden `buzon` contaba de más y aceptaba un archivo que no es `.mate` | P | baja | no (vuelta 1) | resuelto; queda P157 |
+| P142 | `escribir_archivo` podía pisar la memoria de otro programa | R | baja | sí | a medias: cubre los programas nombrados con `usar buzon`; el resto está dicho en el README |
+| P143 | El ejemplo dejaba `esperando` con A-17 para siempre | R, P | baja | no (vuelta 1) | resuelto, con prueba |
+| P144, P145, P146 | Textos de la traza y de los errores | P | baja | no (vuelta 1) | resueltos; de P146 queda P157 |
+| P147 | Motivo de una falla con saltos de renglón; el aviso de falla puede adelantarse a las contestaciones | P | baja | no (vuelta 1) | a medias: el motivo sale en un renglón y recortado (queda P154); el orden del aviso quedó solo declarado en el README |
+| P148 | La suite tarda 112 a 117 s, al borde de un tope de 120 s | implementador, R, P, I | baja | sí | avisado; correr con un tope más largo |
+| P149 | Sin probar en Windows: candado `msvcrt.locking`, paso a `rechazados`, `py`; las pruebas de Ctrl+C se saltean ahí. `pytest` completo, solo en Python 3.13 | implementador, R, P | baja | sí | pendiente del dueño (comando abajo) |
+| P150 | README, `ayuda buzon` e informe dicen que al cortarse sale "lo que sus agentes ya habían dejado", pero también sale lo que mandó el programa suelto con `enviar` (sin agente). Antes una corrida que fallaba no mandaba nada; ahora cada intento fallido deja un mensaje. Es defendible y avisa "Buzón: dejé 1 mensaje", pero no está escrito ni tiene prueba | R (reproducido) | baja | no | pendiente: escribirlo y sumar una prueba |
+| P151 | El aviso de P137 sale solo si el programa se corta ANTES de empezar a atender el buzón. Con Ctrl+C mientras lo atiende no dice cuántos quedaron, y el README lo afirma sin matices. No se pierde nada | R (reproducido) | baja | no | pendiente (aviso o texto) |
+| P152 | Con Ctrl+C, lo que estaba en la cola interna para OTRO agente del mismo programa se pierde sin aviso: el mensaje que se estaba atendiendo no figura en "quedaron N mensaje(s) sin entregar" (R), y con Ctrl+C esperando el teclado no sale ningún aviso (P: Caja no cobra A-2 y `caja-A-2` no sale, con Ventas ya guardado) | R, P (reproducido, con receta) | baja | sí (la cola interna ya se perdía) | pendiente |
+| P153 | El `.gitignore` ahora tapa `*.memoria.json` y `*.buzon/` en todo el repositorio: una memoria que quede en `mate/ejemplos` ya no aparece en `git status` y sigue rompiendo la prueba de P136 | R | baja | no | pendiente: limitar el patrón o resolver P136 de fondo |
+| P154 | El motivo de un aviso de falla deja pasar el carácter de escape (ESC): un sobre escrito a mano puede cambiar colores o mover el cursor en la pantalla del que recibe | P (reproducido) | baja | no | pendiente: sacar los caracteres de control del motivo |
+| P155 | `correr --ia-simulada deposito.mate` atiende el buzón de verdad: si el agente consulta a la IA sin tercer valor, todos los mensajes fallan, van a `rechazados` y vuelve un aviso por cada uno. Se recupera moviendo los archivos; el README no lo avisa en la sección del buzón | P (reproducido) | baja | sí | pendiente: avisarlo en el README o no atender el buzón con IA simulada |
+| P156 | Varias ventanas del MISMO programa que envía, terminando a la vez: algunas no pueden guardar la memoria y su mensaje no sale (4 de 36 en el bombardeo de P). Avisa, pero el README no dice que se puede perder un envío | P (reproducido) | baja | sí | pendiente (texto del README, como mínimo) |
+| P157 | La orden `buzon noexiste.mate` lista una carpeta `carp.mate` entre los archivos que sí hay; `usar buzon "carp"` con una carpeta `carp.mate` dice "no pude abrir" en vez de "es una carpeta" | P | baja | sí | pendiente (prolijidad) |
+| P133 | `VERSION` sigue en 0.6 (`ayuda` y la consola dicen "Mate 0.6"); el curso y el README de la raíz no cuentan el buzón | implementador, R, P | baja | sí | pendiente para el cierre de la 0.7 |
+| P11 | Sin probar en una Windows de verdad ni contra una IA real | todos | baja | sí | pendiente del dueño |
+
+Siguen abiertos de antes, sin cambio en esta vuelta: del cambio 1, P102 (medio, vuelta 4
+obligatoria y sin registro), P103 a P111, P80 de fondo, P85, P86, P87, P88, P91, P92 y P94; del
+cambio 2, P120, P128 a P132, P115, P125 y P127.
+
+No verificado por nadie en esta vuelta: Windows (candado, `rechazados`, `py`, Ctrl+C); `pytest`
+completo en Python 3.10, 3.11, 3.12 y 3.14; el diseño contra el que se dice haber programado.
+Para el dueño, en Windows:
+`py -m pytest mate\pruebas -k "test_buzon_dos_programas_que_envian_a_la_vez_al_mismo_buzon or test_buzon_dos_ventanas_del_mismo_programa_a_la_vez"`.
+
+**Decisiones técnicas nuevas** (del implementador, salvo la última)
+- Lo que queda en la cola para otro programa ahora SALE al cerrar la corrida (el implementador
+  dice que se aparta del punto 4.4 del diseño, porque P135 era obligatorio). Solo pasa lo de
+  agentes que terminaron bien su mensaje, y también lo del programa suelto (P150). Lo que
+  queda para agentes del mismo programa sigue como antes.
+- Ctrl+C a mitad de un mensaje saca de la cola lo que ese agente había encolado, igual que ya
+  pasaba con un error. Antes solo volvía atrás el estado.
+- El id conserva la forma de la vuelta 1 para no tocar la prueba vieja que la fija: hora
+  universal, millonésimas en las 5 primeras cifras hexadecimales y 15 cifras al azar (60 bits)
+  en vez de 20. Reemplaza la decisión de la vuelta 1 (hora local al segundo).
+- Dentro de un mismo proceso, dos buzones nunca llevan la misma hora: el segundo se corre una
+  millonésima.
+- El id de la falla sigue siendo `<id>.falla` la primera vez (protege el corte entre guardar y
+  mover); el número de intento se saca de los `.motivo.txt` que ya hay en `rechazados`.
+- P143 se arregló del lado de Ventas; Depósito queda igual, sin cambiar pruebas del ejemplo.
+- La pista de mayúsculas quedó en `pista_de_usar`, que comparte `usar`: también `usar
+  "CATALOGO.MATE"` sugiere el archivo bien escrito y ya no sugiere carpetas.
+- La prueba vieja de orden queda con su espera de 1,1 s; se sumó una nueva sin espera.
+- El aviso de la consola sale por la salida común y se repite en cada `enviar` a otro programa.
+- Integrador: el cambio 3 se cierra. R y P aprueban y no quedan altos ni medios. Los bajos
+  (P136, P137, P140, P142, P147 a medias y P150 a P157) no frenan el cierre.
+
+**Lo que sigue**: la vuelta 4 del cambio 1 (P102, medio), que es lo único que impide cerrar la
+0.7; dejar registrado el diseño del buzón; la prueba del dueño en Windows (P149); y para el
+cierre, P133 (`VERSION`, curso y README de la raíz). Primero A, después B; nada de B todavía.
