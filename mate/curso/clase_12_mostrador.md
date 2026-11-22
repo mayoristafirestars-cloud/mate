@@ -510,6 +510,10 @@ Terminaste el curso. Para seguir:
   pero cuando el cliente pide una cantidad ("quiero 12 azucar con envio") el total, el stock
   y la regla del envío los resuelve el programa, sin consultar a la IA. Es lo que conviene
   cuando hay plata de por medio: una IA hace mal las cuentas.
+- Para armar ese mostrador para tu negocio no hace falta copiar archivos: parado en la
+  carpeta donde lo quieras tener, la orden `nuevo mostrador mi_negocio` (después de
+  `python mate\mate.py`, como las demás) crea el programa y su planilla de precios de
+  muestra, y te dice los pasos que siguen. No pisa archivos que ya estén.
 - `mate\README.md` tiene todo Mate, tema por tema.
 - `python mate\mate.py guia` imprime una página con todo el lenguaje para pegarle a un
   asistente de IA (Claude, por ejemplo) antes de pedirle que te escriba un programa.

@@ -99,6 +99,7 @@ o la página `docs\index.html`, que explica los pasos.
 | Si querés... | Hacé esto |
 |---|---|
 | Aprender desde cero, sin saber programar | El **curso**: `python mate\mate.py curso`. Son 12 clases cortas, de "hola" a un mostrador con IA, lista de precios, frenos y lecciones. Están en `mate\curso` (ver [El curso](#el-curso)) |
+| Armar el mostrador de tu negocio sin copiar archivos a mano | `python mate\mate.py nuevo mostrador mi_negocio` crea el programa y su planilla de precios en la carpeta donde estás (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
 | Ver programas terminados | `mate\ejemplos`: once programas comentados renglón por renglón (la tabla está en [Primeros pasos en Windows](#primeros-pasos-en-windows)) |
 | Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
 | Que una IA te escriba un programa en Mate | `python mate\mate.py guia` imprime una página para pegarle antes de pedírselo |
@@ -304,6 +305,7 @@ notepad guia.txt
 | `ayuda si` | explica una palabra de Mate o una función incluida (`ayuda largo`), con un ejemplo |
 | `consola` | abre la consola, para probar renglones sueltos sin crear un archivo |
 | `curso` | lista las clases del curso y dice cómo abrir cada una; `curso 3` muestra la clase 3 (ver [El curso](#el-curso)) |
+| `nuevo mostrador mi_negocio` | crea en la carpeta donde estás un mostrador propio, listo para usar: `mi_negocio.mate` y su planilla de muestra `mi_negocio_precios.csv`. No pisa archivos que ya estén (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
 | `corregir archivo.mate Mostrador "..."` | le anota una lección a ese agente, sin tocar el programa (ver [Mate aprende](#mate-aprende)) |
 | `lecciones archivo.mate` | muestra las lecciones de cada agente; con `Mostrador --borrar=2` le borra la 2 |
 | `bitacora archivo.mate` | resume las fallas que fueron anotando los agentes de ese programa, los frenos que saltaron y cuánto consultó a la IA cada agente por día |
@@ -1753,9 +1755,72 @@ ni reserva nada. Algunos casos que conviene conocer:
 
 Para adaptarlo, cambiá `precios.csv` (con las columnas `producto`, `presentacion`, `precio` y
 `stock`) y el número de `unidades_para_envio`, arriba de todo. Si a la planilla le falta una
-columna, el programa lo dice al arrancar y no atiende. Las pruebas del final del ejemplo están
-escritas para la planilla de muestra: si cambiás los productos, `correr` anda igual, pero
+columna, o un título está escrito con mayúscula o con tilde (`Producto`, `Presentación`), el
+programa lo dice al arrancar y no atiende. Si un producto empieza con una palabra de una o
+dos letras ("Té"), avisa que se puede confundir con otra cosa que escriba el cliente ("te
+pido 3 yerbas") y atiende igual. Las pruebas del final del ejemplo están escritas para la
+planilla de muestra: si cambiás los productos, `correr` anda igual, pero
 `probar` marca fallas hasta que adaptes esas pruebas a tu lista.
+Para tu negocio no hace falta copiar el
+ejemplo: lo que sigue lo arma solo, con pruebas que no dependen de la planilla.
+
+### Un mostrador propio: `nuevo mostrador`
+
+Parado en la carpeta donde querés tener tu mostrador (puede ser cualquiera: Documentos, una
+carpeta nueva), escribí:
+
+```
+python mate\mate.py nuevo mostrador mi_negocio
+```
+
+(Si en tu computadora Python se llama con `py`, va `py`; y si esa carpeta no es la que tiene
+adentro a `mate`, va la ruta completa de `mate.py`, o la orden corta `mate` si la instalaste.)
+Mate crea dos archivos en esa carpeta y no toca nada más:
+
+| Archivo | Qué es |
+|---|---|
+| `mi_negocio.mate` | el programa: el mostrador del ejemplo 12, con un encabezado que dice qué se puede cambiar sin saber programar |
+| `mi_negocio_precios.csv` | la planilla de precios, con productos de muestra, para reemplazar por los tuyos |
+
+Al terminar muestra los pasos que siguen, con los comandos escritos para esa carpeta y para
+la forma en que llamaste a Mate (`py`, `python` o `mate`): se pueden copiar tal cual.
+
+```
+Los pasos que siguen (cada comando se puede copiar tal cual):
+  1. Comprobar que quedó todo bien:
+       py mate\mate.py probar mi_negocio.mate
+  2. Charlar con el mostrador sin gastar nada. Probá escribir: quiero 12 azucar con envio
+       py mate\mate.py correr mi_negocio.mate --ia-simulada
+  3. Poner tus productos en la planilla (también se abre con Excel). El primer
+     renglón, el de los títulos, no se toca y va una sola vez:
+       notepad mi_negocio_precios.csv
+  4. Comprobar de nuevo (paso 1) y atender con la IA de verdad:
+       py mate\mate.py correr mi_negocio.mate
+```
+
+Lo que hay que saber:
+
+- **Nunca pisa un archivo.** Si en la carpeta ya hay un `mi_negocio.mate` o un
+  `mi_negocio_precios.csv` (o la memoria o la bitácora de un programa viejo con ese nombre),
+  no crea nada, dice cuál encontró y sugiere otro nombre.
+- **El nombre** es una sola palabra: letras, números, guion o guion bajo (`mi_negocio`,
+  `almacen-centro`). Se crea siempre en la carpeta donde estás parado.
+- **Los dos archivos pasan `verificar` y `probar` tal como salen.** Las pruebas del programa
+  usan una lista fija que está en el mismo archivo, así que **siguen pasando cuando cambiás
+  los productos, los precios o el número del envío**. Una sola prueba mira tu planilla
+  ("tu planilla está bien cargada"): falla si falta una columna o si algún precio o stock no
+  es un número, y dice en qué producto.
+- **Si la planilla quedó con el renglón de títulos repetido más abajo** (pasa al pegar una
+  lista debajo de otra), el programa no arranca y el error dice qué renglón borrar:
+  `el renglón 8 de 'mi_negocio_precios.csv' repite los títulos de las columnas (...): borrá el
+  renglón 8 entero`.
+- **La lógica es la del ejemplo 12** (lo que cuenta la sección de arriba vale igual): Mate la
+  copia de `mate\ejemplos\12_mostrador_con_reglas.mate` en el momento de crear el mostrador.
+  Por eso hace falta la carpeta `mate` completa, no solo `mate.py`. Un mostrador ya creado no
+  cambia cuando se actualiza Mate: es un archivo tuyo.
+- Lo que conviene cambiar está dicho arriba de todo en el programa: los productos (en la
+  planilla), desde cuántas unidades hay envío (`unidades_para_envio`), cómo se presenta el
+  negocio ante la IA y las palabras prohibidas.
 
 ## Referencia rápida
 
@@ -2079,6 +2144,9 @@ Lo que hay que saber:
   - si el archivo no está, en qué carpeta lo buscó (y si hay uno de nombre parecido);
   - si a una fila le sobra o le falta un dato, **qué renglón del archivo es** y qué dice;
   - si el archivo está vacío, si una columna no tiene título o si dos se llaman igual;
+  - si el renglón de los títulos está **repetido más abajo** (pasa al pegar una lista debajo
+    de otra), qué renglón del archivo hay que borrar. Vale para planillas de dos columnas o
+    más, y compara sin mirar mayúsculas ni tildes;
   - si arriba de los títulos hay otra fila (el nombre de la lista, una fecha), que la primera
     fila tiene que ser la de los títulos y hay que borrar las de arriba;
   - si le pasás la planilla de Excel sin convertir (`precios.xlsx`), cómo guardarla como CSV.
@@ -2242,6 +2310,8 @@ archivo viejo deja de andar, casi seguro es por una de estas:
 
 | Qué pasa ahora | Cómo se arregla |
 |---|---|
+| `leer_tabla` da un error si el renglón de los títulos está repetido más abajo en la planilla (0.6); antes ese renglón llegaba como un producto más, de nombre "producto" | Borrar de la planilla el renglón que dice el error |
+| `nuevo` es una orden (0.6): `python mate\mate.py nuevo mostrador mi_negocio` crea un mostrador. Un programa llamado `nuevo.mate` se sigue corriendo con `nuevo` sola, como antes | Nada |
 | Con Ctrl+C mientras el programa espera en un `leer`, el aviso dice `Listo: cortaste con Ctrl+C...` (antes decía en qué línea se había cortado). El código de salida sigue siendo 130 y el aviso sigue saliendo aparte de lo que muestra el programa | Nada: es la manera de cortar una charla. Lo que recuerdan los agentes se guarda igual |
 | `propuestas`, `proponer` y `curso` son órdenes (0.5): `python mate\mate.py propuestas` ya no corre un archivo llamado `propuestas.mate`, y lo mismo las otras dos. Si en la carpeta hay un archivo con ese nombre, Mate te avisa cómo correrlo | Escribir la orden entera: `correr propuestas.mate`, `correr curso.mate` |
 | Con `probar`, `escribir_archivo` ya no escribe el archivo de verdad: lo guardado se ve con `leer_archivo` dentro de esa prueba y se descarta (así una prueba no pisa los datos reales) | Si necesitabas el archivo en el disco, generalo con `correr` |

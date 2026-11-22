@@ -27,6 +27,10 @@
 # producto, presentacion, precio y stock) y el número de acá abajo. El cliente nombra cada
 # producto por la PRIMERA palabra de su nombre ("yerba", "azúcar"): conviene que sea la
 # que lo distingue.
+# Para tu negocio no hace falta copiar este archivo: la orden 'nuevo mostrador mi_negocio'
+# crea en tu carpeta un programa con esta misma lógica y su planilla. (Copia lo que hay
+# entre los títulos "La regla del envío" y "Las pruebas": si se cambian esos dos títulos,
+# hay que cambiarlos también en mate.py.)
 # OJO: las pruebas del final están escritas para la planilla de muestra (nombran la yerba,
 # el azúcar y sus precios). Si cambiás los productos, 'correr' anda igual, pero 'probar' va
 # a marcar fallas hasta que adaptes esas pruebas a tu lista.
@@ -619,10 +623,31 @@ funcion revisar_planilla(tabla) {
     # Las cuatro columnas que usa el programa (alcanza con mirar la primera fila).
     para columna en ["producto", "presentacion", "precio", "stock"] {
         si no tiene(tabla[0], columna) {
+            # ¿Está, pero escrita de otra forma ("Producto", "PRECIO", "Presentación")?
+            para titulo en tabla[0] {
+                si unir(palabras_de(titulo), " ") == columna {
+                    devolver "En la planilla precios.csv el título '{titulo}' tiene que estar escrito '{columna}': todo en minúsculas y sin tilde. {como_tiene_que_ser}"
+                }
+            }
             devolver "A la planilla precios.csv le falta la columna '{columna}'. {como_tiene_que_ser}"
         }
     }
     devolver nada
+}
+
+# Los productos que conviene escribir de otra forma en la planilla: los que empiezan con
+# una palabra de una o dos letras. Al producto se lo reconoce por su primera palabra, y
+# una tan corta también se usa para otra cosa: con "Té" en la lista, "te pido 3 yerbas"
+# nombraría dos productos. No impide atender: es un aviso para quien arma la planilla.
+funcion nombres_muy_cortos(tabla) {
+    var cortos = []
+    para fila en tabla {
+        sea nombre = palabras_de(texto(fila.producto))
+        si largo(nombre) > 0 y largo(nombre[0]) < 3 {
+            cortos = agregar(cortos, texto(fila.producto))
+        }
+    }
+    devolver cortos
 }
 
 # Lee la planilla y la revisa. Si está bien, se la pasa al agente (para sus frenos) y se
@@ -634,6 +659,9 @@ si a_arreglar != nada {
 } sino {
     enviar CargarLista { precios: precios } a Mostrador
     mostrar("Mostrador: cargué {largo(precios)} productos. {regla_del_envio}")
+    para corto en nombres_muy_cortos(precios) {
+        mostrar("   (Ojo con '{corto}' en precios.csv: empieza con una palabra muy corta y se puede confundir con otra cosa que escriba el cliente. Conviene ponerle otra palabra adelante, por ejemplo 'Saquitos de té'.)")
+    }
     mostrar("Escribí tu consulta y apretá Enter. Para terminar, escribí chau.")
     sea atendidas = charlar(precios)
     mostrar("Hasta luego. En esta charla atendí {atendidas} consulta(s).")
@@ -852,4 +880,11 @@ prueba "si a la planilla le falta una columna, avisa antes de atender" {
     sea sin_stock = [{ producto: "Pan", presentacion: "bolsa", precio: 500 }]
     asegurar revisar_planilla(sin_stock) == "A la planilla precios.csv le falta la columna 'stock'. El primer renglón de precios.csv tiene que decir: producto;presentacion;precio;stock"
     asegurar empieza_con(revisar_planilla([]), "La planilla precios.csv no tiene ningún producto.")
+    # Un título con mayúscula o con tilde: dice cuál es y cómo se escribe.
+    sea con_mayuscula = [{ Producto: "Pan", "Presentación": "bolsa", precio: 500, stock: 9 }]
+    asegurar empieza_con(revisar_planilla(con_mayuscula), "En la planilla precios.csv el título 'Producto' tiene que estar escrito 'producto': todo en minúsculas y sin tilde.")
+    # Un producto que empieza con una palabra de dos letras se avisa (no impide atender).
+    sea con_te = [{ producto: "Té en saquitos", presentacion: "caja", precio: 500, stock: 9 },
+                  { producto: "Sal fina", presentacion: "bolsa", precio: 300, stock: 9 }]
+    asegurar nombres_muy_cortos(con_te) == ["Té en saquitos"] y nombres_muy_cortos(precios) == []
 }

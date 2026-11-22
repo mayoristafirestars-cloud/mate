@@ -3100,10 +3100,21 @@ def tabla_de_texto(texto, nombre):
             if repetido:
                 raise mal(f"en '{nombre}' hay dos columnas con el mismo título, "
                            f"'{repetido[0]}': cambiale el nombre a una")
-            titulos = celdas
+            titulos, renglon_de_titulos = celdas, renglon
             continue
         while len(celdas) > len(titulos) and not celdas[-1]:
             celdas.pop()
+        if len(titulos) > 1 and ([sin_tildes(c.lower()) for c in celdas]
+                                 == [sin_tildes(t.lower()) for t in titulos]):
+            # Pasa al pegar una lista debajo de otra: los títulos quedan dos veces, y la
+            # segunda vez se leerían como un producto más (0.6). Con una sola columna no
+            # se mira: ahí un dato igual al título puede ser un dato de verdad.
+            raise mal(
+                f"el renglón {renglon} de '{nombre}' repite los títulos de las columnas "
+                f"({separador.join(titulos)}), que ya están en el renglón "
+                f"{renglon_de_titulos}. Los títulos van una sola vez, arriba de todo: borrá "
+                f"el renglón {renglon} entero (con Excel o con el Bloc de notas) y guardá "
+                "de nuevo")
         if len(celdas) != len(titulos):
             if not filas and len(celdas) > len(titulos) and (
                     len(titulos) == 1 or ancho > len(titulos)):
@@ -8442,6 +8453,274 @@ def orden_curso(args, avisar, carpeta=None, mostrar=print):
     return 0
 
 
+# ───────────────────────── La orden 'nuevo mostrador' (0.6) ─────────────────────────
+# 'nuevo mostrador mi_negocio' crea, en la carpeta donde está parada la persona, un
+# mostrador propio listo para usar: mi_negocio.mate y mi_negocio_precios.csv. Nunca pisa
+# un archivo que ya esté.
+# De dónde sale: Mate se reparte como una carpeta, así que la lógica NO está copiada acá.
+# El programa se arma con el ejemplo 12_mostrador_con_reglas.mate (lo que hay entre sus
+# títulos "La regla del envío" y "Las pruebas"): un arreglo en el ejemplo llega solo a los
+# mostradores que se creen después. La planilla es la de muestra de los ejemplos. Acá
+# quedan solo el encabezado, escrito para quien no programa, y unas pruebas que no
+# dependen de la planilla (las del ejemplo nombran los productos de muestra).
+CARPETA_DE_EJEMPLOS = "ejemplos"
+EJEMPLO_DEL_MOSTRADOR = "12_mostrador_con_reglas.mate"
+PLANILLA_DE_MUESTRA = "precios.csv"
+_MOSTRADOR_DESDE = "\n# La regla del envío:"
+_MOSTRADOR_HASTA = "\n# ── Las pruebas"
+# (nombres de archivo que Windows no deja usar)
+_NOMBRES_DE_WINDOWS = ("con", "prn", "aux", "nul") + tuple(
+    f"{p}{n}" for p in ("com", "lpt") for n in range(1, 10))
+
+_ENCABEZADO_DEL_MOSTRADOR = """\
+# «PROGRAMA»: el mostrador de tu negocio.
+# Lo creó la orden 'nuevo mostrador' de Mate, a partir del ejemplo
+# 12_mostrador_con_reglas.mate. Es tuyo: lo podés cambiar todo lo que quieras.
+#
+# QUÉ HACE. Atiende consultas por teclado. Cuando el cliente pide una CANTIDAD de un
+# PRODUCTO de la planilla ("quiero 12 azucar con envio"), contesta el programa solo: el
+# total, el stock y la regla del envío. No consulta a la IA, así que no gasta y no se
+# equivoca con la cuenta. Todo lo demás (saludar, contar qué hay) lo contesta la IA, con
+# frenos para que no invente precios.
+#
+# QUÉ PODÉS CAMBIAR SIN SABER PROGRAMAR:
+#   1. Tus productos. Están en la planilla que está al lado de este archivo:
+#          «PLANILLA»
+#      Abrila con Excel o con el Bloc de notas. El primer renglón son los títulos, y va
+#      una sola vez:
+#          producto;presentacion;precio;stock
+#      Abajo va un renglón por producto. El cliente nombra cada producto por la PRIMERA
+#      palabra de su nombre ("yerba", "azúcar"): conviene que sea la que lo distingue.
+#   2. Desde cuántas unidades hay envío: el número de unidades_para_envio, acá abajo.
+#   3. Cómo se presenta el negocio: el texto que empieza con "Atendés el mostrador".
+#   4. Lo que la IA no puede decir nunca: las palabras de 'prohibido', dentro de 'frenos'.
+#
+# CÓMO SE USA, en PowerShell, parado en la carpeta donde está este archivo:
+#   Para comprobar que quedó todo bien (hacelo cada vez que cambies algo):
+#          «ORDEN» probar «PROGRAMA»
+#   Para charlar con el mostrador sin gastar nada (no hace falta clave ni internet):
+#          «ORDEN» correr «PROGRAMA» --ia-simulada
+#   Para atender con la IA de verdad:
+#          «ORDEN» correr «PROGRAMA»
+#   Para salir de la charla, escribí chau.
+#
+# Las pruebas del final usan una lista fija, no tu planilla: siguen pasando aunque cambies
+# los productos, los precios o el número del envío. Una sola mira tu planilla, para
+# avisarte si quedó algo mal cargado.
+"""
+
+_PRUEBAS_DEL_MOSTRADOR = """\
+# ── Las pruebas ──────────────────────────────────────────────────────────────────────
+# Corren con la orden 'probar'. Usan la lista fija de acá abajo y no tu planilla: así
+# siguen pasando aunque cambies los productos y los precios. La IA nunca es de verdad:
+# simular_ia() fija lo que "contesta", y consultas_ia() cuenta cuántas veces se la consultó.
+
+# La lista de las pruebas (con mucho stock, para que alcance con cualquier regla de envío).
+funcion lista_de_prueba() {
+    devolver [{ producto: "Yerba mate", presentacion: "bolsón de 10 paquetes de 1 kg", precio: 35000, stock: 100000 },
+              { producto: "Azúcar", presentacion: "bolsa de 10 kg", precio: 9800.5, stock: 100000 },
+              { producto: "Fideos secos", presentacion: "caja de 20 paquetes de 500 g", precio: 18900, stock: 0 }]
+}
+
+prueba "tu planilla está bien cargada" {
+    # La única prueba que mira «PLANILLA»: si falla, el texto dice qué arreglar.
+    sea a_corregir = revisar_planilla(precios)
+    asegurar a_corregir == nada, texto(a_corregir)
+    # Cada producto con su precio y su stock en números (una celda vacía no es un número).
+    para fila en precios {
+        asegurar tipo(fila.precio) == "numero", "En «PLANILLA», el precio de '{fila.producto}' no es un número: dice '{fila.precio}'."
+        asegurar tipo(fila.stock) == "numero", "En «PLANILLA», el stock de '{fila.producto}' no es un número: dice '{fila.stock}'. Si no hay, poné 0."
+    }
+}
+
+prueba "la cuenta la hace el programa, no la IA" {
+    # Aunque la IA "quiera" contestar mal, nadie le pregunta.
+    simular_ia("Son $ 10,80.")
+    asegurar atender(lista_de_prueba(), "quiero 3 azucar") == "3 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 29.401,50."
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "el envío sale desde las unidades de la regla, y sin consultar a la IA" {
+    sea n = unidades_para_envio
+    asegurar termina_con(atender(lista_de_prueba(), "quiero {n} azucar con envio"), "Con envío: sí, va con envío.")
+    asegurar termina_con(atender(lista_de_prueba(), "me mandas {n + 5} yerbas?"), "Con envío: sí, va con envío.")
+    # Con una unidad menos no hay envío (si la regla es desde 1, no hay "una menos").
+    si n > 1 {
+        asegurar tiene(atender(lista_de_prueba(), "me mandas {n - 1} yerbas?"), "Sin envío: hacemos envíos desde {n} unidades y pedís {n - 1}.")
+    }
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "si dice que NO quiere envío, no se le confirma un envío" {
+    sea n = unidades_para_envio
+    para dicho en ["{n} azucar sin envio", "{n} azucar, no me lo mandes", "{n} azucar, el envio no hace falta"] {
+        # (va solo el total: la respuesta no habla de envío)
+        asegurar termina_con(atender(lista_de_prueba(), dicho), "total {pesos(n * 9800.5)}.")
+    }
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "no vende lo que no hay" {
+    asegurar atender(lista_de_prueba(), "quiero 3 fideos") == "De Fideos secos ahora no hay stock."
+    asegurar atender(lista_de_prueba(), "quiero 200000 yerbas") == "De Yerba mate quedan 100000; no llego a 200000."
+}
+
+prueba "ante la duda pregunta, no elige por el cliente" {
+    asegurar empieza_con(atender(lista_de_prueba(), "quiero 2 yerbas y 3 azucar"), "Vamos de a un producto por vez")
+    asegurar empieza_con(atender(lista_de_prueba(), "quiero 2 o 3 yerbas"), "Veo más de un número")
+    asegurar empieza_con(atender(lista_de_prueba(), "quiero 1 kg de yerba"), "Yerba mate se vende por")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "lo que no es un pedido va a la IA, y un precio inventado no le llega al cliente" {
+    enviar CargarLista { precios: lista_de_prueba() } a Mostrador
+    simular_ia("¡Hola! Tenemos yerba y azúcar.")
+    asegurar atender(lista_de_prueba(), "hola, ¿qué tienen?") == "¡Hola! Tenemos yerba y azúcar."
+    # Un precio que no está en la lista: salta el freno y llega la reserva.
+    simular_ia("El café sale $ 12.000.")
+    asegurar no tiene(atender(lista_de_prueba(), "¿y café?"), "12.000")
+}
+"""
+
+
+def orden_para_esta_carpeta():
+    """La orden para correr Mate desde la carpeta donde está parada la persona, lista para
+    copiar: 'mate' si está instalada; si no, py, python o python3 (como diga
+    como_se_llama()) y la ruta de mate.py vista desde ahí."""
+    orden = como_se_llama()
+    if orden == "mate":
+        return orden
+    return f"{orden.split()[0]} {ruta_para_escribir(os.path.abspath(__file__))}"
+
+
+def archivos_del_mostrador(nombre, orden, carpeta_de_mate=None, fin_de_renglon=None):
+    """Lo que crea 'nuevo mostrador <nombre>': {nombre del archivo: su contenido, en
+    bytes}. Falla con un ErrorMate si en la carpeta de Mate falta el ejemplo, o si ya no
+    tiene los dos títulos que marcan qué parte se copia."""
+    carpeta = os.path.join(carpeta_de_mate or os.path.dirname(os.path.abspath(__file__)),
+                           CARPETA_DE_EJEMPLOS)
+    programa, planilla = f"{nombre}.mate", f"{nombre}_precios.csv"
+    try:
+        ejemplo = leer_fuente(os.path.join(carpeta, EJEMPLO_DEL_MOSTRADOR))
+        with open(os.path.join(carpeta, PLANILLA_DE_MUESTRA), "rb") as f:
+            muestra = f.read()
+    except OSError:
+        raise ErrorMate(
+            f"para crear un mostrador hacen falta {EJEMPLO_DEL_MOSTRADOR} y "
+            f"{PLANILLA_DE_MUESTRA}, que vienen con Mate, y no los encuentro en "
+            f"{para_pegar(carpeta)}. Si copiaste solo mate.py, bajá Mate de nuevo con todas "
+            "sus carpetas", familia="archivo")
+    desde, hasta = ejemplo.find(_MOSTRADOR_DESDE), ejemplo.find(_MOSTRADOR_HASTA)
+    if desde < 0 or hasta < desde:
+        raise ErrorMate(
+            f"no pude armar el mostrador: {EJEMPLO_DEL_MOSTRADOR} (en {para_pegar(carpeta)}) "
+            "no tiene la forma que espero. ¿Lo cambiaste? Bajá Mate de nuevo para tener "
+            "el ejemplo original", familia="archivo")
+    cuerpo = ejemplo[desde + 1:hasta + 1].replace(PLANILLA_DE_MUESTRA, planilla)
+    texto = (_ENCABEZADO_DEL_MOSTRADOR + "\n" + cuerpo + _PRUEBAS_DEL_MOSTRADOR)
+    for marca, valor in (("«PROGRAMA»", programa), ("«PLANILLA»", planilla),
+                         ("«ORDEN»", orden)):
+        texto = texto.replace(marca, valor)
+    # Con la marca del principio y los fines de renglón de esta computadora: así el Bloc
+    # de notas de cualquier Windows lo muestra bien. (Mate lee las dos formas.)
+    texto = texto.replace("\n", os.linesep if fin_de_renglon is None else fin_de_renglon)
+    return {programa: texto.encode("utf-8-sig"), planilla: muestra}
+
+
+def orden_nuevo(args, avisar, mostrar=print):
+    """La orden 'nuevo mostrador <nombre>': crea el programa y su planilla de muestra en la
+    carpeta actual, sin pisar nada, y dice los pasos que siguen. Devuelve el código de salida."""
+    orden = orden_para_esta_carpeta()
+    ejemplo = f"{orden} nuevo mostrador mi_negocio"
+    que_falta = "al escribir la orden: 'nuevo' sin decir qué crear o con qué nombre"
+    if not args or sin_tildes(args[0].lower()) != "mostrador":
+        avisar("después de 'nuevo' va qué crear y con qué nombre. Por ahora crea "
+               f"mostradores:  {ejemplo}", que_falta, True)
+        return 2
+    if len(args) == 1:
+        avisar("a 'nuevo mostrador' le falta el nombre que le querés poner (una palabra, "
+               f"sin espacios). Por ejemplo:  {ejemplo}", que_falta, True)
+        return 2
+    if len(args) > 2:
+        avisar("el nombre del mostrador va en una sola palabra, sin espacios (podés unir "
+               f"con guion bajo):  {orden} nuevo mostrador {'_'.join(args[1:])}",
+               "al escribir la orden: 'nuevo mostrador' con un nombre con espacios", True)
+        return 2
+    nombre = re.sub(r"(?i)\.mate(\.txt)?$", "", args[1].strip())
+    mal_nombre = "al escribir la orden: 'nuevo mostrador' con un nombre que no sirve"
+    if re.search(r"[\\/:]", nombre):
+        avisar("el mostrador se crea en la carpeta donde estás parado: va solo el nombre, "
+               f"sin carpeta. Por ejemplo:  {ejemplo}", mal_nombre, True)
+        return 2
+    if not re.fullmatch(r"[^\W_][\w\-]{0,59}", nombre):
+        avisar(f"'{args[1]}' no sirve como nombre: usá letras, números, guion o guion bajo, "
+               f"empezando con una letra o un número. Por ejemplo:  {ejemplo}", mal_nombre, True)
+        return 2
+    if sin_tildes(nombre.lower()) in ORDENES_SABIDAS + _NOMBRES_DE_WINDOWS:
+        avisar(f"'{nombre}' no sirve como nombre: es una orden de Mate o un nombre que "
+               f"Windows se reserva. Elegí otro, por ejemplo:  {ejemplo}", mal_nombre, True)
+        return 2
+    try:
+        archivos = archivos_del_mostrador(nombre, orden)
+    except ErrorMate as e:
+        avisar(e.mensaje, "al escribir la orden: 'nuevo mostrador' sin los ejemplos de Mate")
+        return 1
+    programa, planilla = list(archivos)
+    # Nada se pisa: ni el programa, ni la planilla, ni la memoria o la bitácora que haya
+    # dejado un programa viejo con ese nombre (el nuevo heredaría sus lecciones).
+    ya_estan = [a for a in (programa, programa + ".txt", planilla,
+                            archivo_de(programa, "memoria.json"),
+                            archivo_de(programa, "bitacora.txt")) if os.path.lexists(a)]
+    if ya_estan:
+        avisar(f"no creé nada: en esta carpeta ya hay {' y '.join(ya_estan)}, y no piso "
+               "archivos. Elegí otro nombre (por ejemplo:  "
+               f"{orden} nuevo mostrador {nombre}_2) o mové esos archivos a otra carpeta",
+               "al escribir la orden: 'nuevo mostrador' con un nombre que ya existe", True)
+        return 1
+    creados = []
+    try:
+        for archivo, contenido in archivos.items():
+            with open(archivo, "xb") as f:  # ("x": si apareció recién, tampoco se pisa)
+                creados.append(archivo)
+                f.write(contenido)
+    except OSError as e:
+        for creado in creados:  # a medias no queda nada (solo se borra lo recién creado)
+            try:
+                os.remove(creado)
+            except OSError:
+                pass
+        if isinstance(e, FileExistsError):
+            avisar(f"no creé nada: recién apareció {archivo} en esta carpeta, y no piso "
+                   "archivos. Elegí otro nombre")
+        else:
+            avisar(f"no pude crear {archivo} en {para_pegar(os.getcwd())}: fijate que se "
+                   "pueda escribir en esa carpeta (o parate en otra, por ejemplo Documentos)")
+        return 1
+    ancho = max(len(a) for a in archivos)
+    for renglon in (
+            f"Listo. Creé dos archivos en {para_pegar(os.getcwd())}:",
+            f"  {programa.ljust(ancho)}   el programa del mostrador",
+            f"  {planilla.ljust(ancho)}   la planilla de precios, con productos de muestra",
+            "",
+            "Los pasos que siguen (cada comando se puede copiar tal cual):",
+            "  1. Comprobar que quedó todo bien:",
+            f"       {orden} probar {programa}",
+            "  2. Charlar con el mostrador sin gastar nada. Probá escribir: quiero 12 "
+            "azucar con envio",
+            f"       {orden} correr {programa} --ia-simulada",
+            "  3. Poner tus productos en la planilla (también se abre con Excel). El primer",
+            "     renglón, el de los títulos, no se toca y va una sola vez:",
+            f"       notepad {planilla}",
+            "  4. Comprobar de nuevo (paso 1) y atender con la IA de verdad:",
+            f"       {orden} correr {programa}",
+            "",
+            f"Arriba de todo, {programa} dice qué más se puede cambiar (desde cuántas "
+            "unidades",
+            f"hay envío, por ejemplo). Para abrirlo:  notepad {programa}"):
+        mostrar(renglon)
+    return 0
+
+
 def texto_de_ayuda():
     if os.name == "nt":
         ejemplo = con_la_orden_de_esta_computadora(
@@ -8462,6 +8741,9 @@ def texto_de_ayuda():
         "  consola                  para probar renglones sueltos sin crear un archivo",
         "  curso                    las clases para aprender Mate desde cero, en orden",
         "  curso 1                  muestra la clase 1 (también se abre con el Bloc de notas)",
+        "  nuevo mostrador mi_negocio   crea en esta carpeta un mostrador propio, listo para",
+        "                           usar: mi_negocio.mate y su planilla de muestra,",
+        "                           mi_negocio_precios.csv. No pisa archivos que ya estén",
         "",
         "Para que un agente aprenda (mirá 'ayuda recordado'):",
         '  corregir  archivo.mate Mostrador "la lección"   le anota una lección a ese agente',
@@ -9132,7 +9414,7 @@ def probar_varios(pedidos, opciones, avisar):
 # no), nunca con la orden 'probar', y se apaga con MATE_SIN_REGISTRO=1 o --sin-registro.
 
 ORDENES_SABIDAS = ORDENES + ORDENES_DE_MEMORIA + ("ayuda", "guia", "consola", "informe",
-                                                  "curso")
+                                                  "curso", "nuevo")
 _FECHA_DE_REGISTRO = "%d/%m/%Y %H:%M"
 _LARGO_A_TAPAR = 800
 # Cómo es una opción ('--traza', '-h', '--borrar=2'). Lo que empieza con guion y no tiene
@@ -9770,7 +10052,7 @@ def _main(argv, donde):
         return 0
     if args and args[0].lower() == "ayuda" and len(args) >= 2 and not (
             len(args) == 2 and sin_tildes(args[1].lower()) in ORDENES + (
-                "ayuda", "guia", "consola", "informe", "curso") + ORDENES_DE_MEMORIA[:2]):
+                "ayuda", "guia", "consola", "informe", "curso", "nuevo") + ORDENES_DE_MEMORIA[:2]):
         # 'ayuda si', 'ayuda largo', 'ayuda al fallar'
         return ayuda_de_palabra(" ".join(args[1:]), print, avisar)
     if "--ayuda" in opciones or (args and args[0].lower() == "ayuda"):
@@ -9816,6 +10098,10 @@ def _main(argv, donde):
                    "de Mate (muestra las clases para aprender). Para correr tu programa:  "
                    f"{como_se_llama()} correr curso.mate")
         return orden_curso(args[1:], avisar)
+    if sin_tildes(args[0].lower()) == "nuevo" and not (
+            len(args) == 1 and (os.path.isfile("nuevo") or os.path.isfile("nuevo.mate"))):
+        # ('nuevo' sola, con un nuevo.mate en la carpeta, sigue corriendo ese programa)
+        return orden_nuevo(args[1:], avisar)
     if args[0].lower() == "consola":
         if len(args) > 1:
             avisar("'consola' va sola, sin archivo: ahí adentro se escriben los renglones")
@@ -9869,7 +10155,8 @@ def _main(argv, donde):
         avisar(f"no conozco la orden '{args[0]}'" + (
             f", ¿quisiste decir '{parecidas[0]}'?" if parecidas
             else ". Las órdenes son: correr, probar, verificar, consola, guia, ayuda, "
-                 "curso, corregir, lecciones, propuestas, proponer, bitacora e informe"),
+                 "curso, nuevo, corregir, lecciones, propuestas, proponer, bitacora e "
+                 "informe"),
             "al escribir la orden: orden que no existe")
         return 2
     if not archivos:

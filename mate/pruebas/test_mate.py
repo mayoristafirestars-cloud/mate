@@ -10527,3 +10527,370 @@ def test_los_textos_fijos_aclaran_lo_de_py_y_que_va_en_cada_lugar():
     assert max(len(r) for r in ayuda.splitlines()) <= 100
     assert "**121. " in (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
 
+
+
+# ───────── 0.6: la orden 'nuevo mostrador' y los títulos repetidos en una planilla ─────────
+
+def crear_mostrador(tmp_path, capsys, monkeypatch, nombre="mi_negocio"):
+    """Parado en tmp_path, corre 'nuevo mostrador <nombre>'. Devuelve (código, salida, error)."""
+    monkeypatch.chdir(tmp_path)
+    capsys.readouterr()
+    codigo = mate.main(["nuevo", "mostrador", nombre])
+    capturado = capsys.readouterr()
+    return codigo, capturado.out, capturado.err
+
+
+def charla_con(ruta, capsys, monkeypatch, *renglones):
+    """Lo que contesta el mostrador a cada renglón, corrido con el teclado y la IA simulada."""
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(renglones) + "\nchau\n"))
+    capsys.readouterr()
+    assert mate.main(["correr", ruta, "--ia-simulada", "--olvidar"]) == 0
+    return [r.split("Mostrador: ", 1)[1] for r in capsys.readouterr().out.splitlines()
+            if "Cliente: Mostrador: " in r]
+
+
+def test_nuevo_mostrador_crea_el_programa_y_la_planilla_listos_para_usar(tmp_path, capsys,
+                                                                       monkeypatch):
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert (codigo, err) == (0, "")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mi_negocio.mate",
+                                                         "mi_negocio_precios.csv"]
+    # los pasos que siguen, con los comandos enteros (la orden lleva la ruta de mate.py
+    # vista desde la carpeta donde se creó: se pueden copiar tal cual)
+    orden = f"python3 {RAIZ / 'mate.py'}" if mate.os.name != "nt" else f"python {RAIZ / 'mate.py'}"
+    for comando in (f"{orden} probar mi_negocio.mate",
+                    f"{orden} correr mi_negocio.mate --ia-simulada",
+                    "notepad mi_negocio_precios.csv", f"{orden} correr mi_negocio.mate\n"):
+        assert f"       {comando}" in salida, comando
+    assert "Listo. Creé dos archivos en" in salida and "Traceback" not in salida
+    # la planilla es la de muestra de los ejemplos, tal cual; el programa lleva la marca
+    # que lee el Bloc de notas y nombra su planilla, no precios.csv
+    assert (tmp_path / "mi_negocio_precios.csv").read_bytes() == (
+        RAIZ / "ejemplos" / "precios.csv").read_bytes()
+    crudo = (tmp_path / "mi_negocio.mate").read_bytes()
+    assert crudo.startswith(b"\xef\xbb\xbf# mi_negocio.mate: el mostrador de tu negocio.")
+    programa = crudo.decode("utf-8-sig").replace("\r\n", "\n")
+    assert 'leer_tabla("mi_negocio_precios.csv")' in programa
+    assert '"precios.csv"' not in programa and "«" not in programa
+    assert f"#          {orden} probar mi_negocio.mate\n" in programa
+    # sin tocarlos, los dos pasan 'verificar' y 'probar', y 'probar' no deja nada
+    assert mate.main(["verificar", "mi_negocio.mate"]) == 0
+    assert mate.main(["probar", "mi_negocio.mate"]) == 0
+    salida = capsys.readouterr().out
+    assert "mi_negocio.mate: sin errores" in salida and "7 de 7 pruebas pasaron" in salida
+    assert "✓ tu planilla está bien cargada" in salida
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mi_negocio.mate",
+                                                         "mi_negocio_precios.csv"]
+    # y atiende: los dos pedidos del ejemplo 12, con el total y el envío que da el programa
+    dicho = charla_con("mi_negocio.mate", capsys, monkeypatch,
+                       "quiero 12 azucar con envio", "me mandas 5 yerbas?")
+    assert dicho[0].endswith("total $ 117.606,00. Con envío: sí, va con envío.")
+    assert "total $ 175.000,00. Sin envío: hacemos envíos desde 10 unidades y pedís 5." in dicho[1]
+
+
+def test_nuevo_mostrador_copia_la_logica_del_ejemplo_12_sin_cambiarla():
+    # lo que va entre el encabezado y las pruebas es el ejemplo, con otro nombre de planilla:
+    # un arreglo en el ejemplo llega a los mostradores que se creen después
+    ejemplo = (RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
+    cuerpo = ejemplo[ejemplo.index("# La regla del envío:"):ejemplo.index("# ── Las pruebas")]
+    assert "funcion responder_pedido(" in cuerpo and 'leer_tabla("precios.csv")' in cuerpo
+    archivos = mate.archivos_del_mostrador("x", "mate", fin_de_renglon="\n")
+    assert list(archivos) == ["x.mate", "x_precios.csv"]
+    programa = archivos["x.mate"].decode("utf-8-sig")
+    assert cuerpo.replace("precios.csv", "x_precios.csv") in programa
+    assert "#          mate correr x.mate --ia-simulada\n" in programa
+    # las pruebas del ejemplo, que nombran los productos de muestra, no se copian
+    assert "los dos pedidos que una IA contestó mal" not in programa
+
+
+def test_nuevo_mostrador_no_pisa_nada_y_lo_dice(tmp_path, capsys, monkeypatch):
+    # el programa ya está: no lo toca y tampoco crea la planilla
+    (tmp_path / "mi_negocio.mate").write_text("# lo mío\n", encoding="utf-8")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert (codigo, salida) == (1, "")
+    assert "no creé nada: en esta carpeta ya hay mi_negocio.mate, y no piso archivos" in err
+    assert "nuevo mostrador mi_negocio_2" in err
+    assert (tmp_path / "mi_negocio.mate").read_text(encoding="utf-8") == "# lo mío\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["mi_negocio.mate"]
+    # está solo la planilla: no la toca y tampoco crea el programa
+    (tmp_path / "mi_negocio.mate").unlink()
+    (tmp_path / "mi_negocio_precios.csv").write_text("producto;precio\nPan;1\n", encoding="utf-8")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert (codigo, salida) == (1, "") and "ya hay mi_negocio_precios.csv, y no piso" in err
+    assert (tmp_path / "mi_negocio_precios.csv").read_text(
+        encoding="utf-8") == "producto;precio\nPan;1\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["mi_negocio_precios.csv"]
+    # si están los dos, nombra los dos; y con .mate al final del nombre es lo mismo
+    (tmp_path / "mi_negocio.mate").write_text("# lo mío\n", encoding="utf-8")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "mi_negocio.mate")
+    assert codigo == 1 and "ya hay mi_negocio.mate y mi_negocio_precios.csv, y no piso" in err
+    assert (tmp_path / "mi_negocio.mate").read_text(encoding="utf-8") == "# lo mío\n"
+    # la memoria de un programa viejo con ese nombre tampoco se hereda sin avisar, ni el
+    # programa que el Bloc de notas guardó con .txt
+    for viejo in ("otro.memoria.json", "otro.bitacora.txt", "otro.mate.txt"):
+        (tmp_path / viejo).write_text("{}", encoding="utf-8")
+        codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "otro")
+        assert codigo == 1 and f"ya hay {viejo}, y no piso archivos" in err
+        (tmp_path / viejo).unlink()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mi_negocio.mate",
+                                                         "mi_negocio_precios.csv"]
+    # con otro nombre, al lado, sí
+    assert crear_mostrador(tmp_path, capsys, monkeypatch, "otro")[0] == 0
+    assert (tmp_path / "otro.mate").is_file() and (tmp_path / "otro_precios.csv").is_file()
+
+
+def test_nuevo_mostrador_no_deja_nada_a_medias(tmp_path, capsys, monkeypatch):
+    # la planilla "aparece" justo cuando se la va a crear: se borra el programa recién
+    # creado (y nada más) y se avisa
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "ajeno.txt").write_text("no se toca", encoding="utf-8")
+    de_verdad = open
+
+    def abrir(ruta, modo="r", *a, **k):
+        if str(ruta).endswith("_precios.csv") and "x" in modo:
+            raise FileExistsError(ruta)
+        return de_verdad(ruta, modo, *a, **k)
+
+    with monkeypatch.context() as solo_aca:
+        solo_aca.setattr("builtins.open", abrir)
+        assert mate.main(["nuevo", "mostrador", "mi_negocio"]) == 1
+    capturado = capsys.readouterr()
+    assert capturado.out == "" and "no creé nada: recién apareció mi_negocio_precios.csv" in capturado.err
+    assert [p.name for p in tmp_path.iterdir()] == ["ajeno.txt"]
+
+    # y si en la carpeta no se puede escribir, lo dice en castellano y tampoco deja nada
+    def sin_permiso(ruta, modo="r", *a, **k):
+        if str(ruta).endswith("_precios.csv") and "x" in modo:
+            raise PermissionError(13, "Permission denied", ruta)
+        return de_verdad(ruta, modo, *a, **k)
+
+    with monkeypatch.context() as solo_aca:
+        solo_aca.setattr("builtins.open", sin_permiso)
+        assert mate.main(["nuevo", "mostrador", "mi_negocio"]) == 1
+    capturado = capsys.readouterr()
+    assert capturado.out == "" and "no pude crear mi_negocio_precios.csv en" in capturado.err
+    assert "Permission" not in capturado.err and "Traceback" not in capturado.err
+    assert [p.name for p in tmp_path.iterdir()] == ["ajeno.txt"]
+
+
+def test_el_mostrador_creado_sigue_andando_con_otros_productos_y_otra_regla(tmp_path, capsys,
+                                                                          monkeypatch):
+    assert crear_mostrador(tmp_path, capsys, monkeypatch, "ferreteria")[0] == 0
+    planilla = tmp_path / "ferreteria_precios.csv"
+    planilla.write_bytes("producto;presentacion;precio;stock\r\n"
+                         "Tornillo 6 mm;caja de 100;4.500;30\r\n"
+                         "Martillo;unidad;12.000,50;5\r\n".encode("utf-8-sig"))
+    assert mate.main(["verificar", "ferreteria.mate"]) == 0
+    assert mate.main(["probar", "ferreteria.mate"]) == 0
+    assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+    dicho = charla_con("ferreteria.mate", capsys, monkeypatch,
+                       "quiero 12 tornillos con envio", "3 martillos", "9 martillos")
+    assert dicho == [
+        "12 x Tornillo 6 mm (caja de 100) a $ 4.500,00 cada uno: total $ 54.000,00. "
+        "Con envío: sí, va con envío.",
+        "3 x Martillo (unidad) a $ 12.000,50 cada uno: total $ 36.001,50.",
+        "De Martillo quedan 5; no llego a 9."]
+    # el número del envío también se puede cambiar sin tocar las pruebas
+    programa = tmp_path / "ferreteria.mate"
+    original = programa.read_bytes()
+    for unidades in (1, 3, 24):
+        cambiado = original.replace(b"sea unidades_para_envio = 10",
+                                    f"sea unidades_para_envio = {unidades}".encode())
+        assert cambiado != original
+        programa.write_bytes(cambiado)
+        assert mate.main(["probar", "ferreteria.mate"]) == 0
+        assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+    # y la prueba que mira la planilla dice qué está mal cargado (acá, un stock vacío)
+    planilla.write_bytes("producto;presentacion;precio;stock\r\nTornillo;caja;4.500;\r\n".encode())
+    assert mate.main(["probar", "ferreteria.mate"]) == 1
+    salida = capsys.readouterr().out
+    assert "✗ tu planilla está bien cargada" in salida and "6 de 7 pruebas pasaron" in salida
+    assert "En ferreteria_precios.csv, el stock de 'Tornillo' no es un número" in salida
+
+
+def test_el_mostrador_creado_se_puede_abrir_con_el_bloc_de_notas_de_windows(tmp_path, capsys,
+                                                                          monkeypatch):
+    # en Windows sale con los fines de renglón de Windows; Mate lo lee igual
+    monkeypatch.chdir(tmp_path)
+    archivos = mate.archivos_del_mostrador("tienda", "py mate\\mate.py", fin_de_renglon="\r\n")
+    for nombre, contenido in archivos.items():
+        (tmp_path / nombre).write_bytes(contenido)
+    crudo = archivos["tienda.mate"]
+    assert crudo.count(b"\r\n") == crudo.count(b"\n") > 600
+    assert "#          py mate\\mate.py probar tienda.mate\r\n".encode() in crudo
+    assert mate.main(["verificar", "tienda.mate"]) == 0
+    assert mate.main(["probar", "tienda.mate"]) == 0
+    assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+
+
+def test_nuevo_mostrador_sugiere_los_comandos_con_la_orden_de_esa_computadora(tmp_path, capsys,
+                                                                            monkeypatch):
+    # con la orden instalada: 'mate', sin ruta
+    monkeypatch.setenv("MATE_ORDEN", "mate")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "uno")
+    assert codigo == 0 and "\n       mate probar uno.mate\n" in salida
+    assert "\n       mate correr uno.mate --ia-simulada\n" in salida and "python" not in salida
+    assert "#          mate probar uno.mate" in (tmp_path / "uno.mate").read_text(encoding="utf-8-sig")
+    # lanzado con 'py' en Windows (como el dueño): 'py' y la ruta de mate.py
+    monkeypatch.delenv("MATE_ORDEN")
+    monkeypatch.setattr(mate.os, "name", "nt")
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "dos")
+    assert codigo == 0 and f"\n       py {RAIZ / 'mate.py'} probar dos.mate\n" in salida
+    assert "python" not in salida
+    # parado al lado de la carpeta mate, la ruta es la corta
+    monkeypatch.chdir(RAIZ.parent)
+    assert mate.orden_para_esta_carpeta() == "py " + os.path.join("mate", "mate.py")
+    # y los errores también sugieren con esa forma
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", "mostrador"]) == 2
+    assert f"Por ejemplo:  py {RAIZ / 'mate.py'} nuevo mostrador mi_negocio" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("args,frase", [
+    ([], "después de 'nuevo' va qué crear y con qué nombre"),
+    (["mi_negocio"], "después de 'nuevo' va qué crear y con qué nombre"),
+    (["mostrador"], "a 'nuevo mostrador' le falta el nombre"),
+    (["mostrador", "mi", "negocio"], "nuevo mostrador mi_negocio"),
+    (["mostrador", "..\\otro"], "va solo el nombre, sin carpeta"),
+    (["mostrador", "sub/otro"], "va solo el nombre, sin carpeta"),
+    (["mostrador", "C:otro"], "va solo el nombre, sin carpeta"),
+    (["mostrador", "mi.negocio"], "'mi.negocio' no sirve como nombre"),
+    (["mostrador", "_raro"], "no sirve como nombre"),
+    (["mostrador", "a" * 61], "no sirve como nombre"),
+    (["mostrador", "curso"], "es una orden de Mate o un nombre que Windows se reserva"),
+    (["mostrador", "NUL"], "es una orden de Mate o un nombre que Windows se reserva"),
+    (["mostrador", "com1.mate"], "es una orden de Mate o un nombre que Windows se reserva"),
+])
+def test_nuevo_mostrador_mal_escrito_explica_y_no_crea_nada(args, frase, tmp_path, capsys,
+                                                          monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", *args]) == 2
+    capturado = capsys.readouterr()
+    assert capturado.out == "" and frase in capturado.err and "Traceback" not in capturado.err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_nuevo_es_una_orden_sabida_y_no_tapa_un_programa_que_se_llama_nuevo(tmp_path, capsys,
+                                                                          monkeypatch):
+    assert "nuevo" in mate.ORDENES_SABIDAS
+    assert mate.orden_usada(["nuevo", "mostrador", "mi_negocio"]) == "nuevo"
+    ayuda = mate.texto_de_ayuda()
+    assert "  nuevo mostrador mi_negocio   crea en esta carpeta un mostrador propio" in ayuda
+    assert mate.main(["ayuda", "nuevo"]) == 0 and "nuevo mostrador mi_negocio" in capsys.readouterr().out
+    # quien se equivoca al tipear: 'nuebo' sugiere 'nuevo'
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuebo", "mostrador", "x"]) == 2
+    assert "¿quisiste decir 'nuevo'?" in capsys.readouterr().err
+    # un programa que ya se llamaba nuevo.mate se sigue corriendo con 'nuevo' sola
+    (tmp_path / "nuevo.mate").write_text('mostrar("soy el de siempre")\n', encoding="utf-8")
+    assert mate.main(["nuevo"]) == 0
+    assert capsys.readouterr().out == "soy el de siempre\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["nuevo.mate"]
+
+
+def test_nuevo_mostrador_sin_los_ejemplos_de_mate_lo_explica(tmp_path, capsys, monkeypatch):
+    # alguien copió solo mate.py: no hay de dónde armar el mostrador
+    with pytest.raises(mate.ErrorMate) as info:
+        mate.archivos_del_mostrador("x", "mate", carpeta_de_mate=tmp_path)
+    assert "bajá Mate de nuevo con todas sus carpetas" in info.value.mensaje
+    # o cambió el ejemplo y ya no tiene los dos títulos que marcan qué parte se copia
+    (tmp_path / "ejemplos").mkdir()
+    (tmp_path / "ejemplos" / "12_mostrador_con_reglas.mate").write_text(
+        'mostrar("otra cosa")\n', encoding="utf-8")
+    (tmp_path / "ejemplos" / "precios.csv").write_text("producto;precio\n", encoding="utf-8")
+    with pytest.raises(mate.ErrorMate) as info:
+        mate.archivos_del_mostrador("x", "mate", carpeta_de_mate=tmp_path)
+    assert "no tiene la forma que espero" in info.value.mensaje
+    # por la orden: un aviso en castellano, código 1 y nada creado
+    monkeypatch.setattr(mate, "CARPETA_DE_EJEMPLOS", "no_esta")
+    donde = tmp_path / "vacia"
+    donde.mkdir()
+    codigo, salida, err = crear_mostrador(donde, capsys, monkeypatch)
+    assert (codigo, salida) == (1, "") and "para crear un mostrador hacen falta" in err
+    assert "Traceback" not in err and list(donde.iterdir()) == []
+
+
+@pytest.mark.parametrize("crudo,frases", [
+    # los títulos otra vez más abajo (pasa al pegar una lista debajo de otra): dice qué
+    # renglón del archivo borrar
+    (b"producto;precio;stock\nPan;900;4\nproducto;precio;stock\nLeche;1.200;3\n",
+     ["el renglón 3 de 'lista.csv' repite los títulos de las columnas (producto;precio;stock)",
+      "que ya están en el renglón 1", "borrá el renglón 3 entero", "guardá de nuevo"]),
+    # con otra mayúscula, con tilde, con los ;; que deja Excel, y contando los renglones
+    # en blanco y el aviso 'sep=' de Excel
+    ("sep=;\n\nproducto;presentación;precio\nPan;bolsa;900\n\nPRODUCTO;Presentacion;Precio;;\n"
+     .encode("utf-8"),
+     ["el renglón 6 de 'lista.csv' repite los títulos", "que ya están en el renglón 3",
+      "borrá el renglón 6 entero"]),
+    # separado por comas, y al final del archivo
+    (b"producto,precio\r\nPan,900\r\nLeche,1200\r\nproducto,precio\r\n",
+     ["el renglón 4 de 'lista.csv' repite los títulos de las columnas (producto,precio)"]),
+])
+def test_leer_tabla_avisa_si_los_titulos_estan_repetidos_mas_abajo(crudo, frases, tmp_path,
+                                                                  capsys):
+    (tmp_path / "lista.csv").write_bytes(crudo)
+    codigo, salida, err = por_main(tmp_path, capsys, 'mostrar(leer_tabla("lista.csv"))')
+    assert (codigo, salida) == (1, "")
+    assert "programa.mate:1: error: leer_tabla(): " in err and "Traceback" not in err
+    for frase in frases:
+        assert frase in err, frase
+
+
+def test_leer_tabla_no_confunde_un_dato_con_los_titulos(tmp_path, capsys):
+    # con una sola columna, un dato igual al título es un dato; y una fila que se parece a
+    # los títulos pero no es igual, también
+    (tmp_path / "lista.csv").write_bytes(b"palabra\nhola\npalabra\n")
+    codigo, salida, err = por_main(tmp_path, capsys, 'mostrar(largo(leer_tabla("lista.csv")))')
+    assert (codigo, salida, err) == (0, "2\n", "")
+    (tmp_path / "lista.csv").write_bytes(b"producto;precio\nproducto;900\nPan;precio\n")
+    codigo, salida, err = por_main(tmp_path, capsys, 'mostrar(largo(leer_tabla("lista.csv")))')
+    assert (codigo, salida, err) == (0, "2\n", "")
+    # el error se puede atajar, como los demás de leer_tabla
+    (tmp_path / "lista.csv").write_bytes(b"producto;precio\nPan;900\nproducto;precio\n")
+    codigo, salida, err = por_main(tmp_path, capsys, """
+        intentar {
+            mostrar(leer_tabla("lista.csv"))
+        } si falla motivo {
+            mostrar(tiene(motivo, "borrá el renglón 3 entero"))
+        }
+    """)
+    assert (codigo, salida, err) == (0, "verdadero\n", "")
+
+
+def test_el_mostrador_creado_dice_que_renglon_borrar_si_los_titulos_estan_repetidos(
+        tmp_path, capsys, monkeypatch):
+    # lo que le pasó al dueño: copió la lista y quedó el renglón de títulos dos veces
+    assert crear_mostrador(tmp_path, capsys, monkeypatch)[0] == 0
+    planilla = tmp_path / "mi_negocio_precios.csv"
+    planilla.write_bytes(planilla.read_bytes() + "producto;presentacion;precio;stock\r\n"
+                         "Pan rallado;bolsa de 5 kg;4.000;9\r\n".encode())
+    for orden in ("correr", "probar"):
+        assert mate.main([orden, "mi_negocio.mate", "--ia-simulada"]) == 1
+        capturado = capsys.readouterr()
+        assert capturado.out == ""
+        assert ("el renglón 8 de 'mi_negocio_precios.csv' repite los títulos de las columnas "
+                "(producto;presentacion;precio;stock), que ya están en el renglón 1") in capturado.err
+        assert "borrá el renglón 8 entero" in capturado.err
+    # borrado ese renglón, anda con el producto que venía abajo
+    planilla.write_bytes(planilla.read_bytes().replace(
+        b"\r\nproducto;presentacion;precio;stock\r\nPan", b"\r\nPan"))
+    assert mate.main(["probar", "mi_negocio.mate"]) == 0
+    assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+    assert charla_con("mi_negocio.mate", capsys, monkeypatch, "2 panes")[0].startswith(
+        "2 x Pan rallado (bolsa de 5 kg) a $ 4.000,00 cada uno: total $ 8.000,00.")
+
+
+def test_nuevo_mostrador_y_los_titulos_repetidos_estan_documentados():
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "### Un mostrador propio: `nuevo mostrador`" in readme
+    assert "| `nuevo mostrador mi_negocio` | crea en la carpeta donde estás" in readme
+    assert "**Nunca pisa un archivo.**" in readme and "repetido más abajo" in readme
+    mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+    ficha = mejoras.split("\n**122. `nuevo mostrador`")[1].split("\n\n")[0]
+    assert "Dónde vive la plantilla" in ficha and "Estado: hecha" in ficha
+    assert "nuevo mostrador mi_negocio" in (RAIZ / "curso" / "clase_12_mostrador.md").read_text(
+        encoding="utf-8")
+    assert "'nuevo mostrador mi_negocio'" in (
+        RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
