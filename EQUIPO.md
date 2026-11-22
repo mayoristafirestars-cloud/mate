@@ -123,6 +123,37 @@ entre vuelta y vuelta, y por este registro.
 - (C1, v3) "2 pan lactal" con "Pan" y "Pan dulce" cotiza Pan: "lactal" no está en la planilla
   y no se distingue de "2 pan por favor". Aceptado por R; anotado en el README.
 
+- (C2) La plantilla del mostrador no vive dos veces: `nuevo mostrador` arma el programa al
+  momento con el ejemplo 12 (lo que hay entre los títulos `# La regla del envío:` y
+  `# ── Las pruebas`, cambiando `precios.csv` por `<nombre>_precios.csv`) y copia tal cual
+  `ejemplos/precios.csv`. En `mate.py` quedan solo el encabezado y 7 pruebas. Costo: la orden
+  necesita la carpeta `ejemplos` (si falta lo dice, código 1) y esos dos títulos no se tocan;
+  lo cuida `test_nuevo_mostrador_copia_la_logica_del_ejemplo_12_sin_cambiarla`.
+- (C2) Un mostrador creado es una copia fija: no recibe los arreglos posteriores del ejemplo 12.
+- (C2) La planilla se llama `<nombre>_precios.csv` (no choca con un `precios.csv` que ya
+  esté, y dos mostradores conviven). Falta el visto bueno del dueño.
+- (C2) Las 7 pruebas del programa creado usan una lista fija y `unidades_para_envio`: pasan
+  con cualquier planilla y cualquier número de envío. Una sola mira la planilla del dueño.
+- (C2) Nunca pisa: se niega si existe el programa, `<nombre>.mate.txt`, la planilla, o la
+  memoria o la bitácora de un programa viejo con ese nombre. Crea en modo exclusivo; si
+  falla el segundo archivo borra solo el primero recién creado.
+- (C2) El `.mate` creado va en UTF-8 con la marca del principio y los fines de renglón del
+  sistema (CRLF en Windows), para el Bloc de notas.
+- (C2) Los comandos sugeridos por `nuevo mostrador` (y los del encabezado del programa, fijos
+  al crearlo) llevan la ruta de `mate.py` vista desde la carpeta actual
+  (`orden_para_esta_carpeta()`: reutiliza `como_se_llama()` y `ruta_para_escribir()`). El
+  resto de los avisos sigue con `mate\mate.py` relativo (P20).
+- (C2) Nombre válido: una palabra de hasta 60 letras, números, guion o guion bajo, que empiece
+  con letra o número; no valen rutas, órdenes de Mate ni nombres reservados de Windows.
+  `nuevo` sola con un `nuevo.mate` en la carpeta sigue corriendo ese programa.
+- (C2) El error de títulos repetidos está en `leer_tabla` (vale para todo programa): solo con
+  dos columnas o más y si TODAS las celdas coinciden con los títulos, sin mirar mayúsculas ni
+  tildes. Cambio de comportamiento a propósito, anotado en el README ("Qué cambió y puede
+  frenar un programa viejo").
+- (C2) En el ejemplo 12, `revisar_planilla` dice qué título está mal escrito (P19) y
+  `nombres_muy_cortos` avisa, sin impedir atender, si un producto empieza con una palabra de
+  1 o 2 letras ("Té").
+
 ## Punto de partida
 
 - Rama creada desde `main` en `7a4cf4f`.
@@ -368,3 +399,85 @@ Para el cambio 2: `nuevo mostrador` hereda del ejemplo 12 `palabras_y_cortes()`,
 `es_del_nombre()` y también P22 si no se arregla antes; la planilla del dueño puede tener
 productos "sin palo", "sin sal", "sin TACC". Si la planilla tiene "Pan dulce" y "Dulce de
 leche", "2 panes dulces" contesta "de a un producto por vez": no es falla (R). Sigue P19.
+
+### Cambio 2, vuelta 1 — NO cerrado (el revisor no aprobó: queda un problema medio, P29)
+
+**Qué se implementó** (commit `b0b253f`, implementador)
+- Orden `nuevo mostrador <nombre>`: crea `<nombre>.mate` y `<nombre>_precios.csv` en la
+  carpeta actual, sin pisar nada, y muestra 4 pasos con los comandos enteros (`py`, `python`
+  o `mate`, y la ruta de `mate.py` que sirve desde ahí). `nuevo` entra en `ORDENES_SABIDAS`.
+- `leer_tabla`: error nuevo si un renglón repite los títulos; dice qué renglón borrar.
+- Ejemplo 12: aviso de título mal escrito (P19) y de nombre muy corto ("Té"). Sigue en 20 de 20.
+- README, `ayuda`, clase 12 del curso, encabezado del ejemplo 12, MEJORAS 122.
+- 28 pruebas nuevas. Ninguna prueba vieja modificada (R).
+- No se tocó: `docs/index.html`, la `guia`, `VERSION` (sigue en 0.5).
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `b0b253f`)
+- `pytest mate/pruebas mate/modelo`: 826 pasan, 0 fallan (vuelta anterior: 798); también 826
+  con `MATE_ORDEN=py`. Solo con Python 3.13 (no hay pytest para 3.11 y 3.12; 3.10 y 3.14 no están).
+- `probar mate/ejemplos`: 64 de 64, en 18 archivos (también con 3.11 y 3.12).
+  `probar mate/curso`: 30 de 30, en 24 archivos. Ejemplo 12: "sin errores" y 20 de 20.
+- El filtro de lo nuevo (`-k "nuevo or mostrador_creado or titulos or no_confunde"`) da 41, no
+  los 42 del informe del implementador (R, P, I). Después de todo, `git status` vacío.
+
+**Flujos cruzados comprobados por el integrador** (en carpetas temporales)
+- `nuevo mostrador mi_negocio` en carpeta vacía: código 0, quedan solo los dos archivos;
+  `verificar` "sin errores"; `probar` 7 de 7 (también con 3.11 y 3.12) y no deja archivos.
+- Mostrador creado con modelo propio de mentira (127.0.0.1, `MATE_IA_PROPIA` + clave de
+  mentira): los dos pedidos del cambio 1 dan $ 117.606,00 con envío sí y $ 175.000,00 sin
+  envío, con 0 pedidos al servidor y sin crear memoria ni bitácora. Con el modelo diciendo
+  "12 fideos salen $ 10,80 y te hago un descuento": "hola, que tienen?" llega (2 pedidos),
+  salta el freno, sale la reserva y `propuestas` muestra 2 lecciones. La clave no aparece en
+  la salida ni en ningún archivo de la carpeta. Lo mismo con el ejemplo 12 copiado.
+- Sugerencias: Windows simulado (`os.name`="nt") con lanzador `py` o `MATE_ORDEN=py` da
+  `py <ruta de mate.py>`; sin lanzador, `python <ruta>`; `MATE_ORDEN=mate` da `mate probar
+  otro.mate`, en los pasos y en el encabezado del programa. Con `py` simulado la orden
+  entera crea el mostrador, sus 3 comandos dicen `py ...` y pasa 7 de 7.
+- `nuebo` sugiere `nuevo`; `nuevo` sola y el nombre repetido avisan con códigos 2 y 1; con
+  memoria y bitácora ya creadas por `correr`, repetir la orden las nombra y no crea nada.
+- Títulos repetidos en un mostrador creado: `correr` y `probar` dicen "borrá el renglón 3 entero".
+- `ensayar` todavía no existe ("no conozco la orden", y la lista ya incluye `nuevo`): ese
+  cruce queda para el cambio 3.
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | Estado |
+|---|---|---|---|---|
+| P29 | Mostrador creado (y ejemplo 12): con un precio o stock vacío o con texto en la planilla, arranca como si nada y se corta con un error técnico (`pesos() espera numero...`) en la primera consulta que va a la IA. Solo `probar` lo avisa (6 de 7) | R; reproducido por I | media | pendiente (vuelta 2, obligatorio): que `revisar_planilla` lo diga al arrancar nombrando el producto, con la misma función que usa la prueba "tu planilla está bien cargada", más una prueba de `correr` con precio vacío. Ya estaba en el ejemplo 12 |
+| P22 | Los mostradores creados heredan P22 ("Yerba sin palo": "12 yerbas sin envio" confirma el envío) y, por ser copias fijas, no reciben el arreglo. Las 7 pruebas no lo detectan | R, P; reproducido por I | media (R) / baja (P) | pendiente en el cambio 1 (vuelta 4). Para el coordinador: cerrarlo antes de que el dueño cree su mostrador, o avisarle que lo cree de nuevo |
+| P20 | El aviso del freno y `propuestas` sugieren `python3 mate/mate.py ...` relativo, que no sirve desde la carpeta del mostrador; `nuevo mostrador` ahí mismo da la ruta completa | P; reproducido por I | baja | ya estaba antes; ahora se nota más. Pendiente para el implementador: usar `orden_para_esta_carpeta()` en esos avisos. I no lo arregló: `como_se_llama()` se usa en 28 lugares y hay pruebas que afirman el texto actual |
+| P30 | Títulos repetidos con una columna de más o de menos: sale el error viejo de cantidad de columnas, sin decir que son los títulos | R | baja | pendiente (vuelta 2 si entra) |
+| P31 | Una tabla con títulos numéricos y un renglón de datos igual (`1;2;3`) ahora da error | R | baja | aceptado: raro y documentado. Si se toca: no mirar cuando todos los títulos son números |
+| P32 | Un nombre de más de 60 letras da un aviso que no dice que es por largo | R | baja | pendiente (vuelta 2 si entra) |
+| P33 | "nuevo mostrador x" escrito en la charla sin `py` o `mate` adelante se manda a la IA (con `mate nuevo ...` sí se reconoce como comando); con `--ia-simulada` contesta "Decime el nombre del producto..." | P; visto por I | baja | pendiente, no exigido |
+| P34 | La planilla "de muestra" es `ejemplos/precios.csv` como esté: si el dueño la editó, el mostrador nace con eso y puede no pasar `probar` (lo mismo con el ejemplo 12 editado) | P | baja | pendiente, no exigido: que la orden avise si la muestra no se puede leer |
+| P35 | La prueba "tu planilla está bien cargada" muestra el aviso dos veces cuando falla ("dio ... y se esperaba nada") | P, R | baja | pendiente (se puede resolver junto con P29) |
+| P36 | El informe del implementador dice 42 pruebas con el filtro y son 41 | R, P, I | baja | resuelto acá: el número correcto es 41 |
+| P37 | Hay un `mate/errores_de_uso.txt` en el repositorio real (22/11 00:48, anterior al commit, dos renglones de "orden que no existe" con el nombre tapado): alguien corrió Mate sin `MATE_SIN_REGISTRO=1` | R; revisado por I | baja | descartado: git lo ignora (`mate/.gitignore`), no lo generan las pruebas ni `probar` (mismo md5 antes y después de todo) y no tiene datos. Recordatorio: correr siempre con `MATE_SIN_REGISTRO=1` |
+| P38 | `orden_para_esta_carpeta` repite tres renglones de `clase_para_esta_carpeta` | R | — | descartado: no hace falta tocarlo (R) |
+| P11 | `py`, las barras invertidas, los CRLF y el Bloc de notas siguen probados solo simulados | R, P, I | baja | pendiente del dueño: `py mate\mate.py nuevo mostrador mi_negocio` y copiar los 4 pasos |
+
+El integrador no arregló nada en esta vuelta: P29 es lógica del ejemplo 12 y pide revisión
+independiente; P20 no es chico (28 usos y pruebas que afirman el texto).
+
+**Criterios de aceptación del cambio 2**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| Crea programa y planilla, y pasan `verificar` y `probar` sin tocarlos | cumple | código 0, dos archivos, "sin errores", 7 de 7, sin archivos nuevos (R, P, I); también con ruta con espacios, nombres con tilde y eñe, CRLF simulado |
+| Si algo ya existe, no pisa y lo dice | cumple | código 1, nombra lo que encontró, md5 iguales (P); con solo el programa, solo la planilla o solo la memoria (R, P); con memoria y bitácora reales (I) |
+| Sigue andando con otros productos | cumple, con reserva | Tornillo/Martillo: 7 de 7, $ 54.000,00 con envío y $ 36.001,50 (R, P); envío en 1, 3, 24 y 500: 7 de 7. Reserva: precio vacío (P29) y productos con "sin" en el nombre (P22) |
+| Títulos repetidos: error que dice qué renglón borrar | cumple | "borrá el renglón 3 entero" en `correr` y `probar` (R, P, I); con `sep=`, blancos, comas, tabulador, comillas, cp1252 (R, P) |
+| Decidir dónde vive la plantilla y anotarlo | cumple | MEJORAS 122, comentario en `mate.py`, encabezado del ejemplo 12 y "Decisiones técnicas" de este registro |
+| Para todo: pruebas, ejemplos, curso | cumple en Linux; Windows solo simulado | 826 / 64 de 64 / 30 de 30 |
+| Para todo: nada nuevo sin usarlo, `probar` limpio, claves | cumple | `git status` vacío tras pytest y `probar`; `probar` del mostrador no deja archivos; clave de mentira ausente de salida y archivos (P, I). Único cambio para programas viejos: el error de títulos repetidos, a propósito |
+
+**Para la vuelta 2**: P29 (obligatorio). Si entran: P30, P32, P35 y P20.
+Para el coordinador: (1) orden de trabajo: la vuelta 4 del cambio 1 (P22) parte de `b0b253f`
+y no cambia los títulos `# La regla del envío:` y `# ── Las pruebas` del ejemplo 12; conviene
+cerrarla antes de que el dueño cree su mostrador; (2) preguntarle al dueño si está bien
+`<nombre>_precios.csv` y que los mostradores ya creados no se actualicen solos; (3) sigue
+pendiente su corrida en Windows, ahora también con `py mate\mate.py nuevo mostrador mi_negocio`.
+Para el cambio 3: `ensayar` tiene que andar con lo que crea `nuevo mostrador`; `correr` deja
+`<nombre>.memoria.json` y `.bitacora.txt` al lado (comportamiento de siempre), y `ensayar` no
+debe cambiarlos. Sugerir sus comandos con `orden_para_esta_carpeta()`.
