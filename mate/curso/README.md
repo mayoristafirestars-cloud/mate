@@ -1,8 +1,9 @@
 # El curso de Mate
 
-Doce clases cortas para aprender Mate desde cero, sin saber programar. Arranca en
-"hola" y termina en un mostrador que lee tu lista de precios, charla por teclado,
-contesta con una IA, tiene frenos y aprende de tus correcciones.
+Trece clases cortas para aprender Mate desde cero, sin saber programar. Arranca en
+"hola", llega a un mostrador que lee tu lista de precios, charla por teclado, contesta
+con una IA, tiene frenos y aprende de tus correcciones, y termina en un equipo de
+agentes que se hablan entre ellos.
 
 Cada clase lleva entre 10 y 20 minutos y tiene siempre lo mismo: qué vas a lograr, el
 programa completo, el comando para correrlo, lo que tiene que salir, el error más común
@@ -46,6 +47,7 @@ escribir `mate` en lugar de `python mate\mate.py`. Por ejemplo: `mate curso 1`.
 | 10 | Frenos, para poder confiar en la IA | `clase_10_frenos.md` | `clase_10_frenos.mate` |
 | 11 | Un agente que recuerda y aprende | `clase_11_aprende.md` | `clase_11_aprende.mate` |
 | 12 | El mostrador completo | `clase_12_mostrador.md` | `clase_12_mostrador.mate` |
+| 13 | Un equipo de agentes que se hablan | `clase_13_equipo.md` | `clase_13_equipo.mate` |
 
 Además están `precios.csv` (la lista de precios de muestra, desde la clase 7),
 `respuestas.txt` (respuestas de ensayo, para la clase 9) y, de cada clase, el ejercicio

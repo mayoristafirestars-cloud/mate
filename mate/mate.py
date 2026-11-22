@@ -8672,29 +8672,342 @@ def archivos_del_mostrador(nombre, orden, carpeta_de_mate=None, fin_de_renglon=N
             casos: de_muestra.replace("\n", fin).encode("utf-8-sig")}
 
 
+# ───────────────────────── La orden 'nuevo equipo' (0.7) ─────────────────────────
+# 'nuevo equipo mi_negocio' crea, con la misma forma y los mismos cuidados que 'nuevo
+# mostrador', un equipo de tres agentes (Ventas, Depósito y Compras) que se hablan entre
+# ellos: mi_negocio.mate, mi_negocio_precios.csv y mi_negocio_casos.txt.
+# De dónde sale: tampoco acá está copiada la lógica. El equipo es el del ejemplo
+# 13_equipo_del_negocio.mate (lo que hay entre sus títulos "El equipo" y "Las pruebas"), y
+# las funciones que entienden los pedidos son las del ejemplo 12, que el 13 trae con
+# 'usar': como el programa creado tiene que andar solo, van adentro, en tres tramos del 12
+# marcados por los comentarios de más abajo. Un arreglo en cualquiera de los dos ejemplos
+# llega a los equipos que se creen después.
+EJEMPLO_DEL_EQUIPO = "13_equipo_del_negocio.mate"
+CASOS_DEL_EQUIPO = "casos_del_equipo.txt"
+_EQUIPO_DESDE = "\n# ── El equipo"
+_EQUIPO_PROGRAMA = "\n# ── El programa"  # (de acá para abajo va al final, después de lo del 12)
+_EQUIPO_HASTA = "\n# ── Las pruebas"
+# Del ejemplo 12 (desde, hasta): la regla del envío; las funciones que entienden el pedido
+# y hacen la cuenta; y las que revisan la planilla. Quedan afuera su agente, su charla y
+# su programa.
+_DEL_12_PARA_EL_EQUIPO = (
+    ("\n# La regla del envío:", "\nmensaje CargarLista"),
+    ('\n# La columna "precio" de la lista', "\n# Una consulta: primero prueba el programa"),
+    ("\n# ¿La planilla sirve para atender?", "\n# Lee la planilla y la revisa"))
+
+_ENCABEZADO_DEL_EQUIPO = """\
+# «PROGRAMA»: el equipo de tu negocio. Son tres agentes: Ventas, Depósito y Compras.
+# Lo creó la orden 'nuevo equipo' de Mate, a partir de los ejemplos
+# 13_equipo_del_negocio.mate y 12_mostrador_con_reglas.mate. Es tuyo: lo podés cambiar
+# todo lo que quieras.
+#
+# QUÉ HACE. Los tres agentes se hablan entre ellos para repartirse el trabajo:
+#   - VENTAS atiende por teclado. Cuando el cliente pide una CANTIDAD de un PRODUCTO de la
+#     planilla ("quiero 12 azucar con envio"), hace la cuenta sin consultar a la IA y le
+#     pide a Depósito que lo reserve. Si solo preguntan el precio ("cuanto salen 12
+#     azucar"), contesta la cuenta y no anota nada. Todo lo demás (saludar, contar qué
+#     hay) lo contesta la IA, con frenos para que no invente precios.
+#   - DEPÓSITO es el único que sabe cuánto stock hay. Lo descuenta con cada pedido y lo
+#     RECUERDA de una vez a la otra. No vende lo que no hay.
+#   - COMPRAS deja anotado lo que hay que reponer. Depósito le avisa UNA vez, cuando un
+#     producto baja del mínimo; al abrir y al cerrar, el programa muestra lo anotado.
+#
+# QUÉ PODÉS CAMBIAR SIN SABER PROGRAMAR:
+#   1. Tus productos. Están en la planilla que está al lado de este archivo:
+#          «PLANILLA»
+#      Abrila con Excel o con el Bloc de notas. El primer renglón son los títulos, y va
+#      una sola vez:
+#          producto;presentacion;precio;stock
+#      Abajo va un renglón por producto. El cliente nombra cada producto por la PRIMERA
+#      palabra de su nombre ("yerba", "azúcar"): conviene que sea la que lo distingue.
+#   2. Desde cuántas unidades hay envío: el número de unidades_para_envio, acá abajo.
+#   3. El mínimo de stock: el número de stock_minimo, un poco más abajo. Cuando de un
+#      producto quedan menos unidades que esas, Depósito le avisa a Compras.
+#   4. Cómo se presenta el negocio: el texto que empieza con "Atendés las ventas".
+#   5. Lo que la IA no puede decir nunca: las palabras de 'prohibido', dentro de 'frenos'.
+#
+# EL STOCK. El de la planilla es el de ARRANQUE: Depósito lo toma la primera vez que ve
+# cada producto y de ahí en más lo lleva él (queda en «MEMORIA», que se abre con el Bloc
+# de notas). Cambiar el número en la planilla NO cambia lo que Depósito recuerda:
+#   - Cuando llega mercadería, escribí en la charla:   ingreso 30 azucar
+#   - Para empezar de nuevo con el stock de la planilla, agregá --olvidar al comando de
+#     correr (una sola vez: borra lo que recuerdan Depósito y Compras).
+# OJO: "ingreso" se escribe en la misma charla que usa el cliente. Sirve mientras el
+# teclado lo maneja alguien del negocio.
+#
+# CÓMO SE USA, en PowerShell, parado en la carpeta donde está este archivo:
+#   Para comprobar que quedó todo bien (hacelo cada vez que cambies algo):
+#          «ORDEN» probar «PROGRAMA»
+#   Para charlar con el equipo sin gastar nada (no hace falta clave ni internet):
+#          «ORDEN» correr «PROGRAMA» --ia-simulada
+#   Para VER cómo se hablan los agentes (Ventas con Depósito, Depósito con Compras):
+#          «ORDEN» correr «PROGRAMA» --ia-simulada --traza
+#   Para atender con la IA de verdad:
+#          «ORDEN» correr «PROGRAMA»
+#   Para salir de la charla, escribí chau.
+#   Para ensayarlo: Mate le hace las preguntas anotadas en «CASOS» (se abre con el Bloc
+#   de notas) y dice cuáles contestó bien. Un ensayo no descuenta stock:
+#          «ORDEN» ensayar «PROGRAMA» «CASOS» --ia-simulada
+#   OJO: los casos que vienen en «CASOS» son de muestra, escritos para la planilla de
+#   muestra (yerba, azúcar, fideos). Cuando pongas tus productos en la planilla, cambiá
+#   también los casos: si no, fallan los que nombran un producto que ya no está.
+#
+# Las pruebas del final usan una lista fija, no tu planilla ni lo que Depósito recuerda:
+# siguen pasando aunque cambies los productos, los precios, el número del envío o el
+# mínimo. Una sola mira tu planilla, para avisarte si quedó algo mal cargado.
+# Si en la planilla queda un precio o un stock vacío o con letras, el equipo no atiende:
+# al arrancar dice de qué producto es y cómo arreglarlo.
+"""
+
+_PRUEBAS_DEL_EQUIPO = """\
+# ── Las pruebas ──────────────────────────────────────────────────────────────────────
+# Corren con la orden 'probar'. Usan la lista fija de acá abajo y no tu planilla: así
+# siguen pasando aunque cambies los productos y los precios. En una prueba los agentes
+# arrancan de cero (no se usa lo que recuerdan ni se guarda nada) y la IA nunca es de
+# verdad. mensajes_enviados("Reponer") da los mensajes de ese tipo que viajaron en la prueba.
+
+# La lista de las pruebas. De azúcar hay 5 más que el mínimo, para poder bajar de ahí.
+funcion lista_de_prueba() {
+    devolver [{ producto: "Yerba mate", presentacion: "bolsón de 10 paquetes de 1 kg", precio: 35000, stock: 100000 },
+              { producto: "Azúcar", presentacion: "bolsa de 10 kg", precio: 9800.5, stock: stock_minimo + 5 },
+              { producto: "Fideos secos", presentacion: "caja de 20 paquetes de 500 g", precio: 18900, stock: 0 }]
+}
+
+prueba "tu planilla está bien cargada" {
+    # La única prueba que mira «PLANILLA»: si falla, el texto dice qué arreglar.
+    # Es lo mismo que el equipo revisa al arrancar: los títulos, y que cada producto
+    # tenga su precio y su stock en números (una celda vacía no es un número).
+    sea a_corregir = revisar_planilla(lista)
+    si a_corregir != nada {
+        fallar(a_corregir)
+    }
+}
+
+prueba "un pedido lo anota Ventas y lo descuenta Depósito, sin consultar a la IA" {
+    abrir_el_negocio(lista_de_prueba())
+    # Aunque la IA "quiera" contestar mal, nadie le pregunta.
+    simular_ia("Son $ 10,80.")
+    asegurar consultar_a_ventas("a", "quiero 3 azucar") == "Anotado: 3 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 29.401,50."
+    # Quedan 3 menos: se ve preguntando por una más de las que hay.
+    sea quedan = stock_minimo + 2
+    asegurar consultar_a_ventas("b", "tenes {quedan + 1} azucar?") == "De Azúcar quedan {quedan}; no llego a {quedan + 1}."
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "la conversación va de Ventas a Depósito, y de Depósito a Compras" {
+    abrir_el_negocio(lista_de_prueba())
+    # De fideos no hay: Depósito no vende, y le avisa a Compras.
+    consultar_a_ventas("a", "quiero 3 fideos")
+    # Quién le preguntó a quién, en orden (el mínimo en 0 es no avisar nunca).
+    var camino = []
+    para m en mensajes_enviados() {
+        si m.pregunta {
+            camino = agregar(camino, "{m.de} → {m.a}: {m.tipo}")
+        }
+    }
+    var esperado = ["(programa) → Ventas: ConsultaDeCliente", "Ventas → Deposito: Reservar"]
+    si stock_minimo > 0 {
+        esperado = agregar(esperado, "Deposito → Compras: Reponer")
+    }
+    asegurar camino == esperado, camino
+}
+
+prueba "pedir más de lo que hay no vende" {
+    abrir_el_negocio(lista_de_prueba())
+    asegurar consultar_a_ventas("a", "quiero 3 fideos") == "De Fideos secos ahora no hay stock."
+    asegurar consultar_a_ventas("b", "quiero 200000 yerbas") == "De Yerba mate quedan 100000; no llego a 200000."
+    # No se descontó nada: las 100000 siguen estando.
+    asegurar empieza_con(consultar_a_ventas("c", "quiero 100000 yerbas"), "Anotado: 100000 x Yerba mate")
+}
+
+prueba "al bajar del mínimo sale UN pedido de reposición, no uno por cada venta" {
+    abrir_el_negocio(lista_de_prueba())
+    # De azúcar hay 5 más que el mínimo: con 3 menos todavía no se avisa.
+    consultar_a_ventas("a", "quiero 3 azucar")
+    asegurar largo(mensajes_enviados("Reponer")) == 0
+    # Con 3 menos ya queda por debajo: se avisa. Y con los pedidos que siguen, no de nuevo.
+    consultar_a_ventas("b", "quiero 3 azucar")
+    consultar_a_ventas("c", "quiero 1 azucar")
+    consultar_a_ventas("d", "quiero 1 azucar")
+    # (con el mínimo en 0 no se avisa nunca)
+    var avisos = 1
+    si stock_minimo == 0 {
+        avisos = 0
+    }
+    asegurar largo(mensajes_enviados("Reponer")) == avisos
+    # Compras lo tiene anotado una sola vez.
+    sea faltantes = preguntar QueFalta {} a Compras
+    asegurar largo(faltantes.pedidos) == avisos
+}
+
+prueba "preguntar el precio no anota nada ni descuenta stock" {
+    abrir_el_negocio(lista_de_prueba())
+    para dicho en ["cuanto salen 3 azucar?", "tenes 3 azucar?", "precio de 3 azucar"] {
+        asegurar consultar_a_ventas(dicho, dicho) == "3 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 29.401,50. Todavía no anoté nada: para pedirlo, escribí \\"quiero 3 azucar\\"."
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
+}
+
+prueba "el envío sale desde las unidades de la regla; si no llega, no se anota" {
+    abrir_el_negocio(lista_de_prueba())
+    sea n = unidades_para_envio
+    asegurar termina_con(consultar_a_ventas("a", "quiero {n} yerbas con envio"), "Con envío: sí, va con envío.")
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    # Con una unidad menos no hay envío (si la regla es desde 1, no hay "una menos"): se
+    # le dice, y no se anota hasta que el cliente decida.
+    si n > 1 {
+        sea contestado = consultar_a_ventas("b", "me mandas {n - 1} yerbas?")
+        asegurar tiene(contestado, "Sin envío: hacemos envíos desde {n} unidades y pedís {n - 1}.")
+        asegurar tiene(contestado, "Todavía no anoté nada")
+        asegurar largo(mensajes_enviados("Reservar")) == 1
+    }
+    # Si dice que NO quiere envío, se anota y no se le confirma un envío.
+    asegurar termina_con(consultar_a_ventas("c", "quiero {n} yerbas sin envio"), "total {pesos(n * 35000)}.")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "la mercadería que llega se suma, y Compras la tacha de su lista" {
+    abrir_el_negocio(lista_de_prueba())
+    consultar_a_ventas("a", "quiero 3 fideos")
+    asegurar anotar_ingreso(lista_de_prueba(), "ingreso 30 fideos") == "Entraron 30 de Fideos secos: ahora hay 30."
+    asegurar (preguntar QueFalta {} a Compras).pedidos == []
+    asegurar empieza_con(consultar_a_ventas("b", "quiero 30 fideos"), "Anotado: 30 x Fideos secos")
+    # Un ingreso mal escrito no suma nada: explica cómo va.
+    asegurar empieza_con(anotar_ingreso(lista_de_prueba(), "ingreso fideos"), "No entendí el ingreso.")
+}
+
+prueba "el contrato no deja saltearse a Ventas ni hablarle a Compras por afuera" {
+    abrir_el_negocio(lista_de_prueba())
+    # El programa no le puede pedir una reserva a Depósito: eso es de Ventas.
+    asegurar falla { preguntar Reservar { charla: "a", producto: "Yerba mate", cantidad: 5 } a Deposito }
+    # Ni pedirle una reposición a Compras: eso es de Depósito.
+    asegurar falla { preguntar Reponer { charla: "b", producto: "Yerba mate", quedan: 1 } a Compras }
+    asegurar (preguntar QueFalta {} a Compras).pedidos == []
+}
+
+prueba "lo que no es un pedido va a la IA, y un precio inventado no le llega al cliente" {
+    abrir_el_negocio(lista_de_prueba())
+    simular_ia("¡Hola! Tenemos yerba y azúcar.")
+    asegurar consultar_a_ventas("a", "hola, ¿qué tienen?") == "¡Hola! Tenemos yerba y azúcar."
+    # Un precio que no está en la lista: salta el freno y llega la reserva.
+    simular_ia("El café sale $ 12.000.")
+    asegurar no tiene(consultar_a_ventas("b", "¿y café?"), "12.000")
+    # Para eso nadie le habló a Depósito.
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+}
+"""
+
+
+def _tramo(texto, desde, hasta, archivo, carpeta):
+    """Lo que hay en el texto de un ejemplo entre dos de sus títulos (sin el renglón en
+    blanco de adelante). Si alguno de los dos no está, falla con un ErrorMate."""
+    inicio = texto.find(desde)
+    fin = texto.find(hasta, inicio + 1) if inicio >= 0 else -1
+    if fin < 0:
+        raise ErrorMate(
+            f"no pude armar el equipo: {archivo} (en {para_pegar(carpeta)}) "
+            "no tiene la forma que espero. ¿Lo cambiaste? Bajá Mate de nuevo para tener "
+            "el ejemplo original", familia="archivo")
+    return texto[inicio + 1:fin + 1]
+
+
+def archivos_del_equipo(nombre, orden, carpeta_de_mate=None, fin_de_renglon=None):
+    """Lo que crea 'nuevo equipo <nombre>': {nombre del archivo: su contenido, en bytes}:
+    el programa, la planilla y los casos para 'ensayar', en ese orden. Falla con un
+    ErrorMate si en la carpeta de Mate falta alguno de los ejemplos, o si ya no tienen los
+    títulos que marcan qué partes se copian."""
+    carpeta = os.path.join(carpeta_de_mate or os.path.dirname(os.path.abspath(__file__)),
+                           CARPETA_DE_EJEMPLOS)
+    programa, planilla = f"{nombre}.mate", f"{nombre}_precios.csv"
+    casos = f"{nombre}_casos.txt"
+    try:
+        equipo = leer_fuente(os.path.join(carpeta, EJEMPLO_DEL_EQUIPO))
+        mostrador = leer_fuente(os.path.join(carpeta, EJEMPLO_DEL_MOSTRADOR))
+        with open(os.path.join(carpeta, PLANILLA_DE_MUESTRA), "rb") as f:
+            muestra = f.read()
+        de_muestra = leer_fuente(os.path.join(carpeta, CASOS_DEL_EQUIPO))
+    except OSError:
+        raise ErrorMate(
+            f"para crear un equipo hacen falta {EJEMPLO_DEL_EQUIPO}, {EJEMPLO_DEL_MOSTRADOR}, "
+            f"{PLANILLA_DE_MUESTRA} y {CASOS_DEL_EQUIPO}, que vienen con Mate, y no los "
+            f"encuentro en {para_pegar(carpeta)}. Si copiaste solo mate.py, bajá Mate de "
+            "nuevo con todas sus carpetas", familia="archivo")
+    regla, pedidos, revisar = (_tramo(mostrador, desde, hasta, EJEMPLO_DEL_MOSTRADOR, carpeta)
+                               for desde, hasta in _DEL_12_PARA_EL_EQUIPO)
+    agentes = _tramo(equipo, _EQUIPO_DESDE, _EQUIPO_PROGRAMA, EJEMPLO_DEL_EQUIPO, carpeta)
+    el_programa = _tramo(equipo, _EQUIPO_PROGRAMA, _EQUIPO_HASTA, EJEMPLO_DEL_EQUIPO, carpeta)
+    # El orden: lo que se puede cambiar va arriba (la regla del envío, el mínimo, los
+    # agentes); después, las funciones que entienden los pedidos; y al final el programa.
+    texto = "\n".join((
+        _ENCABEZADO_DEL_EQUIPO, regla, agentes,
+        "# ── Entender los pedidos y revisar la planilla ───────────────────────────────────────\n"
+        "# De acá hasta el título \"El programa\" son las funciones del ejemplo 12: las que\n"
+        "# entienden lo que escribió el cliente, hacen la cuenta y revisan la planilla.\n",
+        pedidos + revisar + el_programa)).replace(PLANILLA_DE_MUESTRA, planilla)
+    texto += _PRUEBAS_DEL_EQUIPO
+    for marca, valor in (("«PROGRAMA»", programa), ("«PLANILLA»", planilla),
+                         ("«CASOS»", casos), ("«ORDEN»", orden),
+                         ("«MEMORIA»", archivo_de(programa, "memoria.json"))):
+        texto = texto.replace(marca, valor)
+    # Los casos de muestra traen, de nota, cómo se ensaya el ejemplo 13: acá va cómo se
+    # ensaya este equipo (desde el título 'Cómo se escribe' es el mismo archivo).
+    corte = de_muestra.find(_CASOS_DESDE)
+    de_muestra = (f"# Casos para ensayar {programa}: lo que pregunta un cliente y lo que la "
+                  "respuesta\n# tiene que decir (o no puede decir). Es tuyo: cambialos y "
+                  "agregá los que quieras.\n# OJO: los casos que vienen acá son de muestra, "
+                  "escritos para la planilla de muestra\n# (yerba, azúcar, fideos). Si cambiás "
+                  f"los productos de {planilla}, cambiá\n# también estos casos: si no, "
+                  "fallan los que nombran un producto que ya no está.\n"
+                  "# Un ensayo no descuenta stock ni anota nada: cada pregunta arranca con "
+                  "lo que\n# Depósito recuerda en ese momento. Si de un producto ya se "
+                  "vendió casi todo, sus\n# casos van a contestar que no alcanza (para "
+                  "volver al stock de la planilla:\n"
+                  f"#     {orden} correr {programa} --olvidar ).\n"
+                  "#\n# Cómo se usa, en PowerShell, parado en "
+                  "la carpeta donde está este archivo:\n"
+                  f"#     {orden} ensayar {programa} {casos} --ia-simulada\n"
+                  "# (sin --ia-simulada contesta la IA de verdad: así se ve si una lección "
+                  "funcionó)\n#\n") + de_muestra[max(corte, 0):]
+    fin = os.linesep if fin_de_renglon is None else fin_de_renglon
+    return {programa: texto.replace("\n", fin).encode("utf-8-sig"), planilla: muestra,
+            casos: de_muestra.replace("\n", fin).encode("utf-8-sig")}
+
+
+# Lo que sabe crear 'nuevo': con qué función se arman los archivos y de qué archivo de
+# muestra salen los casos.
+_QUE_CREA_NUEVO = {
+    "mostrador": (archivos_del_mostrador, CASOS_DE_MUESTRA),
+    "equipo": (archivos_del_equipo, CASOS_DEL_EQUIPO),
+}
+
+
 def orden_nuevo(args, avisar, mostrar=print):
-    """La orden 'nuevo mostrador <nombre>': crea el programa y su planilla de muestra en la
-    carpeta actual, sin pisar nada, y dice los pasos que siguen. Devuelve el código de salida."""
+    """La orden 'nuevo mostrador <nombre>' o 'nuevo equipo <nombre>': crea el programa, su
+    planilla de muestra y sus casos en la carpeta actual, sin pisar nada, y dice los pasos
+    que siguen. Devuelve el código de salida."""
     orden = orden_para_esta_carpeta()
-    ejemplo = f"{orden} nuevo mostrador mi_negocio"
+    que = sin_tildes(args[0].lower()) if args else ""
     que_falta = "al escribir la orden: 'nuevo' sin decir qué crear o con qué nombre"
-    if not args or sin_tildes(args[0].lower()) != "mostrador":
-        avisar("después de 'nuevo' va qué crear y con qué nombre. Por ahora crea "
-               f"mostradores:  {ejemplo}", que_falta, True)
+    if que not in _QUE_CREA_NUEVO:
+        avisar("después de 'nuevo' va qué crear y con qué nombre. Crea un mostrador o un "
+               f"equipo de agentes:  {orden} nuevo mostrador mi_negocio   o   "
+               f"{orden} nuevo equipo mi_negocio", que_falta, True)
         return 2
+    armar, casos_de_muestra = _QUE_CREA_NUEVO[que]
+    ejemplo = f"{orden} nuevo {que} mi_negocio"
     if len(args) == 1:
-        avisar("a 'nuevo mostrador' le falta el nombre que le querés poner (una palabra, "
+        avisar(f"a 'nuevo {que}' le falta el nombre que le querés poner (una palabra, "
                f"sin espacios). Por ejemplo:  {ejemplo}", que_falta, True)
         return 2
     if len(args) > 2:
-        avisar("el nombre del mostrador va en una sola palabra, sin espacios (podés unir "
-               f"con guion bajo):  {orden} nuevo mostrador {'_'.join(args[1:])}",
-               "al escribir la orden: 'nuevo mostrador' con un nombre con espacios", True)
+        avisar(f"el nombre del {que} va en una sola palabra, sin espacios (podés unir "
+               f"con guion bajo):  {orden} nuevo {que} {'_'.join(args[1:])}",
+               f"al escribir la orden: 'nuevo {que}' con un nombre con espacios", True)
         return 2
     nombre = re.sub(r"(?i)\.mate(\.txt)?$", "", args[1].strip())
-    mal_nombre = "al escribir la orden: 'nuevo mostrador' con un nombre que no sirve"
+    mal_nombre = f"al escribir la orden: 'nuevo {que}' con un nombre que no sirve"
     if re.search(r"[\\/:]", nombre):
-        avisar("el mostrador se crea en la carpeta donde estás parado: va solo el nombre, "
+        avisar(f"el {que} se crea en la carpeta donde estás parado: va solo el nombre, "
                f"sin carpeta. Por ejemplo:  {ejemplo}", mal_nombre, True)
         return 2
     if not re.fullmatch(r"[^\W_][\w\-]{0,59}", nombre):
@@ -8706,28 +9019,28 @@ def orden_nuevo(args, avisar, mostrar=print):
                f"Windows se reserva. Elegí otro, por ejemplo:  {ejemplo}", mal_nombre, True)
         return 2
     try:
-        archivos = archivos_del_mostrador(nombre, orden)
+        archivos = armar(nombre, orden)
     except ErrorMate as e:
-        avisar(e.mensaje, "al escribir la orden: 'nuevo mostrador' sin los ejemplos de Mate")
+        avisar(e.mensaje, f"al escribir la orden: 'nuevo {que}' sin los ejemplos de Mate")
         return 1
     programa, planilla, casos = list(archivos)
     # Nada se pisa: ni el programa, ni la planilla, ni los casos, ni la memoria o la
     # bitácora que haya dejado un programa viejo con ese nombre (el nuevo heredaría sus
-    # lecciones).
+    # lecciones y, en un equipo, su stock).
     ya_estan = [a for a in (programa, programa + ".txt", planilla, casos,
                             archivo_de(programa, "memoria.json"),
                             archivo_de(programa, "bitacora.txt")) if os.path.lexists(a)]
     if ya_estan:
         avisar(f"no creé nada: en esta carpeta ya hay {' y '.join(ya_estan)}, y no piso "
                "archivos. Elegí otro nombre (por ejemplo:  "
-               f"{orden} nuevo mostrador {nombre}_2) o mové esos archivos a otra carpeta"
+               f"{orden} nuevo {que} {nombre}_2) o mové esos archivos a otra carpeta"
                + ("" if casos in ya_estan or programa not in ya_estan else
                   f". Si lo que te falta es el archivo de casos para 'ensayar' ({casos}), "
                   "copiá el de muestra con ese nombre al lado del programa: está en "
                   + ruta_para_escribir(os.path.join(
                       os.path.dirname(os.path.abspath(__file__)), "ejemplos",
-                      CASOS_DE_MUESTRA))),
-               "al escribir la orden: 'nuevo mostrador' con un nombre que ya existe", True)
+                      casos_de_muestra))),
+               f"al escribir la orden: 'nuevo {que}' con un nombre que ya existe", True)
         return 1
     creados = []
     try:
@@ -8749,7 +9062,42 @@ def orden_nuevo(args, avisar, mostrar=print):
                    "pueda escribir en esa carpeta (o parate en otra, por ejemplo Documentos)")
         return 1
     ancho = max(len(a) for a in archivos)
-    for renglon in (
+    if que == "equipo":
+        renglones = (
+            f"Listo. Creé tres archivos en {para_pegar(os.getcwd())}:",
+            f"  {programa.ljust(ancho)}   el programa: Ventas, Depósito y Compras",
+            f"  {planilla.ljust(ancho)}   la planilla de precios y stock, con productos de muestra",
+            f"  {casos.ljust(ancho)}   preguntas de clientes para ensayar el equipo",
+            "",
+            "Los pasos que siguen (cada comando se puede copiar tal cual):",
+            "  1. Comprobar que quedó todo bien:",
+            f"       {orden} probar {programa}",
+            "  2. Charlar con el equipo sin gastar nada, viendo cómo se hablan los agentes.",
+            "     Probá escribir: quiero 20 azucar   (y después: chau)",
+            f"       {orden} correr {programa} --ia-simulada --traza",
+            "  3. Correrlo de nuevo, sin --traza: el stock sigue donde quedó (Depósito lo",
+            "     recuerda) y Compras muestra lo que anotó para reponer.",
+            f"       {orden} correr {programa} --ia-simulada",
+            "  4. Poner tus productos en la planilla (también se abre con Excel). El primer",
+            "     renglón, el de los títulos, no se toca y va una sola vez:",
+            f"       notepad {planilla}",
+            "  5. Comprobar de nuevo (paso 1) y atender con la IA de verdad. La primera vez",
+            "     va con --olvidar, para que Depósito arranque con el stock de tu planilla:",
+            f"       {orden} correr {programa} --olvidar",
+            f"  6. Ensayarlo: Mate le hace las preguntas de {casos} y dice cuáles",
+            "     contestó bien (un ensayo no descuenta stock):",
+            f"       {orden} ensayar {programa} {casos} --ia-simulada",
+            "     Ojo: esos casos son de muestra, escritos para la planilla de muestra. Si",
+            "     cambiaste los productos (paso 4), cambiá también los casos, o van a fallar",
+            "     los que nombran un producto que ya no está. Para abrirlos:",
+            f"       notepad {casos}",
+            "",
+            "El stock de la planilla es el de arranque: después lo lleva Depósito. Cuando",
+            "llegue mercadería, escribí en la charla:  ingreso 30 azucar",
+            f"Arriba de todo, {programa} dice qué más se puede cambiar (el mínimo de stock,",
+            f"por ejemplo). Para abrirlo:  notepad {programa}")
+    else:
+        renglones = (
             f"Listo. Creé tres archivos en {para_pegar(os.getcwd())}:",
             f"  {programa.ljust(ancho)}   el programa del mostrador",
             f"  {planilla.ljust(ancho)}   la planilla de precios, con productos de muestra",
@@ -8776,7 +9124,8 @@ def orden_nuevo(args, avisar, mostrar=print):
             "",
             f"Arriba de todo, {programa} dice qué más se puede cambiar (desde cuántas "
             "unidades",
-            f"hay envío, por ejemplo). Para abrirlo:  notepad {programa}"):
+            f"hay envío, por ejemplo). Para abrirlo:  notepad {programa}")
+    for renglon in renglones:
         mostrar(renglon)
     return 0
 
@@ -9327,6 +9676,9 @@ def texto_de_ayuda():
         "  nuevo mostrador mi_negocio   crea en esta carpeta un mostrador propio, listo para",
         "                           usar: mi_negocio.mate y su planilla de muestra,",
         "                           mi_negocio_precios.csv. No pisa archivos que ya estén",
+        "  nuevo equipo mi_negocio   crea en esta carpeta un equipo de tres agentes que se",
+        "                           hablan (Ventas, Depósito y Compras), con su planilla y",
+        "                           sus casos. Tampoco pisa archivos que ya estén",
         "  ensayar mi_negocio.mate mi_negocio_casos.txt   le hace al programa las preguntas",
         "                           de ese archivo (se escribe con el Bloc de notas: la",
         "                           pregunta del cliente y, debajo, 'tiene que decir: ...' o",

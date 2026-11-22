@@ -1,0 +1,151 @@
+# Clase 13, ejercicio resuelto: llega mercadería. Deposito la suma a su stock y se
+# olvida de que ya había avisado, así que si el producto vuelve a bajar del mínimo le
+# avisa a Compras otra vez. Lo nuevo: el mensaje Ingreso, su 'al recibir' en Deposito,
+# los dos renglones del final del programa y la última prueba.
+
+# Todos los mensajes llevan 'charla': el nombre del pedido del que se está hablando.
+mensaje Pedido { charla: texto, producto: texto, cantidad: numero desde 1 } responde Venta
+mensaje Venta { charla: texto, respuesta: texto }
+mensaje Reservar { charla: texto, producto: texto, cantidad: numero } responde Reserva
+mensaje Reserva { charla: texto, alcanzo: logico, quedan: numero desde 0 }
+mensaje Reponer { charla: texto, producto: texto, quedan: numero } responde Anotado
+mensaje Anotado { charla: texto }
+# Ingreso no lleva 'charla' ni está en el contrato de abajo: no es parte de un pedido.
+mensaje Ingreso { producto: texto, cantidad: numero desde 1 }
+
+# El orden en que se pueden hablar. Cada paso dice: estando en tal estado, quién le
+# habla a quién, con qué mensaje, y a qué estado se pasa. Lo que no está acá, no pasa.
+contrato conversacion {
+    id: "charla",
+    inicio: "llega_el_pedido",
+    pasos: [
+        { estado: "llega_el_pedido", evento: "pregunta", origen: "(programa)",
+          destino: "Ventas", mensaje: "Pedido", sigue: "atiende_ventas" },
+        { estado: "atiende_ventas", evento: "pregunta", origen: "Ventas",
+          destino: "Deposito", mensaje: "Reservar", sigue: "reserva_deposito" },
+        { estado: "reserva_deposito", evento: "pregunta", origen: "Deposito",
+          destino: "Compras", mensaje: "Reponer", sigue: "anota_compras" },
+        { estado: "anota_compras", evento: "respuesta", origen: "Compras",
+          destino: "Deposito", mensaje: "Anotado", sigue: "reserva_deposito" },
+        { estado: "reserva_deposito", evento: "respuesta", origen: "Deposito",
+          destino: "Ventas", mensaje: "Reserva", sigue: "contesta_ventas" },
+        { estado: "contesta_ventas", evento: "respuesta", origen: "Ventas",
+          destino: "(programa)", mensaje: "Venta", sigue: "fin" }
+    ]
+}
+
+agente Ventas {
+    estado precios = { yerba: 3500, azucar: 1250.5 }
+
+    al recibir Pedido como p {
+        # El stock no es de Ventas: se lo pide a Deposito.
+        sea reserva = preguntar Reservar {
+            charla: p.charla, producto: p.producto, cantidad: p.cantidad,
+        } a Deposito
+        si no reserva.alcanzo {
+            responder Venta {
+                charla: p.charla,
+                respuesta: "De {p.producto} quedan {reserva.quedan}: no llego a {p.cantidad}.",
+            }
+        }
+        # La cuenta la hace el programa, con todos los centavos.
+        sea total = pesos(p.cantidad * precios[p.producto])
+        responder Venta {
+            charla: p.charla,
+            respuesta: "Anotado: {p.cantidad} de {p.producto}, total {total}.",
+        }
+    }
+}
+
+agente Deposito {
+    # 'recordado': el stock no vuelve a empezar cada vez que se corre el programa.
+    estado recordado stock = { yerba: 10, azucar: 6 }
+    # Los productos por los que ya le avisó a Compras: avisa una sola vez.
+    estado recordado ya_pedidos = []
+    # Con menos unidades que estas, pide que repongan.
+    estado stock_minimo = 5
+
+    al recibir Reservar como r {
+        sea hay = stock[r.producto]
+        # No se vende lo que no hay.
+        si r.cantidad > hay {
+            responder Reserva { charla: r.charla, alcanzo: falso, quedan: hay }
+        }
+        stock[r.producto] = hay - r.cantidad
+        sea quedan = stock[r.producto]
+        si quedan < stock_minimo y no tiene(ya_pedidos, r.producto) {
+            preguntar Reponer {
+                charla: r.charla, producto: r.producto, quedan: quedan,
+            } a Compras
+            ya_pedidos = agregar(ya_pedidos, r.producto)
+        }
+        responder Reserva { charla: r.charla, alcanzo: verdadero, quedan: quedan }
+    }
+
+    # Llegó mercadería: se suma, y el aviso a Compras queda libre para la próxima.
+    al recibir Ingreso como i {
+        stock[i.producto] = stock[i.producto] + i.cantidad
+        ya_pedidos = quitar(ya_pedidos, i.producto)
+        sea hay = stock[i.producto]
+        mostrar("Deposito: entraron {i.cantidad} de {i.producto}, ahora hay {hay}.")
+    }
+}
+
+agente Compras {
+    estado recordado a_reponer = []
+
+    al recibir Reponer como r {
+        a_reponer = agregar(a_reponer, r.producto)
+        mostrar("Compras: anoté que hay que reponer {r.producto} (quedan {r.quedan}).")
+        responder Anotado { charla: r.charla }
+    }
+}
+
+# Un pedido de un cliente: va a Ventas, que sabe con quién hablar.
+funcion pedir(charla, producto, cantidad) {
+    sea venta = preguntar Pedido {
+        charla: charla, producto: producto, cantidad: cantidad,
+    } a Ventas
+    mostrar("Ventas: {venta.respuesta}")
+}
+
+pedir("pedido-1", "yerba", 4)
+pedir("pedido-2", "yerba", 3)
+pedir("pedido-3", "yerba", 2)
+pedir("pedido-4", "yerba", 5)
+enviar Ingreso { producto: "yerba", cantidad: 20 } a Deposito
+pedir("pedido-5", "yerba", 5)
+
+# En las pruebas no se usa lo recordado: cada una arranca con el stock de arriba.
+# mensajes_enviados("Reponer") da los mensajes de ese tipo que viajaron en la prueba.
+prueba "un pedido descuenta el stock de Deposito" {
+    pedir("a", "azucar", 2)
+    sea reservas = mensajes_enviados("Reservar")
+    asegurar largo(reservas) == 1 y reservas[0].de == "Ventas" y reservas[0].a == "Deposito"
+    # Quedaban 6: con 2 menos son 4, y por 5 ya no alcanza.
+    sea venta = preguntar Pedido { charla: "b", producto: "azucar", cantidad: 5 } a Ventas
+    asegurar venta.respuesta == "De azucar quedan 4: no llego a 5."
+}
+
+prueba "a Compras se le avisa una sola vez" {
+    pedir("a", "yerba", 4)
+    asegurar largo(mensajes_enviados("Reponer")) == 0
+    pedir("b", "yerba", 3)
+    pedir("c", "yerba", 2)
+    asegurar largo(mensajes_enviados("Reponer")) == 1
+}
+
+prueba "el contrato no deja saltearse a Ventas" {
+    # El programa no le puede pedir una reserva a Deposito: eso es de Ventas.
+    asegurar falla {
+        preguntar Reservar { charla: "a", producto: "yerba", cantidad: 1 } a Deposito
+    }
+}
+
+prueba "después de un ingreso se puede volver a avisar a Compras" {
+    pedir("a", "yerba", 7)
+    enviar Ingreso { producto: "yerba", cantidad: 20 } a Deposito
+    # Hay 23: con 19 menos quedan 4, otra vez por debajo del mínimo.
+    pedir("b", "yerba", 19)
+    asegurar largo(mensajes_enviados("Reponer")) == 2
+}

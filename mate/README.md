@@ -98,8 +98,9 @@ o la página `docs\index.html`, que explica los pasos.
 
 | Si querés... | Hacé esto |
 |---|---|
-| Aprender desde cero, sin saber programar | El **curso**: `python mate\mate.py curso`. Son 12 clases cortas, de "hola" a un mostrador con IA, lista de precios, frenos y lecciones. Están en `mate\curso` (ver [El curso](#el-curso)) |
+| Aprender desde cero, sin saber programar | El **curso**: `python mate\mate.py curso`. Son 13 clases cortas, de "hola" a un mostrador con IA, lista de precios, frenos y lecciones, y un equipo de agentes que se hablan. Están en `mate\curso` (ver [El curso](#el-curso)) |
 | Armar el mostrador de tu negocio sin copiar archivos a mano | `python mate\mate.py nuevo mostrador mi_negocio` crea el programa y su planilla de precios en la carpeta donde estás (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
+| Armar un equipo de agentes que se reparten el trabajo (Ventas, Depósito y Compras) | `python mate\mate.py nuevo equipo mi_negocio` crea el programa, su planilla y sus casos en la carpeta donde estás (ver [Un equipo propio](#un-equipo-propio-nuevo-equipo)) |
 | Saber si una lección funcionó, sin tipear pregunta por pregunta | `python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` le hace al mostrador las preguntas que anotaste y dice cuáles contestó bien (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)) |
 | Ver programas terminados | `mate\ejemplos`: once programas comentados renglón por renglón (la tabla está en [Primeros pasos en Windows](#primeros-pasos-en-windows)) |
 | Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
@@ -113,7 +114,7 @@ y chico al lado de Python. El detalle está en [Límites de la versión 0.6](#l�
 
 ## El curso
 
-En `mate\curso` hay doce clases. Cada una es un texto para leer (`clase_01_hola.md`, se abre
+En `mate\curso` hay trece clases. Cada una es un texto para leer (`clase_01_hola.md`, se abre
 con el Bloc de notas) y un programa para correr (`clase_01_hola.mate`), y trae siempre lo
 mismo: qué vas a lograr, el programa completo, el comando de PowerShell, lo que tiene que
 salir, el error más común con su arreglo, y un ejercicio con la solución
@@ -147,6 +148,7 @@ comandos ya reescritos para donde estás, listos para copiar.
 | 10 | Frenos, para poder confiar en la IA (`frenos`) |
 | 11 | Un agente que recuerda y aprende (`estado recordado`, `corregir`, `propuestas`) |
 | 12 | El mostrador completo |
+| 13 | Un equipo de agentes que se hablan (`contrato conversacion`, `--traza`) |
 
 ## Qué busca Mate
 
@@ -270,6 +272,7 @@ renglón, para leer y correr en orden:
 | `10_mostrador_mayorista.mate` | un mostrador que lee tu lista de precios de Excel (usa `precios.csv`, que está al lado), charla por teclado y contesta con la IA (se prueba sin clave) |
 | `11_mostrador_con_frenos.mate` | un mostrador con frenos: Mate revisa cada respuesta de la IA (precios, palabras prohibidas, largo), le pone tope al gasto del día y propone lecciones (se prueba sin clave) |
 | `12_mostrador_con_reglas.mate` | un mostrador donde la plata y las reglas las resuelve el programa: si piden una cantidad de un producto, Mate hace la cuenta, mira el stock y aplica la regla del envío sin consultar a la IA; la IA queda para el resto, con frenos (se prueba sin clave; se explica en "Qué va en una lección, qué en un freno y qué en el programa") |
+| `13_equipo_del_negocio.mate` | un equipo de tres agentes que se hablan: Ventas atiende (con la lógica de pedidos del 12), Depósito es el único dueño del stock y lo recuerda, y Compras anota lo que hay que reponer; un `contrato conversacion` dice en qué orden se pueden hablar (se prueba sin clave; con `--traza` se ve la conversación) |
 
 ```
 python mate\mate.py correr mate\ejemplos\01_hola.mate
@@ -307,6 +310,7 @@ notepad guia.txt
 | `consola` | abre la consola, para probar renglones sueltos sin crear un archivo |
 | `curso` | lista las clases del curso y dice cómo abrir cada una; `curso 3` muestra la clase 3 (ver [El curso](#el-curso)) |
 | `nuevo mostrador mi_negocio` | crea en la carpeta donde estás un mostrador propio, listo para usar: `mi_negocio.mate` y su planilla de muestra `mi_negocio_precios.csv`. No pisa archivos que ya estén (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
+| `nuevo equipo mi_negocio` | crea en la carpeta donde estás un equipo de tres agentes que se hablan (Ventas, Depósito y Compras): `mi_negocio.mate`, su planilla `mi_negocio_precios.csv` y sus casos `mi_negocio_casos.txt`. No pisa archivos que ya estén (ver [Un equipo propio](#un-equipo-propio-nuevo-equipo)) |
 | `ensayar mi_negocio.mate mi_negocio_casos.txt` | le hace al programa las preguntas de ese archivo de casos y dice cuáles contestó bien; los casos que fallan quedan como lección propuesta. Con `--veces=5` repite cada caso (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)) |
 | `corregir archivo.mate Mostrador "..."` | le anota una lección a ese agente, sin tocar el programa (ver [Mate aprende](#mate-aprende)) |
 | `lecciones archivo.mate` | muestra las lecciones de cada agente; con `Mostrador --borrar=2` le borra la 2 |
@@ -738,6 +742,96 @@ incluye un contrato completo y sus pruebas. Para ver la traza:
 ```powershell
 python mate\mate.py correr mate\ejemplos\contrato_deposito.mate --traza
 ```
+
+El ejemplo `13_equipo_del_negocio.mate` usa un contrato así para un equipo entero (ver la
+sección que sigue).
+
+### Un equipo propio: `nuevo equipo`
+
+Un agente solo le contesta a una persona. Un **equipo** son varios agentes del mismo negocio
+que se reparten el trabajo hablándose entre ellos. El ejemplo `13_equipo_del_negocio.mate`
+tiene tres:
+
+| Agente | Qué hace | Qué guarda |
+|---|---|---|
+| **Ventas** | da la cara al cliente, por teclado. Si le piden una cantidad de un producto, entiende el pedido y hace la cuenta con las funciones del ejemplo 12, sin IA; lo demás lo contesta la IA, con frenos | la lista de precios |
+| **Depósito** | es el **único dueño del stock**: lo descuenta con cada pedido y no vende lo que no hay | el stock (`estado recordado`: sobrevive de una corrida a la otra) |
+| **Compras** | deja anotado lo que hay que reponer | esa lista (también recordada) |
+
+Ninguno toca el estado de otro: Ventas no sabe cuánto stock hay, se lo **pregunta** a Depósito;
+y cuando un producto baja del mínimo, Depósito le pide la reposición a Compras **una sola
+vez**, no una por cada venta. Con `--traza` se ve la conversación:
+
+```
+  ·  6. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-2", dicho: "quiero 20 azucar" }   (conversación 5)
+  ·  7.    Ventas pregunta a Deposito: Reservar { charla: "consulta-2", producto: "Azúcar", cantidad: 20 }
+  ·  8.       Deposito pregunta a Compras: Reponer { charla: "consulta-2", producto: "Azúcar", quedan: 5 }
+  ·  8.       Compras responde a Deposito: Anotado { charla: "consulta-2", producto: "Azúcar" }
+  ·  7.    Deposito responde a Ventas: Reserva { charla: "consulta-2", producto: "Azúcar", reservadas: 20, quedan: 5 }
+  ·  6. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-2", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
+```
+
+Para probarlo sin clave ni internet:
+
+```
+python mate\mate.py correr mate\ejemplos\13_equipo_del_negocio.mate --ia-simulada --traza
+python mate\mate.py probar mate\ejemplos\13_equipo_del_negocio.mate
+```
+
+**Para tu negocio**, parado en la carpeta donde lo querés tener:
+
+```
+python mate\mate.py nuevo equipo mi_negocio
+```
+
+Tiene la misma forma y los mismos cuidados que [`nuevo mostrador`](#un-mostrador-propio-nuevo-mostrador):
+crea `mi_negocio.mate`, `mi_negocio_precios.csv` y `mi_negocio_casos.txt`, **nunca pisa un
+archivo** (tampoco la memoria de un programa viejo con ese nombre: el equipo nuevo heredaría
+su stock), el nombre va en una sola palabra, y al terminar muestra los pasos que siguen con
+los comandos listos para copiar. El programa pasa `verificar` y `probar` tal como sale, y sus
+pruebas usan una lista fija: siguen pasando cuando cambiás los productos, el número del envío
+o el mínimo de stock.
+
+Lo que hay que saber:
+
+- **Un pedido se anota y descuenta stock; una pregunta, no.** "quiero 20 azucar" (o "20
+  azucar" a secas) es un pedido: Depósito descuenta y Ventas contesta `Anotado: 20 x Azúcar
+  ...`. "¿cuánto salen 20 azúcar?", "¿tenés 20 azúcar?" o "precio de 20 azúcar" son una
+  pregunta: Ventas le consulta a Depósito cuánto hay, contesta la cuenta y agrega `Todavía no
+  anoté nada: para pedirlo, escribí "quiero 20 azucar"`. Tampoco se anota un pedido **con
+  envío que no llega a las unidades de la regla**: primero el cliente decide si lo retira o
+  suma más. Ante la duda no se anota.
+- **Pedir más de lo que hay no vende nada** (no se vende una parte): `De Yerba mate quedan
+  40; no llego a 100.`
+- **El mínimo** es el número de `stock_minimo`, arriba en el programa. Cuando de un producto
+  quedan **menos** unidades que esas, Depósito le avisa a Compras, una vez. También le avisa
+  si alguien pide un producto que está en cero. Si Compras falla, la venta no se cae: Depósito
+  lo intenta de nuevo con el pedido que sigue. Al abrir y al cerrar, el programa muestra lo
+  que Compras tiene anotado: `Compras: hay que reponer Azúcar (quedan 5).`
+- **El stock de la planilla es el de arranque.** Depósito lo toma la primera vez que ve cada
+  producto y de ahí en más lo lleva él: queda en `mi_negocio.memoria.json`, que se puede
+  mirar con el Bloc de notas (ver [Memoria](#memoria-estado-recordado)). Cambiar el número en
+  la planilla **no** cambia lo que Depósito recuerda. Un producto nuevo en la planilla sí
+  entra, con su stock.
+- **La mercadería que llega** se anota en la misma charla: `ingreso 30 azucar`. Depósito la
+  suma y Compras la tacha de su lista; si el producto vuelve a bajar del mínimo, se pide de
+  nuevo. Ojo: lo puede escribir cualquiera que tenga el teclado, así que sirve mientras el
+  teclado lo maneja alguien del negocio.
+- **Para empezar de nuevo con el stock de la planilla**: `correr mi_negocio.mate --olvidar`,
+  una vez. Borra lo que recuerdan Depósito y Compras (las lecciones no).
+- **El contrato** (`contrato conversacion`, arriba en el programa) dice quién le puede hablar
+  a quién y en qué orden: el cliente solo a Ventas, Ventas a Depósito, Depósito a Compras. Si
+  el programa le pide una reserva a Depósito salteándose a Ventas, Mate lo frena:
+  `charla 'a' en 'llega_el_cliente' no admite pregunta de (programa) a Deposito con 'Reservar'`.
+  Cada consulta del cliente lleva su propio nombre de charla (`consulta-1`, `consulta-2`...).
+- **`probar` y `ensayar` no tocan el stock.** En una prueba los agentes arrancan de cero y no
+  se guarda nada. Un ensayo lee lo que Depósito recuerda pero no lo cambia: si de un producto
+  ya se vendió casi todo, los casos que lo nombran van a contestar que no alcanza.
+- **La lógica sale de los ejemplos 13 y 12**, en el momento de crear el equipo: hace falta la
+  carpeta `mate` completa, y un equipo ya creado no cambia cuando se actualiza Mate.
+- **Límites:** un pedido es de un producto por vez, como en el ejemplo 12; no hay precios ni
+  mínimos distintos por cliente o por producto; y los tres agentes corren dentro del mismo
+  programa, en la misma computadora.
 
 ### Varias copias de un agente
 
@@ -2429,6 +2523,20 @@ python mate\pruebas\velocidad.py
 
 Si igual algo queda lento, la salida es escribir esa parte en Python y llamarla con
 [`usar python`](#funciones-escritas-en-python-usar-python): ahí corre a la velocidad de Python.
+
+## Qué se está sumando para la 0.7
+
+La 0.7 es para que los agentes **hablen entre sí**, no solo con una persona. Lo primero que
+entró no agrega ninguna palabra ni ninguna función incluida, y un programa que no lo usa
+corre igual que en la 0.6:
+
+| Qué hay de nuevo | Dónde se explica |
+|---|---|
+| El ejemplo `13_equipo_del_negocio.mate`: Ventas, Depósito y Compras se hablan con mensajes con contrato y un `contrato conversacion`; el stock es de Depósito solo y se recuerda | [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
+| `nuevo equipo mi_negocio`: crea ese equipo para tu negocio (programa, planilla y casos), sin copiar archivos a mano | [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
+| La clase 13 del curso: un equipo de agentes que se hablan | [El curso](#el-curso) |
+
+El detalle está en `MEJORAS.md`, mejora 124.
 
 ## Qué cambió en la 0.6
 

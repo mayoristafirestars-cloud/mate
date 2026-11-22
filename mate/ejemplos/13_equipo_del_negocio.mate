@@ -1,0 +1,584 @@
+# Paso 13: un EQUIPO de agentes del mismo negocio, que se hablan para repartirse el trabajo.
+#
+# Hasta el paso 12 había un solo agente que le contestaba a una persona. Acá son tres, y
+# lo nuevo es que SE HABLAN ENTRE ELLOS:
+#   - VENTAS da la cara al cliente. Entiende el pedido (con las funciones del ejemplo 12,
+#     sin IA) y hace la cuenta. No sabe cuánto stock hay: se lo pregunta a Depósito.
+#   - DEPÓSITO es el ÚNICO dueño del stock. Lo descuenta cuando se vende y lo RECUERDA de
+#     una corrida a la otra (estado recordado). Cuando un producto baja del mínimo, le
+#     pide la reposición a Compras: UNA vez, no una por cada venta.
+#   - COMPRAS deja anotado lo que hay que reponer, y también lo recuerda.
+# Ningún agente toca el estado de otro: lo único que cruza de uno a otro son mensajes, y
+# cada mensaje tiene su contrato. Además, el 'contrato conversacion' dice en qué ORDEN se
+# pueden hablar: si alguien se saltea a Ventas, o Compras recibe un pedido que no vino de
+# Depósito, Mate lo frena.
+# La IA queda, como en el paso 12, solo para lo que no es un pedido, y con frenos.
+#
+# PROBALO ASÍ, en PowerShell (no hace falta clave ni internet, y no gasta nada). Si en tu
+# computadora Python se llama con py, escribí py donde dice python:
+#
+#   1. Para charlar con el equipo. Probá, de a un renglón:
+#          cuanto salen 20 azucar        (pregunta el precio: no se anota nada)
+#          quiero 20 azucar              (un pedido: Depósito descuenta, y avisa a Compras)
+#          quiero 3 azucar               (otro pedido: a Compras ya no se le avisa de nuevo)
+#          quiero 100 yerbas             (no hay tantas: no se vende)
+#          ingreso 30 azucar             (llegó mercadería: Depósito la suma)
+#          chau
+#      El comando:
+#          python mate\mate.py correr mate\ejemplos\13_equipo_del_negocio.mate --ia-simulada
+#   2. Para VER cómo se hablan (Ventas le pregunta a Depósito, y Depósito a Compras),
+#      el mismo comando con --traza al final:
+#          python mate\mate.py correr mate\ejemplos\13_equipo_del_negocio.mate --ia-simulada --traza
+#   3. Corrélo otra vez: el stock sigue donde quedó. Lo que recuerdan Depósito y Compras
+#      está en 13_equipo_del_negocio.memoria.json, al lado de este archivo (se abre con el
+#      Bloc de notas). Para volver al stock de la planilla, agregá --olvidar al comando.
+#   4. Para correr las pruebas de abajo:
+#          python mate\mate.py probar mate\ejemplos\13_equipo_del_negocio.mate
+#
+# El stock de precios.csv es el de ARRANQUE: Depósito lo toma la primera vez que ve cada
+# producto, y de ahí en más lo lleva él. Cambiar el número en la planilla no cambia lo que
+# Depósito recuerda: la mercadería que llega se anota con "ingreso 30 azucar".
+# OJO: "ingreso" se escribe en la misma charla que usa el cliente. Sirve mientras el
+# teclado lo maneja alguien del negocio.
+# Para tu negocio no hace falta copiar este archivo: la orden 'nuevo equipo mi_negocio'
+# crea en tu carpeta un programa con este mismo equipo y su planilla. (Copia lo que hay
+# entre los títulos "El equipo" y "Las pruebas" de este archivo, y del ejemplo 12 las
+# funciones que entienden los pedidos: si se cambian esos títulos, hay que cambiarlos
+# también en mate.py.)
+
+# Las funciones que entienden lo que escribió el cliente (leer_pedido, cuenta_del_pedido,
+# falta_stock...) y la regla del envío son las del ejemplo 12: se traen, no se copian.
+# (De ahí viene también su agente Mostrador, que acá no se usa.)
+usar "12_mostrador_con_reglas.mate"
+
+# ── El equipo ────────────────────────────────────────────────────────────────────────
+
+# El mínimo: cuando de un producto quedan MENOS unidades que estas, Depósito le pide la
+# reposición a Compras.
+sea stock_minimo = 10
+
+# Los mensajes del cliente a Ventas (charla: el nombre de esa consulta, para no mezclarlas).
+mensaje ListaDePrecios { filas: lista }
+mensaje ConsultaDeCliente { charla: texto, dicho: texto } responde RespuestaDeVentas
+# (aviso solo viene si la IA no pudo contestar)
+mensaje RespuestaDeVentas { charla: texto, respuesta: texto, aviso: texto? }
+
+# Los de Ventas a Depósito. Reservar es vender: si alcanza, descuenta.
+mensaje ConsultarStock { charla: texto, producto: texto } responde Stock
+mensaje Stock { charla: texto, producto: texto, unidades: numero desde 0 }
+mensaje Reservar { charla: texto, producto: texto, cantidad: numero desde 1 } responde Reserva
+# (reservadas es 0 si no alcanzó: no se vende una parte)
+mensaje Reserva { charla: texto, producto: texto, reservadas: numero desde 0, quedan: numero desde 0 }
+
+# Los de Depósito a Compras.
+mensaje Reponer { charla: texto, producto: texto, quedan: numero desde 0 } responde Anotado
+mensaje Anotado { charla: texto, producto: texto }
+mensaje Llego { producto: texto }
+
+# Los del programa: cargar el stock de arranque, anotar mercadería que llegó y preguntar
+# qué falta reponer.
+mensaje Inventario { filas: lista, reponer_bajo: numero desde 0 }
+mensaje Ingreso { producto: texto, cantidad: numero desde 1 } responde Ingresado
+mensaje Ingresado { producto: texto, quedan: numero }
+mensaje QueFalta responde Faltantes
+mensaje Faltantes { pedidos: lista }
+
+# El orden en que se pueden hablar por una consulta del cliente. Cada paso dice: estando
+# en tal estado, quién le habla a quién, con qué mensaje, y a qué estado se pasa. Lo que
+# no está acá no puede pasar: Mate lo frena con un error que nombra el estado.
+contrato conversacion {
+    id: "charla",
+    inicio: "llega_el_cliente",
+    pasos: [
+        # El cliente le habla a Ventas, y a nadie más.
+        { estado: "llega_el_cliente", evento: "pregunta", origen: "(programa)", destino: "Ventas",
+          mensaje: "ConsultaDeCliente", sigue: "atiende_ventas" },
+        # Si pregunta el precio, Ventas le consulta a Depósito cuánto hay.
+        { estado: "atiende_ventas", evento: "pregunta", origen: "Ventas", destino: "Deposito",
+          mensaje: "ConsultarStock", sigue: "mira_deposito" },
+        { estado: "mira_deposito", evento: "respuesta", origen: "Deposito", destino: "Ventas",
+          mensaje: "Stock", sigue: "contesta_ventas" },
+        # Si es un pedido, Ventas le pide a Depósito que lo reserve.
+        { estado: "atiende_ventas", evento: "pregunta", origen: "Ventas", destino: "Deposito",
+          mensaje: "Reservar", sigue: "reserva_deposito" },
+        # Depósito, antes de contestar, puede pedirle la reposición a Compras.
+        { estado: "reserva_deposito", evento: "pregunta", origen: "Deposito", destino: "Compras",
+          mensaje: "Reponer", sigue: "anota_compras" },
+        { estado: "anota_compras", evento: "respuesta", origen: "Compras", destino: "Deposito",
+          mensaje: "Anotado", sigue: "avisada_compras" },
+        # Depósito le contesta a Ventas, haya avisado a Compras o no.
+        { estado: "reserva_deposito", evento: "respuesta", origen: "Deposito", destino: "Ventas",
+          mensaje: "Reserva", sigue: "contesta_ventas" },
+        { estado: "avisada_compras", evento: "respuesta", origen: "Deposito", destino: "Ventas",
+          mensaje: "Reserva", sigue: "contesta_ventas" },
+        # Y Ventas le contesta al cliente: después de hablar con Depósito, o sola (cuando
+        # no era un pedido, o faltaba un dato).
+        { estado: "contesta_ventas", evento: "respuesta", origen: "Ventas", destino: "(programa)",
+          mensaje: "RespuestaDeVentas", sigue: "fin" },
+        { estado: "atiende_ventas", evento: "respuesta", origen: "Ventas", destino: "(programa)",
+          mensaje: "RespuestaDeVentas", sigue: "fin" }
+    ]
+}
+
+# VENTAS: da la cara al cliente.
+agente Ventas {
+    # La lista de precios: una fila por producto, como la deja leer_tabla().
+    estado filas = []
+
+    # Lo que Mate le revisa a cada respuesta de la IA antes de que le llegue al cliente.
+    frenos {
+        # Los únicos importes que puede nombrar son los de la lista.
+        precios: solo_precios(filas)
+        prohibido: ["descuento", "rebaja", "fiado"]
+        largo: 400
+        reserva: "Eso te lo confirma una persona. Ya te paso con alguien."
+        consultas_por_dia: 300
+    }
+
+    # Un agente no toca archivos: el programa lee la lista y se la manda en un mensaje.
+    al recibir ListaDePrecios como l {
+        filas = l.filas
+    }
+
+    al recibir ConsultaDeCliente como c {
+        # 1. ¿Es un pedido? Lo dice leer_pedido(), una función del programa: sin IA.
+        sea pedido = leer_pedido(filas, c.dicho)
+        # Falta un dato ("¿cuántos querés?") o preguntan por el envío: se contesta eso.
+        si tipo(pedido) == "texto" {
+            responder RespuestaDeVentas { charla: c.charla, respuesta: pedido }
+        }
+        si tipo(pedido) == "mapa" {
+            sea producto = pedido.fila.producto
+            # Si solo pregunta el precio (o pide un envío que no le corresponde), no se
+            # anota nada: Ventas mira cuánto hay y contesta la cuenta.
+            si no es_para_anotar(pedido, c.dicho) {
+                sea hay = preguntar ConsultarStock { charla: c.charla, producto: producto } a Deposito
+                responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_precio(pedido, hay.unidades) }
+            }
+            # Es un pedido: el stock lo descuenta Depósito, que es el que sabe cuánto hay.
+            sea reserva = preguntar Reservar {
+                charla: c.charla, producto: producto, cantidad: pedido.cantidad,
+            } a Deposito
+            responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_venta(pedido, reserva) }
+        }
+        # 2. No era un pedido: contesta la IA, con los frenos de arriba.
+        sea instrucciones = """
+            Atendés las ventas de un mayorista de almacén. Contestá en castellano
+            rioplatense, con amabilidad y en pocas palabras. Usá SOLO los precios de esta
+            lista; si piden algo que no está, decí que no lo trabajamos.
+            NO hagas cuentas ni digas totales, NO confirmes ni rechaces envíos y NO digas
+            si hay o no hay stock: de eso se ocupa el sistema. Si te lo preguntan, pedí que
+            escriban, con números, cuántas unidades de qué producto quieren.
+            LISTA DE PRECIOS DE HOY:
+            {lista_en_texto(filas)}
+        """
+        # (lo que se contesta si la IA no está: el renglón de la lista, sin inventar nada)
+        sea sin_ia = buscar_en_lista(filas, c.dicho)
+        intentar {
+            # El tercer valor es lo que "contesta la IA" con --ia-simulada.
+            responder RespuestaDeVentas { charla: c.charla, respuesta: consultar_ia(instrucciones, c.dicho, sin_ia) }
+        } si falla motivo {
+            # Sin clave, sin internet o sin crédito: se contesta con lo que dice la lista.
+            responder RespuestaDeVentas { charla: c.charla, respuesta: sin_ia, aviso: motivo }
+        }
+    }
+}
+
+# DEPÓSITO: el único dueño del stock.
+agente Deposito {
+    # Cuántas unidades quedan de cada producto. Se recuerda de una corrida a la otra.
+    estado recordado stock = {}
+    # Los productos por los que ya se le avisó a Compras (para avisar una sola vez).
+    estado recordado ya_pedidos = []
+    # El mínimo: lo manda el programa con el inventario.
+    estado reponer_bajo = 0
+
+    # Al arrancar. El stock de la planilla vale solo para los productos que Depósito
+    # todavía no conoce: de los demás ya sabe cuánto queda.
+    al recibir Inventario como i {
+        reponer_bajo = i.reponer_bajo
+        para fila en i.filas {
+            si no tiene(stock, fila.producto) {
+                # (un stock negativo en la planilla se toma como que no hay)
+                var unidades = fila.stock
+                si unidades < 0 {
+                    unidades = 0
+                }
+                stock[fila.producto] = unidades
+            }
+        }
+    }
+
+    al recibir ConsultarStock como c {
+        responder Stock { charla: c.charla, producto: c.producto, unidades: obtener(stock, c.producto, 0) }
+    }
+
+    al recibir Reservar como r {
+        sea hay = obtener(stock, r.producto, 0)
+        # Lo que queda después: si alcanza, se descuenta; si no, no se vende nada.
+        var reservadas = 0
+        si r.cantidad <= hay {
+            reservadas = r.cantidad
+            stock[r.producto] = hay - r.cantidad
+        }
+        sea quedan = hay - reservadas
+        # Por debajo del mínimo se le pide la reposición a Compras: una sola vez.
+        si quedan < reponer_bajo y no tiene(ya_pedidos, r.producto) {
+            # Si Compras falla, la venta no se cae: queda sin avisar y se intenta de
+            # nuevo con el próximo pedido de ese producto.
+            intentar {
+                preguntar Reponer { charla: r.charla, producto: r.producto, quedan: quedan } a Compras
+                ya_pedidos = agregar(ya_pedidos, r.producto)
+            } si falla motivo {
+                mostrar("   (Depósito no le pudo avisar a Compras que falta {r.producto}. El motivo: {motivo})")
+            }
+        }
+        responder Reserva { charla: r.charla, producto: r.producto, reservadas: reservadas, quedan: quedan }
+    }
+
+    # Llegó mercadería: se suma, y Compras se entera para tacharla de su lista. Si
+    # después vuelve a bajar del mínimo, se le pide de nuevo.
+    al recibir Ingreso como i {
+        stock[i.producto] = obtener(stock, i.producto, 0) + i.cantidad
+        ya_pedidos = quitar(ya_pedidos, i.producto)
+        enviar Llego { producto: i.producto } a Compras
+        responder Ingresado { producto: i.producto, quedan: stock[i.producto] }
+    }
+}
+
+# COMPRAS: deja anotado lo que hay que reponer.
+agente Compras {
+    # Un renglón por producto: { producto, quedan }. También se recuerda.
+    estado recordado a_reponer = []
+
+    al recibir Reponer como r {
+        # (si ya estaba anotado, queda una sola vez, con el número nuevo)
+        a_reponer = agregar(sin_el_producto(a_reponer, r.producto), { producto: r.producto, quedan: r.quedan })
+        responder Anotado { charla: r.charla, producto: r.producto }
+    }
+
+    al recibir Llego como l {
+        a_reponer = sin_el_producto(a_reponer, l.producto)
+    }
+
+    al recibir QueFalta {
+        responder Faltantes { pedidos: a_reponer }
+    }
+}
+
+# La lista de pedidos de reposición, sin el de ese producto.
+funcion sin_el_producto(pedidos, producto) {
+    var siguen = []
+    para pedido en pedidos {
+        si pedido.producto != producto {
+            siguen = agregar(siguen, pedido)
+        }
+    }
+    devolver siguen
+}
+
+# ¿El cliente está preguntando (el precio, si hay) en vez de pedir? "¿Cuánto salen 20
+# azúcar?" y "¿tenés 20 azúcar?" no son para anotar; "quiero 20 azúcar" y "20 azúcar", sí.
+funcion pregunta_el_precio(dicho) {
+    sea de_pregunta = ["cuanto", "cuanta", "cuantos", "cuantas", "precio", "precios", "sale",
+                       "salen", "saldria", "saldrian", "cuesta", "cuestan", "vale", "valen",
+                       "tenes", "tienen", "hay", "queda", "quedan", "averiguar", "consulta",
+                       "consulto"]
+    para palabra en palabras_de(dicho) {
+        # ("cotizame", "cotización", "presupuesto"... valen por cómo empiezan)
+        si tiene(de_pregunta, palabra) o empieza_con(palabra, "cotiz") o empieza_con(palabra, "presupuest") {
+            devolver verdadero
+        }
+    }
+    devolver falso
+}
+
+# ¿El pedido se anota (y descuenta stock)? No, si solo pregunta el precio. Tampoco si pide
+# envío y no llega a las unidades de la regla: primero tiene que decidir si lo retira o
+# suma más. Ante la duda no se anota: es el error que no le saca stock a nadie.
+funcion es_para_anotar(pedido, dicho) {
+    si pregunta_el_precio(dicho) {
+        devolver falso
+    }
+    devolver no (pedido.envio == "si" y pedido.cantidad < unidades_para_envio)
+}
+
+# Cómo se pide de verdad ese producto: con la primera palabra de su nombre.
+funcion como_pedirlo(pedido) {
+    devolver "quiero {pedido.cantidad} {palabras_de(texto(pedido.fila.producto))[0]}"
+}
+
+# La respuesta a una pregunta por el precio: la cuenta (o que no alcanza), y cómo pedirlo.
+funcion respuesta_de_precio(pedido, hay) {
+    sea falta = falta_stock(pedido.fila.producto, hay, pedido.cantidad)
+    si falta != nada {
+        devolver falta
+    }
+    devolver "{cuenta_del_pedido(pedido.fila, pedido.cantidad, pedido.envio)} Todavía no anoté nada: para pedirlo, escribí \"{como_pedirlo(pedido)}\"."
+}
+
+# La respuesta a un pedido, según lo que contestó Depósito: anotado, o no alcanza.
+funcion respuesta_de_venta(pedido, reserva) {
+    si reserva.reservadas == 0 {
+        devolver falta_stock(pedido.fila.producto, reserva.quedan, pedido.cantidad)
+    }
+    devolver "Anotado: {cuenta_del_pedido(pedido.fila, pedido.cantidad, pedido.envio)}"
+}
+
+# Una consulta del cliente: va a Ventas, que sabe con quién hablar. (charla: el nombre de
+# esta consulta; cada una lleva el suyo.)
+funcion consultar_a_ventas(charla, dicho) {
+    sea contestado = preguntar ConsultaDeCliente { charla: charla, dicho: dicho } a Ventas
+    si contestado.aviso != nada {
+        mostrar("   (la IA no contestó y busqué en la lista. El motivo: {contestado.aviso})")
+    }
+    devolver contestado.respuesta
+}
+
+# "ingreso 30 azucar": llegó mercadería. La cantidad y el producto se entienden igual que
+# en un pedido, y la suma la hace Depósito.
+funcion anotar_ingreso(tabla, dicho) {
+    sea pedido = leer_pedido(tabla, dicho)
+    si tipo(pedido) != "mapa" {
+        devolver "No entendí el ingreso. Va con la cantidad y el producto, por ejemplo: ingreso 30 azucar"
+    }
+    sea ingresado = preguntar Ingreso { producto: pedido.fila.producto, cantidad: pedido.cantidad } a Deposito
+    devolver "Entraron {pedido.cantidad} de {ingresado.producto}: ahora hay {ingresado.quedan}."
+}
+
+# Lo que Compras tiene anotado para reponer, un renglón por producto.
+funcion mostrar_lo_que_falta() {
+    sea faltantes = preguntar QueFalta {} a Compras
+    para pedido en faltantes.pedidos {
+        mostrar("Compras: hay que reponer {pedido.producto} (quedan {pedido.quedan}).")
+    }
+}
+
+# La charla por teclado: termina con chau. Devuelve cuántas consultas atendió.
+funcion charlar_con_el_equipo(tabla) {
+    var consultas = 0
+    mientras verdadero {
+        sea dicho = leer("Cliente:", "chau")
+        # Un Enter solo no es una consulta.
+        si dicho == "" {
+            continuar
+        }
+        si tiene(["chau", "salir", "listo", "nada más"], minusculas(dicho)) {
+            romper
+        }
+        si parece_comando(dicho) {
+            mostrar("   (Eso parece un comando de PowerShell, no una consulta: no lo tomé.")
+            mostrar("    Seguís dentro de la charla. Para salir, escribí chau y apretá Enter.)")
+            continuar
+        }
+        # "ingreso 30 azucar" no es del cliente: es mercadería que llegó.
+        sea palabras = palabras_de(dicho)
+        si largo(palabras) > 0 y palabras[0] == "ingreso" {
+            mostrar("Depósito: {anotar_ingreso(tabla, dicho)}")
+            continuar
+        }
+        consultas += 1
+        sea charla = "consulta-{consultas}"
+        mostrar("Ventas: {consultar_a_ventas(charla, dicho)}")
+    }
+    devolver consultas
+}
+
+# Reparte la planilla: los precios a Ventas y el stock de arranque a Depósito.
+funcion abrir_el_negocio(tabla) {
+    enviar ListaDePrecios { filas: tabla } a Ventas
+    enviar Inventario { filas: tabla, reponer_bajo: stock_minimo } a Deposito
+}
+
+# ── El programa ──────────────────────────────────────────────────────────────────────
+
+# Lee la planilla y la revisa. Si está bien, la reparte entre los agentes y se pone a
+# charlar; si no, dice qué hay que arreglar y no atiende.
+sea lista = leer_tabla("precios.csv")
+sea por_arreglar = revisar_planilla(lista)
+si por_arreglar != nada {
+    mostrar("Ventas: así no puedo atender. {por_arreglar}")
+} sino {
+    abrir_el_negocio(lista)
+    mostrar("Ventas: cargué {largo(lista)} productos. {regla_del_envio}")
+    para corto en nombres_muy_cortos(lista) {
+        mostrar("   (Ojo con '{corto}' en precios.csv: empieza con una palabra muy corta y se puede confundir con otra cosa que escriba el cliente. Conviene ponerle otra palabra adelante, por ejemplo 'Saquitos de té'.)")
+    }
+    # Lo que quedó anotado para reponer en las corridas de antes.
+    mostrar_lo_que_falta()
+    mostrar("Escribí tu consulta y apretá Enter. Para terminar, escribí chau.")
+    mostrar("(Si llegó mercadería, anotala así: ingreso 30 azucar)")
+    sea atendidas = charlar_con_el_equipo(lista)
+    mostrar("Hasta luego. En esta charla atendí {atendidas} consulta(s).")
+    # Y lo que queda anotado ahora, para quien hace las compras.
+    mostrar_lo_que_falta()
+}
+
+# ── Las pruebas ──────────────────────────────────────────────────────────────────────
+# En una prueba los agentes arrancan de cero (no se usa lo recordado ni se guarda nada):
+# por eso cada una abre el negocio con la planilla de muestra. La IA nunca es de verdad.
+# mensajes_enviados("Reponer") da los mensajes de ese tipo que viajaron en la prueba.
+
+prueba "un pedido lo anota Ventas, lo descuenta Depósito, y la IA ni se entera" {
+    abrir_el_negocio(lista)
+    simular_ia("Son $ 10,80.")
+    asegurar consultar_a_ventas("a", "quiero 12 azucar") == "Anotado: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."
+    # Había 25: quedan 13. Se ve preguntando por más de lo que queda.
+    asegurar consultar_a_ventas("b", "tenes 20 azucar?") == "De Azúcar quedan 13; no llego a 20."
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "la conversación va de Ventas a Depósito, y de Depósito a Compras" {
+    abrir_el_negocio(lista)
+    consultar_a_ventas("a", "quiero 20 azucar")
+    # Quién le preguntó a quién, en orden (de: el que manda; a: el que recibe). Lo que
+    # mandó abrir_el_negocio() fue con 'enviar': no es una pregunta y acá no se mira.
+    var camino = []
+    para m en mensajes_enviados() {
+        si m.pregunta {
+            camino = agregar(camino, "{m.de} → {m.a}: {m.tipo}")
+        }
+    }
+    asegurar camino == ["(programa) → Ventas: ConsultaDeCliente", "Ventas → Deposito: Reservar",
+                        "Deposito → Compras: Reponer"], camino
+}
+
+prueba "pedir más de lo que hay no vende, y no descuenta nada" {
+    abrir_el_negocio(lista)
+    asegurar consultar_a_ventas("a", "quiero 100 yerbas") == "De Yerba mate quedan 40; no llego a 100."
+    asegurar consultar_a_ventas("b", "quiero 3 fideos") == "De Fideos secos ahora no hay stock."
+    # Las 40 yerbas siguen estando: se pueden vender todas.
+    asegurar empieza_con(consultar_a_ventas("c", "quiero 40 yerbas"), "Anotado: 40 x Yerba mate")
+    asegurar consultar_a_ventas("d", "quiero 1 yerba") == "De Yerba mate ahora no hay stock."
+}
+
+prueba "al bajar del mínimo sale UN pedido de reposición, no uno por cada venta" {
+    abrir_el_negocio(lista)
+    # De azúcar hay 25 y el mínimo es 10: con 12 menos quedan 13, todavía no se avisa.
+    consultar_a_ventas("a", "quiero 12 azucar")
+    asegurar largo(mensajes_enviados("Reponer")) == 0
+    # Con 5 menos quedan 8: ahora sí.
+    consultar_a_ventas("b", "quiero 5 azucar")
+    asegurar largo(mensajes_enviados("Reponer")) == 1
+    # Las ventas que siguen no vuelven a avisar.
+    consultar_a_ventas("c", "quiero 2 azucar")
+    consultar_a_ventas("d", "quiero 2 azucar")
+    asegurar largo(mensajes_enviados("Reponer")) == 1
+    # Compras lo tiene anotado una sola vez, con lo que quedaba cuando se le avisó.
+    sea faltantes = preguntar QueFalta {} a Compras
+    asegurar faltantes.pedidos == [{ producto: "Azúcar", quedan: 8 }]
+}
+
+prueba "un producto sin stock también se pide a Compras, una sola vez" {
+    abrir_el_negocio(lista)
+    # De fideos no hay: no se vende, pero alguien los pidió y Compras se entera.
+    consultar_a_ventas("a", "quiero 3 fideos")
+    consultar_a_ventas("b", "quiero 3 fideos")
+    asegurar largo(mensajes_enviados("Reponer")) == 1
+    sea faltantes = preguntar QueFalta {} a Compras
+    asegurar faltantes.pedidos == [{ producto: "Fideos secos", quedan: 0 }]
+}
+
+prueba "preguntar el precio no anota nada ni descuenta stock" {
+    abrir_el_negocio(lista)
+    para dicho en ["cuanto salen 20 azucar?", "tenes 20 azucar?", "me cotizas 20 azucar", "precio de 20 azucar"] {
+        asegurar consultar_a_ventas(dicho, dicho) == "20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00. Todavía no anoté nada: para pedirlo, escribí \"quiero 20 azucar\"."
+    }
+    # Nadie reservó nada, ni se le avisó a Compras.
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
+    # Las 25 siguen estando.
+    asegurar empieza_con(consultar_a_ventas("z", "quiero 25 azucar"), "Anotado: 25 x Azúcar")
+}
+
+prueba "un envío que no corresponde no se anota: primero decide el cliente" {
+    abrir_el_negocio(lista)
+    # Con 12 hay envío: se anota.
+    asegurar consultar_a_ventas("a", "quiero 12 azucar con envio") == "Anotado: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00. Con envío: sí, va con envío."
+    # Con 5 no hay envío: se le dice, y no se anota hasta que elija.
+    sea contestado = consultar_a_ventas("b", "me mandas 5 yerbas?")
+    asegurar tiene(contestado, "Sin envío: hacemos envíos desde 10 unidades y pedís 5.")
+    asegurar termina_con(contestado, "Todavía no anoté nada: para pedirlo, escribí \"quiero 5 yerba\".")
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    # Si dice que lo retira, sí.
+    asegurar empieza_con(consultar_a_ventas("c", "quiero 5 yerbas, las retiro yo"), "Anotado: 5 x Yerba mate")
+}
+
+prueba "la mercadería que llega se suma, y Compras la tacha de su lista" {
+    abrir_el_negocio(lista)
+    consultar_a_ventas("a", "quiero 20 azucar")
+    asegurar largo((preguntar QueFalta {} a Compras).pedidos) == 1
+    # Llegan 30: de 5 pasa a 35, y ya no hay nada que reponer.
+    asegurar anotar_ingreso(lista, "ingreso 30 azucar") == "Entraron 30 de Azúcar: ahora hay 35."
+    asegurar (preguntar QueFalta {} a Compras).pedidos == []
+    # Si vuelve a bajar del mínimo, se pide de nuevo (es el segundo pedido de la prueba).
+    consultar_a_ventas("b", "quiero 30 azucar")
+    asegurar largo(mensajes_enviados("Reponer")) == 2
+    # Un ingreso mal escrito no suma nada: explica cómo va.
+    asegurar empieza_con(anotar_ingreso(lista, "ingreso azucar"), "No entendí el ingreso.")
+}
+
+prueba "en la charla, 'ingreso' va a Depósito y no cuenta como consulta" {
+    abrir_el_negocio(lista)
+    # (el "teclado" de la prueba: tres renglones)
+    simular_teclado(["ingreso 5 fideos", "quiero 5 fideos", "chau"])
+    asegurar charlar_con_el_equipo(lista) == 1
+    # Los 5 que entraron se vendieron: no queda ninguno.
+    asegurar consultar_a_ventas("z", "tenes 1 fideo?") == "De Fideos secos ahora no hay stock."
+}
+
+prueba "el contrato no deja saltearse a Ventas ni hablarle a Compras por afuera" {
+    abrir_el_negocio(lista)
+    # El programa no le puede pedir una reserva a Depósito: eso es de Ventas.
+    intentar {
+        preguntar Reservar { charla: "a", producto: "Azúcar", cantidad: 5 } a Deposito
+        fallar "tendría que haberlo frenado el contrato"
+    } si falla motivo {
+        asegurar tiene(motivo, "charla 'a' en 'llega_el_cliente' no admite pregunta de (programa) a Deposito con 'Reservar'"), motivo
+    }
+    # Ni pedirle una reposición a Compras: eso es de Depósito.
+    asegurar falla { preguntar Reponer { charla: "b", producto: "Azúcar", quedan: 1 } a Compras }
+    # Y no pasó nada: el azúcar está entero y Compras no anotó nada.
+    asegurar empieza_con(consultar_a_ventas("c", "quiero 25 azucar"), "Anotado: 25 x Azúcar")
+}
+
+prueba "si Compras falla, la venta no se cae y se le avisa con el pedido que sigue" {
+    abrir_el_negocio(lista)
+    # (en esta prueba, Compras falla siempre que le piden reponer)
+    simular Compras al recibir Reponer como r {
+        fallar "Compras está cerrado"
+    }
+    asegurar empieza_con(consultar_a_ventas("a", "quiero 20 azucar"), "Anotado: 20 x Azúcar")
+    # No quedó anotado como avisado: con el pedido que sigue, Depósito prueba de nuevo.
+    consultar_a_ventas("b", "quiero 1 azucar")
+    asegurar largo(mensajes_enviados("Reponer")) == 2
+}
+
+prueba "lo que no es un pedido va a la IA, con frenos" {
+    abrir_el_negocio(lista)
+    simular_ia("¡Hola! Tenemos yerba, azúcar y harina.")
+    asegurar consultar_a_ventas("a", "hola, ¿qué tienen?") == "¡Hola! Tenemos yerba, azúcar y harina."
+    # Un precio que no está en la lista: salta el freno y llega la reserva.
+    simular_ia("El café sale $ 12.000.")
+    asegurar consultar_a_ventas("b", "¿y café?") == "Eso te lo confirma una persona. Ya te paso con alguien."
+    # Para eso nadie le habló a Depósito.
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("ConsultarStock")) == 0
+}
+
+prueba "si falta un dato del pedido, Ventas pregunta y no molesta a Depósito" {
+    abrir_el_negocio(lista)
+    asegurar empieza_con(consultar_a_ventas("a", "quiero 2 yerbas y 3 azucar"), "Vamos de a un producto por vez")
+    asegurar empieza_con(consultar_a_ventas("b", "quiero 1 kg de yerba"), "Yerba mate se vende por")
+    asegurar empieza_con(consultar_a_ventas("c", "¿hacen envíos?"), "Hacemos envíos desde 10 unidades.")
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(consultas_ia()) == 0
+}
+
+prueba "lo que Depósito ya conoce no se pisa con la planilla" {
+    abrir_el_negocio(lista)
+    consultar_a_ventas("a", "quiero 20 azucar")
+    # Se abre de nuevo con la misma planilla (dice 25): Depósito sigue con sus 5.
+    abrir_el_negocio(lista)
+    asegurar consultar_a_ventas("b", "tenes 6 azucar?") == "De Azúcar quedan 5; no llego a 6."
+    # Un producto nuevo en la planilla sí entra, con su stock.
+    abrir_el_negocio(lista + [{ producto: "Polenta", presentacion: "caja", precio: 1000, stock: 7 }])
+    asegurar consultar_a_ventas("c", "tenes 8 polenta?") == "De Polenta quedan 7; no llego a 8."
+}

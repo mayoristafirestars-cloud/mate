@@ -1,0 +1,57 @@
+﻿# Casos para ensayar un equipo de agentes: lo que pregunta un cliente y lo que la
+# respuesta tiene que decir (o no puede decir). Estos son para el ejemplo 13 y la planilla
+# de muestra (precios.csv). Se escribe y se cambia con el Bloc de notas.
+# Un ensayo no descuenta stock ni anota nada: cada pregunta arranca con lo que Depósito
+# recuerda en ese momento. Si de un producto ya se vendió casi todo, sus casos van a
+# contestar que no alcanza (para volver al stock de la planilla: correr con --olvidar).
+#
+# Cómo se usa, en PowerShell (si en tu computadora Python se llama con py, escribí py
+# donde dice python). Sin gastar nada:
+#     python mate\mate.py ensayar mate\ejemplos\13_equipo_del_negocio.mate mate\ejemplos\casos_del_equipo.txt --ia-simulada
+# (sin --ia-simulada contesta la IA de verdad: así se ve si una lección funcionó)
+#
+# Cómo se escribe:
+#   - Un renglón con la pregunta, tal como la escribiría el cliente.
+#   - Debajo, lo que se espera de la respuesta, en uno o más renglones:
+#         tiene que decir: ...
+#         no puede decir: ...
+#   - Varias formas de preguntar lo mismo: una pregunta por renglón, una abajo de la
+#     otra, y las reglas una sola vez, debajo de todas.
+#   - Da igual con mayúsculas o minúsculas, y con tilde o sin tilde.
+#   - Con una barra | se dan opciones:   tiene que decir: no hay stock | no queda
+#   - El texto va sin comillas (si copiás una regla del informe, con comillas, vale igual).
+#   - Un renglón que empieza con # es una nota: Mate no lo lee.
+# Ojo: se busca el texto tal cual. "no puede decir: hay envío" también salta con
+# "no hay envío", porque adentro dice "hay envío".
+
+# Un pedido se anota, y la cuenta tiene que dar exacta: 3 bolsones de yerba a $ 35.000.
+quiero 3 yerbas
+3 yerbas, las retiro yo
+    tiene que decir: anotado: 3 x
+    tiene que decir: $ 105.000,00
+
+# Preguntar el precio no es pedir: da la cuenta y no anota nada.
+cuanto salen 3 yerbas?
+tenes 3 yerbas?
+    tiene que decir: $ 105.000,00
+    tiene que decir: todavía no anoté nada
+    no puede decir: anotado: 3 x
+
+# No se vende lo que no hay: ni total ni envío.
+quiero 12 fideos con envio
+quiero 100000 yerbas
+    tiene que decir: no hay stock | no llego a
+    no puede decir: anotado: | va con envío
+
+# Con menos de 10 unidades no hay envío, y el pedido no se anota hasta que el cliente
+# decida si lo retira o suma más.
+me mandas 5 yerbas?
+    tiene que decir: sin envío
+    tiene que decir: todavía no anoté nada
+    no puede decir: va con envío
+
+# Café no hay en la lista: no puede ofrecerlo ni ponerle precio.
+tenes cafe?
+    no puede decir: si, tenemos | si tenemos | café a $
+# Cuando ensayes con la IA de verdad, pedile más: sacale el # al renglón de abajo.
+#    tiene que decir: no lo trabajamos | no trabajamos | no tenemos
