@@ -1096,3 +1096,50 @@ entradas 121, 122 y 123. Aclaraciones a lo escrito más arriba:
   se rechaza `--guardar=` (comprobado por seguridad).
 - El título "Cambio 2, vuelta 1 — NO cerrado" queda como historia de esa vuelta; el estado
   de hoy es el de la tabla de arriba.
+
+---
+
+# Mate 0.7 — agentes de un mismo negocio que se reparten el trabajo (rumbo A)
+
+Pedido del dueño: Mate tiene que ser un lenguaje para que los **agentes hablen entre sí**, no
+solo un agente que le contesta a una persona. Orden elegido por el dueño: primero A (agentes
+de un mismo negocio), después B (agentes de negocios distintos, entre máquinas). B NO entra acá.
+
+## Alcance de la 0.7
+
+1. **Equipo del negocio (ejemplo 13 y `nuevo equipo <nombre>`)**: tres agentes, Ventas,
+   Depósito y Compras, que se hablan con mensajes con contrato y un `contrato conversacion`.
+   Ventas da la cara al cliente (charla por teclado, IA con frenos solo para lo que no es un
+   pedido). Depósito es el único dueño del stock (`estado recordado`) y lo descuenta. Compras
+   recibe el pedido de reposición cuando un producto baja del mínimo y lo deja anotado.
+   Las cuentas, el stock y las reglas las resuelve el programa, como en el ejemplo 12.
+2. **Ensayar la conversación entre agentes**: en el archivo de casos de `ensayar` se puede
+   exigir qué mensajes tienen que viajar entre agentes (y cuáles no) para una pregunta del
+   cliente, además de lo que se le contesta. El informe muestra la conversación de un caso que falla.
+3. **Buzón entre programas (la base de B)**: un agente de un programa le puede `enviar` un
+   mensaje a un agente de OTRO programa de la misma PC. El mensaje queda en un buzón (archivo)
+   y se entrega, validando el contrato, cuando ese otro programa corre. Sin funciones incluidas
+   nuevas si se puede (el cupo está en 48 de 48) y sin red. Lleva una etapa de diseño revisada
+   antes de programar.
+
+## Criterios de aceptación de la 0.7
+
+Para todo: pasan todas las pruebas que ya había, sin sacar ni aflojar ninguna; `probar`,
+`verificar` y `--ia-simulada` no tocan la red; ninguna clave en archivos; los topes de palabras
+y funciones se respetan o el cambio se justifica acá; README, `ayuda` y MEJORAS al día; cada
+agente del equipo trabaja en una carpeta temporal PROPIA (mktemp -d), nunca compartida.
+
+- Cambio 1: `nuevo equipo mi_negocio` crea los archivos, pasa `verificar` y `probar`; con
+  `--traza` se ve Ventas → Depósito → Compras; un pedido descuenta stock y el stock sobrevive
+  entre corridas; pedir más de lo que hay no vende; al bajar del mínimo sale UN pedido de
+  reposición (no uno por cada venta); ningún agente toca el estado de otro.
+- Cambio 2: un caso puede decir "tiene que viajar X de A a B" y "no tiene que viajar X";
+  falla con un mensaje claro que muestra la conversación; los casos viejos siguen andando igual.
+- Cambio 3: dos programas en la misma carpeta; el primero envía, termina, y al correr el
+  segundo el mensaje llega una sola vez; un mensaje que no cumple el contrato del destino no se
+  entrega y queda avisado sin cortar el programa; el buzón no se pierde si el programa se corta;
+  `probar` no escribe buzones de verdad.
+
+## Vueltas de la 0.7
+
+(las completa el integrador)
