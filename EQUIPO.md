@@ -1829,3 +1829,156 @@ Python 3.10, 3.11, 3.12 y 3.14 (en esas versiones solo se corrieron `probar` y `
 **Para la vuelta 3 del cambio 2**: P119 (obligatorio), con los programas de R y P como
 prueba. Si entran, porque tocan el mismo tramo: P122, P120, P121, P123, P124 y P125. Sigue
 pendiente la vuelta 4 del cambio 1 (P102). Primero A, después B; nada de B todavía.
+
+### Cambio 2: ensayar la conversación entre agentes, vuelta 3 — cerrado
+
+Revisor y agente de pruebas aprobaron. P119, el medio que quedaba, está arreglado: los dos lo
+comprobaron por separado, cada uno con programas propios y comparando con `correr --traza`.
+Nadie encontró problemas altos ni medios. Quedan solo bajos (tabla de abajo).
+
+Nota del integrador: el cambio 1 sigue NO cerrado (queda P102, vuelta 4 pendiente). Nada de B
+se empezó: el orden del dueño sigue siendo primero A, después B.
+
+**Qué se hizo** (commit `5e07572`, implementador; local, sin push, sin tocar `main` ni este
+archivo). Tocó `mate.py`, `test_mate.py`, README y MEJORAS.
+- P119: `preguntar_al_programa()` ya no aparta lo mandado antes de la pregunta. La cola se
+  vacía entera y en su orden: lo de antes llega primero y el agente lo recibe, pero no se
+  cuenta ni se muestra. Con el programa de R (Inventario 50 + Ingreso 5) el ensayo ve `Llego`,
+  igual que la corrida de verdad; con el de P ve `Bien { quedan: 70 }`. La variante con
+  `asegurar` ya no da "El programa falló". `no tiene que viajar: Llego` ahora falla, como
+  corresponde.
+- P122: "en respuesta al N" usa el número con que se mostró el mensaje (`Interprete.vistos`).
+- P120: un renglón debajo de otra pregunta, que empieza como regla, tiene una palabra parecida
+  a "viajar" y nombra un mensaje del programa, corta con código 2 en su renglón (`viaja:`,
+  `viajar el reponer`, `viajar;`, `viajar.`, `vijar:`, `no viaja:`). Si es la única regla del
+  caso y tiene sangría, el error señala ese renglón y no el de la pregunta (también `no puede
+  dice: descuento`). Queda un resto: ver P120 en la tabla.
+- P121: las copias con nombre fijo se revisan aunque el programa tenga otra con nombre armado
+  al correr. La que no se puede saber antes se compara, después de ensayar el caso, con los
+  agentes que hubo; si no hubo ninguno, el informe avisa debajo del caso ("Ojo: en este caso no
+  hubo ningún agente llamado ..."). Es un aviso: el caso igual cuenta como pasado.
+- P123: la conversación del informe muestra 60 renglones como mucho (los primeros 50, los
+  últimos 10 y cuántos se saltean). El caso del bucle pasa de 100.015 renglones a 75.
+- P124: si hay casos con reglas de mensajes y el programa llama a `consultar_ia()`, el anuncio
+  agrega "Pueden ser más: ...". El número sigue siendo "hasta N".
+- P125: `del programa` y `al programa` dan un error que dice cómo va (`de el programa`, `a el
+  programa`).
+- El error de "este renglón parece una regla de mensajes" ahora termina diciendo la salida:
+  si es una pregunta de un cliente, terminarla con `?`.
+- 12 funciones de prueba nuevas (21 casos) en `test_mate.py`, entre ellas los programas de R y
+  de P para P119 comparados con la traza de una corrida de verdad.
+- README (sección "Ensayar la conversación de un equipo") y MEJORAS 125 ("Nota de la vuelta
+  3"). No se tocó el lenguaje: ni palabras ni funciones incluidas nuevas.
+
+**No se hizo** (declarado por el implementador): no sumó casos al ejemplo 13 ni a
+`casos_del_equipo.txt`, aunque la tarea lo pedía (los arreglos no tocan ese programa y un caso
+más cambia el "10 de 10" que fijan pruebas viejas; las pruebas nuevas están en `test_mate.py`);
+el resto de P115 sigue cortando; P125 a medias (una copia llamada "a" o un agente llamado A);
+P126 y P89 quedan como estaban; para P124 no probó el caso de `consultar_ia()` en un archivo
+traído con `usar` (R y P lo probaron: el anuncio sale); `pytest` completo solo en Python 3.13;
+nada en Windows ni contra una IA de verdad; no actualizó `docs/index.html` ni `ayuda`; no borró
+los Python 3.10 y 3.14 de la carpeta de uv (P127), porque no los creó en esta vuelta.
+
+**Quién revisó y quién probó**: revisor (R) y agente de pruebas (P), cada uno sobre una copia
+del commit `5e07572` en una carpeta temporal propia, ya borrada. Integrador (I): las tres
+corridas y este registro; no tocó código ni pruebas y en esta vuelta no reprodujo casos a mano.
+
+**Veredictos**: R **aprueba** (seis bajos). P **aprueba** (ocho bajos). Cambio 2 **cerrado**.
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `5e07572`, Python 3.13.18)
+- `pytest mate/pruebas mate/modelo`: 1014 pasan, 0 fallan (antes 993). Implementador, R y P
+  dieron el mismo número.
+- `probar mate/ejemplos`: 92 de 92, en 19 archivos. `probar mate/curso`: 37 de 37, en 26 archivos.
+- Después de las corridas, `git status --short` vacío.
+- Pruebas viejas (R miró el diff): el único renglón quitado de `test_mate.py` es un comentario
+  ("ni se entrega"); lo demás son 392 renglones agregados. Ninguna se quitó ni afirma menos.
+- P119 (R y P, no I): R, con dos `enviar Carga` antes del `leer()` y un `enviar Pedir` por la
+  pregunta, ve "Dep → Jefe: Listo { quedan: 5 }" igual que `--traza`. P, con el programa de R
+  más `asegurar`: `tiene que viajar: Llego de Deposito a Compras` y `no tiene que viajar:
+  SigueFaltando` dan 1 de 1; `no tiene que viajar: Llego` da 0 de 1 con código 1 y la
+  conversación de verdad; con `--veces=3`, 3 de 3. P probó además hijos y nietos mandados con
+  `enviar`, un `preguntar` hecho por lo de antes, un programa que lee una sola vez, y la cola
+  con solo cosas de antes (no se entrega nada y `tiene que viajar: Inventario` falla).
+- P122 (P): con mensajes de antes y de la pregunta intercalados, el informe numera 1 a 14 y
+  cada "en respuesta al N" señala el renglón correcto. R lo leyó en el código.
+- P120, P121, P123, P124 y P125: ejecutados por R y P (bucle: 75 renglones, 1,8 s; con 60
+  renglones no se saltea nada y con 61 se saltea 1).
+- Casos viejos: R comparó el informe de `HEAD~1` con el de `HEAD`: idéntico para `nuevo equipo`
+  (10 de 10); en los ejemplos 12 (5 de 5) y 13 (10 de 10) solo se agregan los dos renglones
+  "Pueden ser más" del anuncio. P comparó contra `5433170` (anterior al cambio 2): ejemplos 10,
+  11 y 12 con `casos.txt` (también `--veces=2`) y el 13 con los casos viejos, diff vacío.
+- Como el dueño (P): `nuevo equipo mi_negocio` crea 3 archivos; `verificar` sin errores;
+  `probar` 15 de 15; `ensayar` 10 de 10; con memoria (azúcar en 5) da 9 de 10 y el aviso de
+  `--olvidar`; el md5 de la memoria no cambia al ensayar. Nombres con ñ y tildes, BOM, fin de
+  línea de Windows y tabulaciones andan.
+- Otras versiones: R corrió con Python 3.10, 3.11, 3.12 y 3.14 `ensayar` (10 de 10 y su
+  programa de P119) y `probar mate/ejemplos` (92 de 92). P, con 3.10.20 y 3.14.6, lo mismo.
+  Nadie corrió `pytest` fuera de 3.13, ni en una Windows de verdad, ni contra una IA real.
+
+**Criterios de aceptación del cambio 2**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| Un caso puede decir "tiene que viajar X de A a B" y "no tiene que viajar X" | cumple | 10 de 10 con los casos de muestra; cumple también con lo mandado con `enviar` antes y durante la pregunta (P119: R y P, con pruebas nuevas contra la traza de verdad) |
+| Falla con un mensaje claro que muestra la conversación | cumple, con una reserva baja | código 1, "No cumple: ...", conversación numerada con "en respuesta al N" correcto (P122) y tope de 60 renglones (P123). Reserva: si falla un mensaje de antes de la pregunta, ese mensaje no se ve en la conversación (P128) |
+| Los casos viejos siguen andando igual | cumple, con un resto bajo | diff vacío contra `5433170` (P) y contra `HEAD~1` salvo el anuncio (R). Resto: preguntas raras con forma de regla siguen cortando (P115) y puede haber un falso aviso angosto (P129) |
+| Para todo: pruebas que ya había, sin aflojar | cumple | 1014 / 92 de 92 / 37 de 37; en pruebas viejas solo cambió un comentario |
+| Para todo: topes, red, claves, README/`ayuda`/MEJORAS | cumple, con pendientes | sin palabras ni funciones incluidas nuevas, las pruebas de topes pasan; `ensayar` no cambia la memoria (P); sin claves ni datos personales en el diff (R). README leído contra el código (R) y MEJORAS 125 al día; `ayuda` y `docs/index.html` no cuentan nada de esta vuelta (P133) |
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|---|
+| P119 | La entrega de lo mandado con `enviar` se hacía fuera de orden cuando quedaba algo de antes de la pregunta | R, P | media | — | resuelto (la cola se vacía entera y en orden; programas de R y P como prueba) |
+| P122 | "en respuesta al N" corrido en uno | P | baja | — | resuelto |
+| P121 | Una copia con nombre armado al correr apagaba la revisión de todas las copias de ese agente | R | baja | — | resuelto con aviso en el informe. Resto: P130 |
+| P123 | El informe volcaba la conversación entera de un bucle | P | baja | — | resuelto (60 renglones como mucho). Resto: P131 |
+| P124 | El anuncio de consultas se quedaba corto | P | baja | — | resuelto en el texto ("Pueden ser más"); el número sigue siendo "hasta N" |
+| P120 | Resto: una regla de mensajes mal escrita sigue pasando en silencio como una pregunta más (el informe cuenta un caso de más y la regla no se mira) en dos casos. (a) Va DESPUÉS de una regla bien escrita y antes de otra: `tiene que decir: hola` / `no tiene que viaja: Reponer` / `no puede decir: zzz` da "2 pregunta(s)". (b) Usa otro verbo, no una falta de tipeo de "viajar": `no tiene que mandar: Reponer`, `tiene que mandar: Reponer`, `no tiene que salir: Reponer` dan 2 de 2. Lo mismo `no puede dice: descuento` con otra regla después (clase de la 0.6). El README dice "debajo de otra pregunta", así que no promete de más | R (a), P (b) | baja | sí | pendiente (prolijidad): usar la sangría también cuando ya hubo reglas en el grupo (el dato ya se guarda) |
+| P128 | Con el arreglo de P119, un caso con reglas de mensajes puede fallar con "El programa falló: ... al recibir X" por un mensaje mandado ANTES de la pregunta, y la conversación del informe no muestra ese mensaje. El resultado es fiel (la corrida de verdad también falla, código 1), pero cuesta ubicar de dónde sale. El README no lo dice | R, P (cada uno con un programa propio) | baja | no | pendiente: decir en el informe o en el README que el error puede venir de algo mandado antes de la pregunta |
+| P129 | Posible falso aviso nuevo de P120: una pregunta de cliente sin `?`, debajo de otra pregunta, que empieza con "tiene que", "no puede" o "debe", tiene una palabra parecida a "viajar" y nombra un mensaje del programa ("no puede ser que el viaje del pedido tarde tanto", con un mensaje Pedido) cortaría con código 2. Muy angosto y el error dice la salida | R (leído en el código, no ejecutado) | baja | no | aceptado; sin verificar |
+| P130 | El aviso de P121 ("Ojo: en este caso no hubo ningún agente llamado ...") sale DOS veces debajo de la primera pregunta y ninguna debajo de la segunda cuando dos preguntas comparten las reglas. R lo vio además, leyendo el código, para una copia que figura como `de` y como `a` en la misma regla | P (ejecutado), R (leído) | baja | no | pendiente (prolijidad) |
+| P131 | El renglón del medio dice "acá van 1 renglones más" con 61 renglones (falta el singular) | R | baja | no | pendiente (prolijidad) |
+| P132 | Con `--ia-simulada`, un caso con reglas de mensajes queda "? no se pudo comprobar" y corta el ensayo ("0 de 2 casos pasaron") si un agente consulta a la IA sin tercer valor al recibir un `enviar` que ahora se entrega; el mismo caso sin reglas de mensajes pasa. El informe no dice que la consulta que falló es la de la entrega y repite "La IA no contestó, por lo mismo que más arriba" debajo del motivo | P | baja | sí | pendiente (prolijidad): decir en el informe cuál consulta falló |
+| P115 | Resto sin cambio: "Tiene que viajar Juan", "debe viajar Pedido a Rosario" y "el pedido tiene que viajar: hoy" siguen cortando; con `?` al final pasan, como ahora dice el error. "tiene que viajar: hoy?" corta igual: ahí la salida que propone el error no sirve | implementador (declarado), P | baja | sí | aceptado (aflojar va contra P120) |
+| P125 | Resto: con un agente llamado A o una copia llamada "a", `tiene que viajar: HijoNuevo de A a B` corta con "no entiendo qué mensaje es ...", sin decir que el problema es el nombre | implementador (declarado), P | baja | sí | lo de `del programa` resuelto; el resto queda pendiente (prolijidad) |
+| P133 | Documentación a medias: `docs/index.html` no nombra "tiene que viajar" y VERSION sigue en 0.6; `ayuda` explica las reglas de mensajes (lo básico está en `ayuda ensayar`) pero nada de esta vuelta. Tampoco se sumaron casos al ejemplo 13 ni a `casos_del_equipo.txt` | implementador (declarado), R, P | baja | sí | pendiente para el cierre de la 0.7 |
+| P126 | Caso sin reglas de mensajes donde habló un solo agente: no muestra la conversación | — | baja | sí | aceptado, sin cambio |
+| P89 | El ensayo arranca con lo que los agentes recuerdan | — | baja | sí | aceptado como aviso, sin cambio (P lo volvió a ver: 9 de 10 con memoria) |
+| P118 | No se puede exigir orden, cantidad ni campos | — | baja | sí | aceptado como límite de la 0.7 |
+| P127 | Python 3.10 y 3.14 en la carpeta de uv del usuario, de la vuelta 2 | implementador (declarado) | baja | sí | sin cambio; avisado al dueño. En esta vuelta cada agente borró su carpeta temporal |
+| P11 | Sin probar en una Windows de verdad (`py`, PowerShell, Bloc de notas) ni contra una IA real | implementador, R, P, I | baja | sí | pendiente del dueño |
+
+Siguen abiertos del cambio 1, sin cambio en esta vuelta: P102 (medio, vuelta 4 obligatoria),
+P103 a P111, P80 de fondo, P85, P86, P87, P88, P91, P92 y P94.
+
+No verificado por nadie en esta vuelta: Windows, la IA de verdad, `pytest` completo en Python
+3.10, 3.11, 3.12 y 3.14 (ahí solo `probar` y `ensayar`), y P129 (solo leído en el código).
+
+**Decisiones técnicas nuevas**
+- La cola se vacía entera solo si quedó algo mandado por ESTA pregunta. Si hay únicamente
+  cosas de antes, no se entrega nada, como en la vuelta 2. Lo que deriva de un mensaje viejo
+  hereda su conversación y no se cuenta ni se muestra. Reemplaza la decisión de la vuelta 2 de
+  apartar lo de antes (causa de P119).
+- Para tomar un renglón por regla de mensajes mal escrita no alcanza con que empiece como regla
+  y nombre un mensaje ("no puede ser, ya está anotado" daba falso aviso con un mensaje
+  Anotado): además tiene que tener una palabra parecida a "viajar" (empieza con "viaj" o
+  parecido 0,8 o más con `difflib`). Un renglón con `?` siempre es pregunta. Consecuencia: el
+  resto (b) de P120.
+- La sangría se usa solo en el caso sin ninguna regla bien escrita al final del archivo, donde
+  todavía no se conoce el programa. Los errores viejos que valen sin sangría no cambian.
+- `del programa` no se acepta como sinónimo, por la regla del README "una sola forma de
+  escribir cada cosa": da un error que muestra la forma correcta. (El registro de la vuelta 2
+  proponía aceptarlo.)
+- `copias_del_programa()` devuelve lo mismo de siempre por defecto (una prueba vieja lo fija);
+  la forma nueva sale con un segundo argumento.
+- El tope de la conversación es `MAX_RENGLONES_DE_CHARLA = 60`, solo al mostrar; la
+  conversación se sigue guardando entera en memoria.
+- El aviso de la copia con nombre armado (P121) es un aviso, no un error: el caso cuenta como
+  pasado.
+- Integrador: el cambio 2 se cierra porque R y P aprueban, los tres criterios cumplen y no hay
+  problemas altos ni medios. Los bajos nuevos (P128 a P133) y los restos de P120, P115 y P125
+  no frenan el cierre; van a la vuelta de cierre de la 0.7 si entran.
+
+**Lo que sigue**: vuelta 4 del cambio 1 (P102, obligatorio). Después el cambio 3 (buzón entre
+programas), que empieza por la etapa de diseño revisada. Primero A, después B; nada de B todavía.
