@@ -9914,7 +9914,9 @@ _ENCABEZADO_DEL_EQUIPO = """\
 #     de 5 azucar", "gracias por las 10 yerbas") contesta la cuenta y no anota nada.
 #     Tampoco anota si piden por lo que viene ADENTRO del bulto ("10 paquetes de yerba",
 #     y la yerba se vende por bolsón de 10 paquetes): pregunta, y dice cómo se vende.
-#     La unidad de venta es la PRIMERA palabra de la columna presentacion.
+#     La unidad de venta es la PRIMERA palabra de la columna presentacion: conviene que
+#     sea el bulto ("pack de 6 botellas", y no "6 botellas"). Lo de adentro son las
+#     palabras que llevan un número adelante ("10 paquetes", "1 kg").
 #     Un pedido ya anotado no se anula desde la charla: eso lo arregla una persona.
 #     Todo lo demás (saludar, contar qué hay) lo contesta la IA, con frenos para que no
 #     invente precios.
@@ -10228,6 +10230,65 @@ prueba "un pedido en la unidad de ADENTRO del bulto no se anota: Ventas pregunta
     # Con la unidad de venta adelante sí está claro.
     asegurar empieza_con(consultar_a_ventas("x", "quiero 1 bolsón de yerba"), "Anotado: 1 x Yerba mate")
     asegurar empieza_con(consultar_a_ventas("y", "quiero 3 bolsas de azucar de 10 kg"), "Anotado: 3 x Azúcar")
+}
+
+prueba "con una planilla propia: la presentación que arranca con un número, o que nombra al producto" {
+    sea propia = [{ producto: "Agua mineral", presentacion: "6 botellas de 2 litros", precio: 5400, stock: 100000 },
+                  { producto: "Alfajores", presentacion: "12 unidades", precio: 9600, stock: 100000 },
+                  { producto: "Vino", presentacion: "6 botellas", precio: 14500, stock: 100000 },
+                  { producto: "Huevos", presentacion: "maple de 30 huevos", precio: 14500, stock: 100000 },
+                  { producto: "Galletitas", presentacion: "caja con 24 paquetes para kiosco", precio: 14500, stock: 100000 },
+                  { producto: "Paquete regalo", presentacion: "caja de 6 paquetes", precio: 12000, stock: 100000 },
+                  { producto: "Grisines", presentacion: "paquete de 3 unidades sin sal", precio: 2100, stock: 100000 },
+                  { producto: "Lavandina", presentacion: "bidón de 5 litros", precio: 3300, stock: 100000 },
+                  { producto: "Sidra", presentacion: "caja de botellas", precio: 3300, stock: 100000 },
+                  { producto: "Dulce de leche", presentacion: "caja de 12 potes", precio: 3300, stock: 100000 }]
+    abrir_el_negocio(propia)
+    # Si la presentación ARRANCA con un número no hay palabra para el bulto: lo que nombra
+    # es lo de adentro. "6 botellas de agua" puede ser 1 bulto o 6.
+    asegurar unidad_de_venta(propia[0]) == "" y unidad_de_venta({ producto: "Tomate", presentacion: "x 6 latas" }) == ""
+    asegurar consultar_a_ventas("a", "quiero 6 botellas de agua") == "Todavía no anoté nada, para no equivocarme: dijiste \\"botellas\\", y Agua mineral se vende así: 6 botellas de 2 litros, a $ 5.400,00 cada bulto. ¿Cuántos bultos querés? Por ejemplo, para llevar uno solo: \\"quiero 1 bulto de agua\\"."
+    # Y si lo de adentro se llama como el producto ("maple de 30 huevos"), "30 huevos"
+    # puede ser 1 maple o 30: el ejemplo de la respuesta va con la unidad de venta.
+    asegurar consultar_a_ventas("b", "quiero 30 huevos") == "Todavía no anoté nada, para no equivocarme: dijiste \\"huevos\\", y Huevos se vende por maple de 30 huevos, a $ 14.500,00 cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \\"quiero 1 maple de huevos\\"."
+    para dicho en ["quiero 12 unidades de alfajores", "quiero 6 botellas de vino", "quiero 2 huevos",
+                   "quiero 6 paquetes regalo", "dame 6 paquetes regalo, gracias",
+                   "quiero 3 unidades de grisines", "quiero 2 lavandinas de 5 litros",
+                   "quiero 6 botellas de sidra", "quiero 12 potes de dulce de leche"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada, para no equivocarme: dijiste \\""), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("ConsultarStock")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Agua mineral" } a Deposito).unidades == 100000
+    # Con el nombre del producto, con "bultos" o con la unidad de venta, se anota. Y las
+    # palabras de la presentación que no llevan un número adelante ("sin sal", "para
+    # kiosco") describen: no son una unidad, y no frenan un pedido corriente.
+    para dicho en ["quiero 2 aguas", "quiero 2 bultos de vino", "quiero 2 alfajores",
+                   "quiero 2 maples de huevos", "quiero huevos, 2 maples",
+                   "quiero 2 cajas de paquete regalo", "quiero 2 galletitas para kiosco",
+                   "quiero 2 cajas de galletitas", "quiero 2 grisines sin sal",
+                   "quiero 2 bidones de 5 litros de lavandina", "quiero 2 cajas de sidra",
+                   "quiero 2 dulce de leche", "dulce de leche 2 cajas"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x "), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 13
+    asegurar unidades_de_adentro(propia[4]) == ["paquetes"] y unidades_de_adentro(propia[8]) == ["botellas"]
+}
+
+prueba "el 'de' del nombre de un producto, adelante de la cantidad, no frena el pedido" {
+    abrir_el_negocio(lista_de_prueba() + [{ producto: "Aceite de girasol", presentacion: "caja de 12 botellas de 900 ml", precio: 31200, stock: 100000 }])
+    para dicho en ["aceite de girasol 2 cajas", "quiero aceite de girasol 2",
+                   "quiero aceite de girasol, 2 cajas", "quiero hacer un pedido de aceite de girasol: 2 cajas"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Aceite de girasol"), dicho
+    }
+    para dicho en ["de yerba quiero 2", "quiero de yerba 2", "buenas tardes, de yerba 2 bolsones"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 7
+    # Pegado a la cantidad, el "de" sigue hablando de algo que ya existe.
+    para dicho en ["encargo de 5 yerbas", "de 5 yerbas", "encargo de unas 5 yerbas", "el encargo de yerba 5"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada: para pedirlo, escribí \\"quiero "), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 7
 }
 
 prueba "devolver o anular no anota nada, y Ventas dice que eso lo arregla una persona" {

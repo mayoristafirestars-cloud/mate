@@ -828,7 +828,9 @@ Lo que hay que saber:
     llevo 10 yerbas". El cliente que viene a retirar lo que pidió no lo compra dos veces;
   - algo que **ya pasó o que hizo otro**, escrito con tilde ("compró 10 yerbas", "llevó 10
     yerbas": sin la tilde serían "compro" y "llevo"), un "hago" sin "un pedido" atrás ("hago
-    5 yerbas"), un "de" adelante de la cantidad ("encargo de 5 yerbas") o "5 yerbas de más";
+    5 yerbas"), un "de" pegado adelante de la cantidad ("encargo de 5 yerbas", "de 5
+    yerbas") o "5 yerbas de más". El "de" de un producto no molesta: "aceite de girasol 3
+    cajas" y "de yerba quiero 2" se anotan;
   - un pedido dicho en la unidad de **adentro del bulto**: "quiero 10 paquetes de yerba"
     cuando la yerba se vende por "bolsón de 10 paquetes de 1 kg", o "quiero 6 botellas de
     aceite" con "caja de 12 botellas". No se sabe si son 10 bolsones o 1: Ventas no anota ni
@@ -836,7 +838,19 @@ Lo que hay que saber:
     dijiste "paquetes", y Yerba mate se vende por bolsón de 10 paquetes de 1 kg... ¿Cuántos
     querés de esos?`). La unidad de venta es la **primera palabra** de la columna
     `presentacion`; si esa palabra va adelante ("2 bolsas de azucar de 10 kg"), lo demás
-    describe el bulto y el pedido se anota. "2 azucar de 10 kg", sin la unidad, pregunta;
+    describe el bulto y el pedido se anota. "2 azucar de 10 kg", sin la unidad, pregunta.
+    Lo de adentro son las palabras de la presentación que llevan **un número adelante**
+    ("10 paquetes", "1 kg"); las demás describen y no frenan ("3 galletitas sin sal", con
+    "paquete de 3 unidades sin sal", se anota). Tres casos para saber, si armás tu planilla:
+    (1) si la presentación **arranca con un número** ("6 botellas de 2 litros", "12
+    unidades", "x 6 latas") no hay palabra para el bulto: "quiero 6 botellas de agua"
+    pregunta, y se pide con el nombre ("quiero 2 aguas") o con "bultos" ("quiero 2 bultos
+    de agua"). Conviene escribirla con el bulto adelante: "pack de 6 botellas de 2 litros";
+    (2) si lo de adentro se llama como el producto ("Huevos", "maple de 30 huevos"), "quiero
+    30 huevos" pregunta siempre: se pide "quiero 2 maples de huevos"; (3) una presentación
+    sin ningún número ("caja de botellas") toma por lo de adentro todas sus palabras menos
+    la primera. Una abreviatura o un diminutivo ("10 paq de yerba", "6 botellitas") no
+    recibe esta pregunta: recibe la cuenta por bultos enteros, y tampoco anota;
   - un pedido **con envío que no llega a las unidades de la regla**: primero el cliente
     decide si lo retira o suma más.
 

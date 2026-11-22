@@ -79,6 +79,15 @@ quiero 100000 yerbas
 # (Depósito contesta que reservó 0: no se vende una parte)
     tiene que viajar: Reservar de Ventas a Deposito
 
+# Pedir por lo que viene ADENTRO del bulto no anota: la yerba se vende por bolsón de 10
+# paquetes y el aceite por caja de 12 botellas. Ventas pregunta, sin molestar a Depósito.
+quiero 10 paquetes de yerba
+quiero 6 botellas de aceite
+    tiene que decir: todavía no anoté nada
+    tiene que decir: se vende por
+    no puede decir: anotado: | total $
+    no tiene que viajar: Reservar | ConsultarStock
+
 # Con menos de 10 unidades no hay envío, y el pedido no se anota hasta que el cliente
 # decida si lo retira o suma más.
 me mandas 5 yerbas?

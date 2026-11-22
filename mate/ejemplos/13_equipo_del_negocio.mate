@@ -450,48 +450,102 @@ funcion trae_un_pasado(dicho) {
     devolver falso
 }
 
+# Las palabras de unión de una presentación ("caja DE 12 botellas", "pack X 6 latas"): no
+# son una unidad.
+funcion palabras_de_union() {
+    devolver ["de", "x", "por", "con", "y", "a", "c", "u"]
+}
+
 # La unidad en que se vende el producto: la primera palabra de su presentación ("bolsón",
-# de "bolsón de 10 paquetes de 1 kg"; "caja", de "caja de 12 botellas de 900 ml").
+# de "bolsón de 10 paquetes de 1 kg"; "caja", de "caja de 12 botellas de 900 ml"). Si la
+# presentación arranca con un número ("6 botellas de 2 litros", "x 6 latas") no hay una
+# palabra para el bulto: devuelve "".
 funcion unidad_de_venta(fila) {
     para palabra en palabras_de(texto(fila.presentacion)) {
-        si numero_de(palabra) == nada {
+        si numero_de(palabra) != nada {
+            devolver ""
+        }
+        si no tiene(palabras_de_union(), palabra) {
             devolver palabra
         }
     }
     devolver ""
 }
 
+# Lo que viene ADENTRO del bulto, según la presentación: las palabras que tienen un número
+# adelante ("paquetes" y "kg", de "bolsón de 10 paquetes de 1 kg"; "huevos", de "maple de
+# 30 huevos"). Las demás describen ("sin sal", "para kiosco") y no cuentan. Si la
+# presentación no trae ningún número ("caja de botellas"), son todas las que siguen a la
+# unidad de venta, menos las de unión y las del nombre del producto.
+funcion unidades_de_adentro(fila) {
+    sea presentacion = palabras_de(texto(fila.presentacion))
+    var contadas = []
+    para i en rango(1, largo(presentacion)) {
+        sea palabra = presentacion[i]
+        si numero_de(palabra) == nada y numero_de(presentacion[i - 1]) != nada y no tiene(palabras_de_union(), palabra) {
+            contadas = agregar(contadas, palabra)
+        }
+    }
+    si largo(contadas) > 0 {
+        devolver contadas
+    }
+    sea unidad = unidad_de_venta(fila)
+    sea nombre = palabras_de(texto(fila.producto))
+    # (también se saltean las palabras que en un pedido dicen otra cosa: "para", "el", "un")
+    sea no_cuentan = palabras_de_union() + palabras_de_como_se_lleva() + palabras_que_acompanan() + ["sin"]
+    var otras = []
+    para palabra en presentacion {
+        si numero_de(palabra) != nada o palabra == unidad o tiene(no_cuentan, palabra) o esta_entre(palabra, nombre) {
+            continuar
+        }
+        otras = agregar(otras, palabra)
+    }
+    devolver otras
+}
+
+# ¿La palabra es alguna de las de la lista, en singular o en plural?
+funcion esta_entre(palabra, lista_de_palabras) {
+    para suya en lista_de_palabras {
+        si misma_palabra(palabra, suya) {
+            devolver verdadero
+        }
+    }
+    devolver falso
+}
+
 # ¿El cliente pide por lo que viene ADENTRO del bulto? "10 paquetes de yerba" (se vende
-# por bolsón de 10 paquetes), "6 botellas de aceite" (por caja de 12 botellas): devuelve
-# esa palabra, como la dijo. Devuelve nada si no nombra ninguna, o si ANTES nombró la
-# unidad de venta: en "2 bolsas de 10 kg de azucar" el "kg" solo describe la bolsa.
+# por bolsón de 10 paquetes), "6 botellas de aceite" (por caja de 12 botellas), "6
+# botellas de agua" (por "6 botellas de 2 litros"): devuelve esa palabra, como la dijo.
+# Devuelve nada si no nombra ninguna, o si ANTES nombró la unidad de venta: en "2 bolsas
+# de 10 kg de azucar" el "kg" solo describe la bolsa.
 funcion unidad_de_adentro(fila, dicho) {
     sea nombre = palabras_de(texto(fila.producto))
     sea unidad = unidad_de_venta(fila)
-    sea presentacion = palabras_de(texto(fila.presentacion))
-    para palabra en palabras_de(dicho) {
+    sea de_adentro = unidades_de_adentro(fila)
+    sea palabras = palabras_de(dicho)
+    # (¿nombra la unidad de venta en algún lugar de la frase?)
+    var nombra_la_unidad = falso
+    para palabra en palabras {
+        si unidad != "" y misma_palabra(palabra, unidad) {
+            nombra_la_unidad = verdadero
+        }
+    }
+    para palabra en palabras {
         si numero_de(palabra) != nada {
             continuar
         }
-        si misma_palabra(palabra, unidad) {
+        si unidad != "" y misma_palabra(palabra, unidad) {
             devolver nada
         }
-        # (una palabra del nombre del producto no es una unidad)
-        var es_del_nombre_del_producto = falso
-        para suya en nombre {
-            si misma_palabra(palabra, suya) {
-                es_del_nombre_del_producto = verdadero
-            }
-        }
-        si es_del_nombre_del_producto {
+        si no esta_entre(palabra, de_adentro) {
             continuar
         }
-        para suya en presentacion {
-            # (los números y las palabras de unión de la presentación no son unidades)
-            si numero_de(suya) == nada y no tiene(["de", "x", "por", "con", "y", "a", "c", "u"], suya) y misma_palabra(palabra, suya) {
-                devolver palabra
-            }
+        # Si la palabra es además del nombre del producto ("30 huevos", y se venden por
+        # "maple de 30 huevos"), es una duda salvo que diga la unidad: "huevos, 2 maples".
+        si esta_entre(palabra, nombre) y nombra_la_unidad {
+            continuar
         }
+        devolver palabra
     }
     devolver nada
 }
@@ -540,11 +594,19 @@ funcion es_pedido_claro(fila, dicho) {
             hay_de_pedir = verdadero
             continuar
         }
-        # "De" adelante de la cantidad vale solo en "un pedido de 5 yerbas": "encargo de 5
-        # yerbas" o "de 5 yerbas" hablan de algo que ya existe. Y "5 yerbas de más" es una
-        # queja, no un pedido.
+        # "De" pegado adelante de la cantidad vale solo en "un pedido de 5 yerbas":
+        # "encargo de 5 yerbas", "de 5 yerbas" o "encargo de unas 5 yerbas" hablan de algo
+        # que ya existe. El "de" de un producto ("aceite de girasol 3 cajas", "de yerba
+        # quiero 2") no molesta. Y "5 yerbas de más" es una queja, no un pedido.
         si palabra == "de" y no paso_la_cantidad y (i == 0 o palabras[i - 1] != "pedido") {
-            devolver falso
+            # (lo que sigue al "de", salteando "un", "unas", "otras"...)
+            var j = i + 1
+            mientras j < largo(palabras) y tiene(palabras_que_acompanan(), palabras[j]) {
+                j += 1
+            }
+            si j < largo(palabras) y numero_de(palabras[j]) != nada {
+                devolver falso
+            }
         }
         si palabra == "mas" y i > 0 y palabras[i - 1] == "de" {
             devolver falso
@@ -595,7 +657,19 @@ funcion respuesta_de_anular() {
 # que usó el cliente): no se anota, y se aclara en qué unidad se vende.
 funcion respuesta_de_unidad(pedido, dicha) {
     sea fila = pedido.fila
-    devolver "Todavía no anoté nada, para no equivocarme: dijiste \"{dicha}\", y {fila.producto} se vende por {fila.presentacion}, a {pesos(fila.precio)} cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \"quiero 1 {palabras_de(texto(fila.producto))[0]}\"."
+    sea unidad = unidad_de_venta(fila)
+    sea primera = palabras_de(texto(fila.producto))[0]
+    # La presentación no nombra el bulto ("6 botellas de 2 litros"): se cuenta por bultos.
+    si unidad == "" {
+        devolver "Todavía no anoté nada, para no equivocarme: dijiste \"{dicha}\", y {fila.producto} se vende así: {fila.presentacion}, a {pesos(fila.precio)} cada bulto. ¿Cuántos bultos querés? Por ejemplo, para llevar uno solo: \"quiero 1 bulto de {primera}\"."
+    }
+    # El ejemplo: con la primera palabra del producto, salvo que esa palabra sea también
+    # lo de adentro ("huevos", de "maple de 30 huevos"): ahí va con la unidad de venta.
+    var ejemplo = "quiero 1 {primera}"
+    si esta_entre(primera, unidades_de_adentro(fila)) {
+        ejemplo = "quiero 1 {unidad} de {primera}"
+    }
+    devolver "Todavía no anoté nada, para no equivocarme: dijiste \"{dicha}\", y {fila.producto} se vende por {fila.presentacion}, a {pesos(fila.precio)} cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \"{ejemplo}\"."
 }
 
 # Cómo se pide de verdad ese producto: con la primera palabra de su nombre.
@@ -1145,6 +1219,66 @@ prueba "un pedido en la unidad de ADENTRO del bulto no se anota: Ventas pregunta
     asegurar empieza_con(consultar_a_ventas("w", "quiero 3 bolsas de azucar de 10 kg"), "Anotado: 3 x Azúcar")
     asegurar unidad_de_venta(lista[0]) == "bolson" y unidad_de_adentro(lista[0], "2 bolsones de yerba") == nada
     asegurar unidad_de_adentro({ producto: "Tomate", presentacion: "x 6 latas" }, "quiero 6 latas de tomate") == "latas"
+}
+
+prueba "con una planilla propia: la presentación que arranca con un número, o que nombra al producto" {
+    sea propia = [{ producto: "Agua mineral", presentacion: "6 botellas de 2 litros", precio: 5400, stock: 1000 },
+                  { producto: "Alfajores", presentacion: "12 unidades", precio: 9600, stock: 1000 },
+                  { producto: "Vino", presentacion: "6 botellas", precio: 14500, stock: 1000 },
+                  { producto: "Huevos", presentacion: "maple de 30 huevos", precio: 14500, stock: 1000 },
+                  { producto: "Galletitas", presentacion: "caja con 24 paquetes para kiosco", precio: 14500, stock: 1000 },
+                  { producto: "Paquete regalo", presentacion: "caja de 6 paquetes", precio: 12000, stock: 1000 },
+                  { producto: "Grisines", presentacion: "paquete de 3 unidades sin sal", precio: 2100, stock: 1000 },
+                  { producto: "Lavandina", presentacion: "bidón de 5 litros", precio: 3300, stock: 1000 },
+                  { producto: "Sidra", presentacion: "caja de botellas", precio: 3300, stock: 1000 },
+                  { producto: "Dulce de leche", presentacion: "caja de 12 potes", precio: 3300, stock: 1000 }]
+    abrir_el_negocio(propia)
+    # Si la presentación ARRANCA con un número no hay palabra para el bulto: lo que nombra
+    # es lo de adentro. "6 botellas de agua" puede ser 1 bulto o 6.
+    asegurar unidad_de_venta(propia[0]) == "" y unidad_de_venta({ producto: "Tomate", presentacion: "x 6 latas" }) == ""
+    asegurar consultar_a_ventas("a", "quiero 6 botellas de agua") == "Todavía no anoté nada, para no equivocarme: dijiste \"botellas\", y Agua mineral se vende así: 6 botellas de 2 litros, a $ 5.400,00 cada bulto. ¿Cuántos bultos querés? Por ejemplo, para llevar uno solo: \"quiero 1 bulto de agua\"."
+    # Y si lo de adentro se llama como el producto ("maple de 30 huevos"), "30 huevos"
+    # puede ser 1 maple o 30: el ejemplo de la respuesta va con la unidad de venta.
+    asegurar consultar_a_ventas("b", "quiero 30 huevos") == "Todavía no anoté nada, para no equivocarme: dijiste \"huevos\", y Huevos se vende por maple de 30 huevos, a $ 14.500,00 cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \"quiero 1 maple de huevos\"."
+    para dicho en ["quiero 12 unidades de alfajores", "quiero 6 botellas de vino", "quiero 2 huevos",
+                   "quiero 6 paquetes regalo", "dame 6 paquetes regalo, gracias",
+                   "quiero 3 unidades de grisines", "quiero 2 lavandinas de 5 litros",
+                   "quiero 6 botellas de sidra", "quiero 12 potes de dulce de leche"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada, para no equivocarme: dijiste \""), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("ConsultarStock")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Agua mineral" } a Deposito).unidades == 1000
+    # Con el nombre del producto, con "bultos" o con la unidad de venta, se anota. Y las
+    # palabras de la presentación que no llevan un número adelante ("sin sal", "para
+    # kiosco") describen: no son una unidad, y no frenan un pedido corriente.
+    para dicho en ["quiero 2 aguas", "quiero 2 bultos de vino", "quiero 2 alfajores",
+                   "quiero 2 maples de huevos", "quiero huevos, 2 maples",
+                   "quiero 2 cajas de paquete regalo", "quiero 2 galletitas para kiosco",
+                   "quiero 2 cajas de galletitas", "quiero 2 grisines sin sal",
+                   "quiero 2 bidones de 5 litros de lavandina", "quiero 2 cajas de sidra",
+                   "quiero 2 dulce de leche", "dulce de leche 2 cajas"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x "), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 13
+    asegurar unidades_de_adentro(propia[4]) == ["paquetes"] y unidades_de_adentro(propia[8]) == ["botellas"]
+}
+
+prueba "el 'de' del nombre de un producto, adelante de la cantidad, no frena el pedido" {
+    abrir_el_negocio(lista)
+    para dicho en ["aceite de girasol 1 caja", "quiero aceite de girasol 1",
+                   "quiero aceite de girasol, 1 caja", "quiero hacer un pedido de aceite de girasol: 1 caja"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 1 x Aceite de girasol"), dicho
+    }
+    para dicho en ["de yerba quiero 2", "quiero de yerba 2", "buenas tardes, de yerba 2 bolsones"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 7
+    asegurar (preguntar CuantoQueda { producto: "Aceite de girasol" } a Deposito).unidades == 4
+    # Pegado a la cantidad, el "de" sigue hablando de algo que ya existe.
+    para dicho en ["encargo de 5 yerbas", "de 5 yerbas", "encargo de unas 5 yerbas", "el encargo de yerba 5"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada: para pedirlo, escribí \"quiero "), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 7
 }
 
 prueba "un pasado con tilde, o un 'hago' o un 'de' sueltos, no anotan" {
