@@ -878,6 +878,9 @@ Lo que hay que saber:
 - **`probar` y `ensayar` no tocan el stock.** En una prueba los agentes arrancan de cero y no
   se guarda nada. Un ensayo lee lo que Depósito recuerda pero no lo cambia: si de un producto
   ya se vendió casi todo, los casos que lo nombran van a contestar que no alcanza.
+- **Los casos del equipo también miran la conversación**: `mi_negocio_casos.txt` exige, para
+  cada pregunta, qué mensajes tienen que viajar entre los agentes y cuáles no (ver
+  [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo)).
 - **La lógica sale de los ejemplos 13 y 12**, en el momento de crear el equipo: hace falta la
   carpeta `mate` completa, y un equipo ya creado no cambia cuando se actualiza Mate.
 - **Límites:** un pedido es de un producto por vez, como en el ejemplo 12; no hay precios ni
@@ -2047,6 +2050,9 @@ tenes cafe?
   envío", porque adentro dice "hay envío". Conviene pedir pedazos que no se presten a
   confusión: un importe (`$ 29.401,50`), "sin envío", "no hay stock".
 
+En un equipo de agentes, un caso también puede exigir qué mensajes viajan entre ellos: está
+más abajo, en [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo).
+
 **El informe** dice, de cada pregunta, si pasó; y de cada una que falló, la pregunta, lo que
 contestó el programa y la regla que no cumplió. Este es el de los casos de muestra, con un
 modelo que contestó mal la última:
@@ -2146,6 +2152,68 @@ Lo que hay que saber:
   `mate\ejemplos\casos.txt` al lado de tu mostrador, con el nombre que quieras (por ejemplo
   `mi_negocio_casos.txt`), y cambiale las preguntas. `nuevo mostrador` no lo crea solo
   porque nunca toca una carpeta donde ya está el programa.
+
+### Ensayar la conversación de un equipo
+
+Con un equipo (el ejemplo 13, o lo que crea `nuevo equipo`) no alcanza con mirar lo que se le
+contesta al cliente: la respuesta puede estar bien y que Depósito nunca le haya avisado a
+Compras. Por eso, en el mismo archivo de casos, debajo de la pregunta, se puede exigir **qué
+mensajes tienen que viajar entre los agentes** mientras la atienden, y cuáles no:
+
+```
+# Un pedido que deja el azúcar por debajo del mínimo: Depósito le avisa a Compras.
+quiero 20 azucar
+    tiene que decir: anotado: 20 x
+    tiene que viajar: Reservar de Ventas a Deposito
+    tiene que viajar: Reponer de Deposito a Compras
+
+# Preguntar el precio no es pedir: se consulta el stock, pero no se reserva nada.
+cuanto salen 3 yerbas?
+    tiene que viajar: ConsultarStock de Ventas a Deposito
+    no tiene que viajar: Reservar
+```
+
+- Va el **nombre del mensaje** (el que está después de `mensaje` en el programa) y, si querés,
+  quién lo manda (`de`) y quién lo recibe (`a`), con los nombres de los agentes. Sin `de` ni
+  `a` vale lo mande quien lo mande: `no tiene que viajar: Reponer` falla si alguien, el que
+  sea, manda un `Reponer`.
+- Da igual con mayúsculas o minúsculas y con tilde o sin tilde (`depósito` es `Deposito`).
+- Las **respuestas** (`responder`) también son mensajes que viajan:
+  `tiene que viajar: Reserva de Deposito a Ventas`.
+- Lo que manda el programa, y no un agente, se escribe `el programa`:
+  `tiene que viajar: ConsultaDeCliente de el programa a Ventas`.
+- Con una barra `|` se dan opciones, como en las otras reglas: `tiene que viajar:` se cumple
+  con cualquiera; `no tiene que viajar:` falla si viaja alguno.
+- Se mira **solo lo que viaja por esa pregunta**: desde que el programa la lee hasta que
+  vuelve a pedir algo por teclado. Lo que se hablaron antes (cargar la planilla) no cuenta.
+- Las reglas de mensajes se pueden mezclar con las de `tiene que decir:`, y un caso puede
+  tener solo de unas o solo de otras. Los archivos de casos que ya tenías andan igual.
+- Si el nombre de un mensaje o de un agente no está en el programa, Mate no ensaya y dice en
+  qué renglón está (y cuál se parece): si no, un `no tiene que viajar:` con el nombre mal
+  escrito pasaría siempre.
+
+Cuando un caso de un equipo falla (por los mensajes o por lo que contestó), el informe muestra
+**la conversación de esa pregunta**: los mismos renglones que muestra `correr --traza`,
+numerados desde 1. Este es el del primer caso de arriba, con un equipo al que le pusieron
+`stock_minimo = 0` (así Depósito no pide nunca la reposición):
+
+```
+  ✗ quiero 20 azucar   (renglón 49 de mi_negocio_casos.txt)
+      Contestó: Ventas: Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.
+      No cumple: tiene que viajar: Reponer de Deposito a Compras
+      No cumple: tiene que viajar: Anotado de Compras a Deposito
+      La conversación de este caso (lo que se dijeron los agentes, en orden):
+          ·  1. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-1", dicho: "quiero 20 azucar" }   (conversación 1)
+          ·  2.    Ventas pregunta a Deposito: Reservar { charla: "consulta-1", producto: "Azúcar", cantidad: 20 }
+          ·  2.    Deposito responde a Ventas: Reserva { charla: "consulta-1", producto: "Azúcar", reservadas: 20, quedan: 5 }
+          ·  1. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-1", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
+      Qué mensajes viajan lo decide el programa, no la IA: una lección no lo cambia.
+      Hay que cambiar el programa (o el caso).
+```
+
+Un caso que falla **solo** por los mensajes no deja una lección propuesta: qué mensajes viajan
+lo decide el programa, y una lección es un pedido a la IA. Con un mostrador de un solo agente
+el informe es el de siempre, sin la conversación (salvo que el caso tenga reglas de mensajes).
 
 ## Referencia rápida
 
@@ -2586,8 +2654,9 @@ corre igual que en la 0.6:
 | El ejemplo `13_equipo_del_negocio.mate`: Ventas, Depósito y Compras se hablan con mensajes con contrato y un `contrato conversacion`; el stock es de Depósito solo y se recuerda | [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
 | `nuevo equipo mi_negocio`: crea ese equipo para tu negocio (programa, planilla y casos), sin copiar archivos a mano | [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
 | La clase 13 del curso: un equipo de agentes que se hablan | [El curso](#el-curso) |
+| En el archivo de casos de `ensayar`: `tiene que viajar: Reponer de Deposito a Compras` y `no tiene que viajar: Reponer`. Si un caso de un equipo falla, el informe muestra la conversación | [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo) |
 
-El detalle está en `MEJORAS.md`, mejora 124.
+El detalle está en `MEJORAS.md`, mejoras 124 y 125.
 
 ## Qué cambió en la 0.6
 

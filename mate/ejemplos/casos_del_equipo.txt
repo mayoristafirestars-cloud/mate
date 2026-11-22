@@ -1,5 +1,6 @@
-﻿# Casos para ensayar un equipo de agentes: lo que pregunta un cliente y lo que la
-# respuesta tiene que decir (o no puede decir). Estos son para el ejemplo 13 y la planilla
+﻿# Casos para ensayar un equipo de agentes: lo que pregunta un cliente, lo que la
+# respuesta tiene que decir (o no puede decir) y qué mensajes tienen que viajar entre
+# los agentes (o no). Estos son para el ejemplo 13 y la planilla
 # de muestra (precios.csv). Se escribe y se cambia con el Bloc de notas.
 # Un ensayo no descuenta stock ni anota nada: cada pregunta arranca con lo que Depósito
 # recuerda en ese momento. Si de un producto ya se vendió casi todo, sus casos van a
@@ -15,6 +16,13 @@
 #   - Debajo, lo que se espera de la respuesta, en uno o más renglones:
 #         tiene que decir: ...
 #         no puede decir: ...
+#   - En un equipo, también qué mensajes tienen que viajar entre los agentes mientras
+#     atienden esa pregunta. Va el nombre del mensaje y, si querés, quién lo manda (de)
+#     y quién lo recibe (a), con los nombres que tienen en el programa:
+#         tiene que viajar: Reservar de Ventas a Deposito
+#         no tiene que viajar: Reponer
+#     Las respuestas también viajan:   tiene que viajar: Reserva de Deposito a Ventas
+#     Si un caso falla, el informe muestra la conversación de esa pregunta, paso a paso.
 #   - Varias formas de preguntar lo mismo: una pregunta por renglón, una abajo de la
 #     otra, y las reglas una sola vez, debajo de todas.
 #   - Da igual con mayúsculas o minúsculas, y con tilde o sin tilde.
@@ -29,6 +37,18 @@ quiero 3 yerbas
 3 yerbas, las retiro yo
     tiene que decir: anotado: 3 x
     tiene que decir: $ 105.000,00
+    tiene que viajar: Reservar de Ventas a Deposito
+    tiene que viajar: Reserva de Deposito a Ventas
+# (quedan 37, más que el mínimo: a Compras no se le pide nada)
+    no tiene que viajar: Reponer
+
+# Un pedido que deja el producto por debajo del mínimo (de 25 bolsas de azúcar quedan 5):
+# Depósito le pide la reposición a Compras antes de contestarle a Ventas.
+quiero 20 azucar
+    tiene que decir: anotado: 20 x
+    tiene que viajar: Reservar de Ventas a Deposito
+    tiene que viajar: Reponer de Deposito a Compras
+    tiene que viajar: Anotado de Compras a Deposito
 
 # Preguntar el precio no es pedir: da la cuenta y no anota nada.
 cuanto salen 3 yerbas?
@@ -36,12 +56,16 @@ tenes 3 yerbas?
     tiene que decir: $ 105.000,00
     tiene que decir: todavía no anoté nada
     no puede decir: anotado: 3 x
+    tiene que viajar: ConsultarStock de Ventas a Deposito
+    no tiene que viajar: Reservar
 
 # No se vende lo que no hay: ni total ni envío.
 quiero 12 fideos con envio
 quiero 100000 yerbas
     tiene que decir: no hay stock | no llego a
     no puede decir: anotado: | va con envío
+# (Depósito contesta que reservó 0: no se vende una parte)
+    tiene que viajar: Reservar de Ventas a Deposito
 
 # Con menos de 10 unidades no hay envío, y el pedido no se anota hasta que el cliente
 # decida si lo retira o suma más.
@@ -49,9 +73,12 @@ me mandas 5 yerbas?
     tiene que decir: sin envío
     tiene que decir: todavía no anoté nada
     no puede decir: va con envío
+    no tiene que viajar: Reservar
 
 # Café no hay en la lista: no puede ofrecerlo ni ponerle precio.
 tenes cafe?
     no puede decir: si, tenemos | si tenemos | café a $
+# (y a Depósito ni se le pregunta: no hay producto que buscar)
+    no tiene que viajar: Reservar | ConsultarStock
 # Cuando ensayes con la IA de verdad, pedile más: sacale el # al renglón de abajo.
 #    tiene que decir: no lo trabajamos | no trabajamos | no tenemos

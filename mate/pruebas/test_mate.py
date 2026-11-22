@@ -12374,13 +12374,13 @@ def test_el_equipo_creado_se_puede_abrir_con_el_bloc_de_notas_y_se_ensaya_sin_to
     codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "tienda_casos.txt",
                                      "--ia-simulada")
     assert (codigo, err) == (0, "")
-    assert "8 de 8 casos pasaron." in salida and "  ✓ quiero 3 yerbas\n" in salida
+    assert "9 de 9 casos pasaron." in salida and "  ✓ quiero 3 yerbas\n" in salida
     assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == antes
     # lo mismo con los casos de muestra contra el ejemplo 13
     ruta = copia_del_equipo(tmp_path / "ejemplo") if (tmp_path / "ejemplo").mkdir() is None else ""
     codigo, salida, err = orden_mate(capsys, "ensayar", ruta,
                                      RAIZ / "ejemplos" / "casos_del_equipo.txt", "--ia-simulada")
-    assert (codigo, err) == (0, "") and "8 de 8 casos pasaron." in salida
+    assert (codigo, err) == (0, "") and "9 de 9 casos pasaron." in salida
     assert sorted(p.name for p in (tmp_path / "ejemplo").iterdir()) == [
         "12_mostrador_con_reglas.mate", EQUIPO, "precios.csv"]
 
@@ -12878,3 +12878,303 @@ def test_el_error_que_muestra_la_clase_13_es_el_que_da_mate(tmp_path, capsys):
     texto = (CURSO / "clase_13_equipo.md").read_text(encoding="utf-8")
     assert "".join("    " + r + "\n" for r in salida.splitlines()) in texto
     assert salida.splitlines()[0] == "Ventas: De yerba quedan 1: no llego a 4."
+
+
+# ── 0.7, cambio 2: 'ensayar' también mira la conversación entre agentes ──
+
+EQUIPO_PARA_ENSAYAR = """
+mensaje Consulta { dicho: texto } responde Respuesta
+mensaje Respuesta { texto: texto }
+mensaje Reservar { cantidad: numero } responde Reserva
+mensaje Reserva { reservadas: numero }
+mensaje Reponer { quedan: numero } responde Anotado
+mensaje Anotado
+mensaje Arranque
+
+agente Compras {
+    al recibir Reponer como r { responder Anotado {} }
+}
+agente Deposito {
+    estado stock = 10
+    al recibir Arranque { stock = 10 }
+    al recibir Reservar como r {
+        stock = stock - r.cantidad
+        si stock < 5 {
+            sea a = preguntar Reponer { quedan: stock } a Compras
+        }
+        responder Reserva { reservadas: r.cantidad }
+    }
+}
+agente Ventas {
+    al recibir Consulta como c {
+        si tiene(c.dicho, "quiero") {
+            var cantidad = 2
+            si tiene(c.dicho, "muchas") { cantidad = 8 }
+            sea r = preguntar Reservar { cantidad: cantidad } a Deposito
+            responder Respuesta { texto: "Anotado: {r.reservadas}" }
+        }
+        responder Respuesta { texto: "Decime qué querés" }
+    }
+}
+
+enviar Arranque {} a Deposito
+mientras verdadero {
+    sea dicho = leer("Cliente:", "chau")
+    si dicho == "chau" { romper }
+    sea r = preguntar Consulta { dicho: dicho } a Ventas
+    mostrar("Ventas: {r.texto}")
+}
+"""
+
+CASOS_DEL_EQUIPO_PARA_ENSAYAR = """# un pedido chico: se reserva y a Compras no se le pide nada
+quiero dos
+    tiene que decir: anotado: 2
+    tiene que viajar: Reservar de Ventas a Deposito
+    tiene que viajar: Reserva de Deposito a Ventas
+    no tiene que viajar: Reponer
+
+# un pedido grande: Depósito le pide la reposición a Compras
+quiero muchas
+    tiene que viajar: Reponer de Deposito a Compras
+    tiene que viajar: Anotado
+
+hola
+    no tiene que viajar: Reservar | Reponer
+"""
+
+
+def test_el_archivo_de_casos_dice_que_mensajes_tienen_que_viajar(tmp_path):
+    archivo = tmp_path / "casos.txt"
+    # como lo deja el Bloc de notas, y escrito de varias formas
+    archivo.write_bytes(("﻿hola\nbuenas\n  tiene que decir: decime\n"
+                         "  Tiene que viajar: reservar de ventas a depósito\n"
+                         "  NO TIENE QUE VIAJAR : Reponer | Anotado a Deposito\n"
+                         "  - no puede viajar: Arranque de el programa\n"
+                         "  debe viajar: \"Consulta de (programa) a Ventas\"\n"
+                         "chau\n  no debe viajar: Reponer.\n").replace("\n", "\r\n").encode("utf-8"))
+    hola, buenas, chau = mate.casos_de_archivo(str(archivo))
+    # las reglas de la respuesta quedan donde estaban; las de mensajes van aparte, con su renglón
+    assert hola["reglas"] == buenas["reglas"] == [(True, ("decime",))]
+    assert hola["mensajes"] == buenas["mensajes"] == [
+        (True, (("reservar", "ventas", "depósito"),), 4),
+        (False, (("Reponer", None, None), ("Anotado", None, "Deposito")), 5),
+        (False, (("Arranque", "(programa)", None),), 6),
+        (True, (("Consulta", "(programa)", "Ventas"),), 7)]
+    assert chau["reglas"] == [] and chau["mensajes"] == [(False, (("Reponer", None, None),), 9)]
+    # lo que muestra el informe se puede copiar tal cual al archivo
+    for debe, opciones, _ in hola["mensajes"]:
+        escrita = mate.viaje_escrito((debe, opciones))
+        assert mate.viaje_de_caso(escrita) == (debe, opciones)
+    assert mate.viaje_escrito(hola["mensajes"][1][:2]) == (
+        "no tiene que viajar: Reponer | Anotado a Deposito")
+    # una pregunta de un cliente que habla de viajar sigue siendo una pregunta
+    archivo.write_text("puede viajar el pedido a Rosario?\n  tiene que decir: envío\n",
+                       encoding="utf-8")
+    (caso,) = mate.casos_de_archivo(str(archivo))
+    assert caso["pregunta"] == "puede viajar el pedido a Rosario?" and caso["mensajes"] == []
+
+
+@pytest.mark.parametrize("texto,frase", [
+    ("tiene que viajar: Reponer\n", "casos.txt:1: esta regla no tiene una pregunta arriba"),
+    ("hola\ntiene que viajar Reponer\n", "casos.txt:2: este renglón parece una regla de mensajes, "
+                                         "pero no la entiendo (le faltan los dos puntos)"),
+    ("hola\npuede viajar: Reponer\n", "casos.txt:2: este renglón parece una regla de mensajes"),
+    ("hola\nno tiene que biajar: Reponer\n", "casos.txt:2: este renglón parece una regla de mensajes"),
+    ("hola\ntiene que viajar:  |  \n", "casos.txt:2: a esta regla le falta el nombre del mensaje"),
+    ("hola\ntiene que viajar: Reponer hacia Compras\n",
+     "casos.txt:2: no entiendo qué mensaje es 'Reponer hacia Compras'"),
+])
+def test_una_regla_de_mensajes_mal_escrita_dice_el_renglon(texto, frase, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "casos.txt").write_text(texto, encoding="utf-8")
+    with pytest.raises(mate.ErrorMate) as e:
+        mate.casos_de_archivo("casos.txt")
+    assert frase in e.value.mensaje
+    if "arriba" not in frase:
+        assert "tiene que viajar: Reservar de Ventas a Deposito" in e.value.mensaje
+
+
+def test_lo_que_viajo_se_compara_sin_mayusculas_ni_tildes_y_vale_el_nombre_de_una_copia():
+    viajes = [("Pedido", "(programa)", "Vendedor Centro", "(programa)", "Vendedor"),
+              ("Precio", "Vendedor Centro", "(programa)", "Vendedor", "(programa)")]
+
+    def falla(debe, *opcion):
+        return bool(mate.viajes_incumplidos(viajes, [(debe, (opcion,))]))
+    assert not falla(True, "pedido", None, None) and falla(False, "Pedido", None, None)
+    assert not falla(True, "Pedido", "(programa)", "vendedor")  # por el nombre del agente
+    assert not falla(True, "Pedido", None, "Vendedor  centro")  # o por el de la copia
+    assert falla(True, "Pedido", None, "Vendedor Sur") and falla(True, "Pedido", "Vendedor", None)
+    assert not falla(True, "Precio", "Vendedor", "(programa)")  # la respuesta también viajó
+    assert falla(True, "Stock", None, None) and not falla(False, "Stock", None, None)
+    # con opciones: 'tiene que' se cumple con cualquiera; 'no tiene que' falla si viajó alguna
+    assert mate.viajes_incumplidos(viajes, [
+        (True, (("Stock", None, None), ("Precio", None, None))),
+        (False, (("Stock", None, None), ("Precio", None, None)))]) == [
+        (False, (("Stock", None, None), ("Precio", None, None)))]
+    assert mate.viajes_incumplidos([], [(True, (("Pedido", None, None),))])
+
+
+def test_ensayar_exige_los_mensajes_que_viajan_entre_agentes(tmp_path, capsys, monkeypatch):
+    para_ensayar(tmp_path, monkeypatch, CASOS_DEL_EQUIPO_PARA_ENSAYAR, EQUIPO_PARA_ENSAYAR)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "")
+    assert "  ✓ quiero dos\n  ✓ quiero muchas\n  ✓ hola\n" in salida
+    assert "3 de 3 casos pasaron. No hizo falta consultar a la IA." in salida
+    assert "conversación" not in salida and "viajar" not in salida  # si pasa, no se muestra
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+
+
+def test_ensayar_muestra_la_conversacion_del_caso_que_falla(tmp_path, capsys, monkeypatch):
+    casos = ("quiero dos\n"
+             "    tiene que decir: anotado: 2\n"
+             "    tiene que viajar: Reponer de depósito a Compras\n"
+             "    no tiene que viajar: Reservar | Arranque\n"
+             "    tiene que viajar: Consulta de el programa a Ventas\n"
+             "hola\n"
+             "    tiene que viajar: Reservar\n"
+             "quiero muchas\n"
+             "    tiene que decir: anotado: 2\n"
+             "    no tiene que viajar: Arranque\n")
+    para_ensayar(tmp_path, monkeypatch, casos, EQUIPO_PARA_ENSAYAR)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "")
+    # falla por los mensajes: dice cuáles reglas (escritas como en el programa) y muestra la
+    # conversación de ESA pregunta, numerada desde 1 (el Arranque de antes no es del caso)
+    assert ("  ✗ quiero dos   (renglón 1 de casos.txt)\n"
+            "      Contestó: Ventas: Anotado: 2\n"
+            "      No cumple: tiene que viajar: Reponer de Deposito a Compras\n"
+            "      No cumple: no tiene que viajar: Reservar | Arranque\n"
+            "      La conversación de este caso (lo que se dijeron los agentes, en orden):\n"
+            '          ·  1. (programa) pregunta a Ventas: Consulta { dicho: "quiero dos" }'
+            "   (conversación 1)\n"
+            "          ·  2.    Ventas pregunta a Deposito: Reservar { cantidad: 2 }\n"
+            "          ·  2.    Deposito responde a Ventas: Reserva { reservadas: 2 }\n"
+            '          ·  1. Ventas responde a (programa): Respuesta { texto: "Anotado: 2" }\n'
+            "      Qué mensajes viajan lo decide el programa, no la IA: una lección no lo cambia.\n"
+            "      Hay que cambiar el programa (o el caso).\n"
+            "  ✗ hola   (renglón 6 de casos.txt)\n"
+            "      Contestó: Ventas: Decime qué querés\n"
+            "      No cumple: tiene que viajar: Reservar\n"
+            "      La conversación de este caso (lo que se dijeron los agentes, en orden):\n"
+            '          ·  1. (programa) pregunta a Ventas: Consulta { dicho: "hola" }'
+            "   (conversación 1)\n"
+            '          ·  1. Ventas responde a (programa): Respuesta { texto: "Decime qué querés" }\n'
+            "      Qué mensajes viajan lo decide el programa, no la IA: una lección no lo cambia.\n"
+            "      Hay que cambiar el programa (o el caso).\n") in salida
+    # el que falla solo por lo que se contestó, en un equipo, también muestra la conversación
+    tercero = salida.split("  ✗ quiero muchas   (renglón 8 de casos.txt)\n")[1]
+    assert tercero.startswith(
+        "      Contestó: Ventas: Anotado: 8\n"
+        '      No cumple: tiene que decir "anotado: 2"\n'
+        "      La conversación de este caso (lo que se dijeron los agentes, en orden):\n")
+    assert "          ·  3.       Deposito pregunta a Compras: Reponer { quedan: 2 }\n" in tercero
+    assert "          ·  3.       Compras responde a Deposito: Anotado\n" in tercero
+    assert "Qué mensajes viajan" not in tercero and "Arranque" not in tercero
+    assert "Esta respuesta la dio el programa, sin consultar a la IA" in tercero
+    assert "\n0 de 3 casos pasaron. No hizo falta consultar a la IA.\n" in salida
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]  # y no deja nada propuesto
+
+
+@pytest.mark.parametrize("regla,frase", [
+    ("no tiene que viajar: Reponr", "casos.txt:3: el programa no tiene ningún mensaje llamado "
+                                    "'Reponr'. ¿Quisiste decir 'Reponer'?"),
+    ("tiene que viajar: Reponer de Deposito a Compra",
+     "casos.txt:3: el programa no tiene ningún agente llamado 'Compra'. ¿Quisiste decir "
+     "'Compras'? (tiene: Compras, Deposito, Ventas)"),
+    ("tiene que viajar: Reservar | Reponer de Almacen",
+     "casos.txt:3: el programa no tiene ningún agente llamado 'Almacen'"),
+])
+def test_ensayar_no_arranca_con_un_mensaje_o_un_agente_que_el_programa_no_tiene(
+        regla, frase, tmp_path, capsys, monkeypatch):
+    # si no, un 'no tiene que viajar' con el nombre mal escrito pasaría siempre
+    para_ensayar(tmp_path, monkeypatch, f"hola\n  tiene que decir: decime\n  {regla}\n",
+                 EQUIPO_PARA_ENSAYAR)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert codigo == 2 and salida == "" and frase in err
+
+
+def test_un_caso_que_falla_por_los_mensajes_no_cambia_la_leccion_propuesta(tmp_path, capsys,
+                                                                          monkeypatch, ia):
+    # la lección es para la IA: nombra lo que la respuesta tiene que decir, no los mensajes
+    casos = ("tenes cafe?\n  tiene que decir: no lo trabajamos\n"
+             "  tiene que viajar: Consulta de Mostrador\n"
+             "tienen café?\n  tiene que decir: no lo trabajamos\n"
+             "  no tiene que viajar: Consulta\n")
+    para_ensayar(tmp_path, monkeypatch, casos)
+    ia.respuestas = [dice("Sí, tenemos café."), dice("No, eso no lo trabajamos.")]
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, err) == (1, "")
+    assert "      No cumple: tiene que viajar: Consulta de Mostrador\n" in salida
+    assert "      No cumple: no tiene que viajar: Consulta\n" in salida
+    assert salida.count("La conversación de este caso") == 2
+    assert salida.count("Qué mensajes viajan lo decide el programa, no la IA") == 2
+    # del segundo caso, que falló solo por los mensajes, no queda nada propuesto
+    assert "quedó 1 lección(es) propuesta(s)" in salida
+    (propuesta,) = memoria_de(tmp_path, "m")["agentes"]["Mostrador"]["propuestas"]
+    assert "no lo trabajamos" in propuesta["texto"] and "viajar" not in propuesta["texto"]
+    assert "Consulta" not in propuesta["texto"]
+
+
+def test_un_mostrador_solo_se_informa_como_siempre_sin_la_conversacion(tmp_path, capsys,
+                                                                     monkeypatch, ia):
+    para_ensayar(tmp_path, monkeypatch)
+    ia.respuestas = [dice("Sí, tenemos café."), dice("No, eso no lo trabajamos.")]
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, err) == (1, "") and "  ✗ tenes cafe?" in salida
+    assert "conversación de este caso" not in salida and "viaj" not in salida
+
+
+def test_los_casos_del_equipo_exigen_la_conversacion_y_avisan_si_se_rompe(tmp_path, capsys,
+                                                                       monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", "equipo", "tienda"]) == 0
+    texto = (tmp_path / "tienda_casos.txt").read_text(encoding="utf-8-sig")
+    for frase in ["qué mensajes tienen que viajar entre los", "#         no tiene que viajar: Reponer\n",
+                  "quiero 20 azucar\n", "    tiene que viajar: Reponer de Deposito a Compras\n",
+                  "    tiene que viajar: ConsultarStock de Ventas a Deposito\n",
+                  "    no tiene que viajar: Reservar | ConsultarStock\n"]:
+        assert frase in texto, frase
+    casos = mate.casos_de_archivo("tienda_casos.txt")
+    assert len(casos) == 9 and all(caso["mensajes"] for caso in casos)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "tienda_casos.txt",
+                                     "--ia-simulada")
+    assert (codigo, err) == (0, "") and "9 de 9 casos pasaron." in salida
+    # un equipo roto donde la respuesta al cliente sigue igual: Depósito ya no avisa a Compras
+    programa = (tmp_path / "tienda.mate").read_text(encoding="utf-8-sig")
+    assert programa.count("\nsea stock_minimo = 10\n") == 1
+    (tmp_path / "tienda.mate").write_text(
+        programa.replace("\nsea stock_minimo = 10\n", "\nsea stock_minimo = 0\n"), encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "tienda_casos.txt",
+                                     "--ia-simulada")
+    assert (codigo, err) == (1, "") and "8 de 9 casos pasaron." in salida
+    falla = salida.split("  ✗ quiero 20 azucar   (renglón ")[1].split("\n  ✓ ")[0]
+    assert "      Contestó: Ventas: Anotado: 20 x Azúcar" in falla
+    assert 'No cumple: tiene que decir' not in falla
+    assert "      No cumple: tiene que viajar: Reponer de Deposito a Compras\n" in falla
+    assert ("          ·  2.    Deposito responde a Ventas: Reserva { charla: \"consulta-1\", "
+            "producto: \"Azúcar\", reservadas: 20, quedan: 5 }\n") in falla
+    assert "pregunta a Compras" not in falla
+    # y el README muestra ese mismo informe
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    seccion = readme.split("### Ensayar la conversación de un equipo")[1].split("\n## ")[0]
+    for renglon in falla.splitlines()[1:]:
+        assert renglon in seccion, renglon
+
+
+def test_ensayar_la_conversacion_esta_documentado():
+    ayuda = mate.texto_de_ayuda()
+    assert "'tiene que viajar: Reservar de" in ayuda and "'no tiene que viajar: Reponer'" in ayuda
+    assert max(len(r) for r in ayuda.splitlines()) <= 100
+    assert "tiene que viajar: Reservar de Ventas a" in mate.texto_de_guia()
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "(#ensayar-la-conversación-de-un-equipo)" in readme.split(
+        "## Qué se está sumando para la 0.7")[1].split("\n## ")[0]
+    seccion = readme.split("### Ensayar la conversación de un equipo")[1].split("\n## ")[0]
+    for frase in ["tiene que viajar: Reponer de Deposito a Compras", "no tiene que viajar: Reservar",
+                  "`el programa`", "Las **respuestas** (`responder`) también",
+                  "no deja una lección propuesta", "Los archivos de casos que ya tenías andan igual"]:
+        assert frase in seccion, frase
+    mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+    ficha = mejoras.split("\n**125. `ensayar` también mira la conversación entre agentes**")[1]
+    ficha = ficha.split("\n\n")[0]
+    assert "Estado: hecha" in ficha and "Nota de lo decidido" in ficha and "Quedó afuera" in ficha

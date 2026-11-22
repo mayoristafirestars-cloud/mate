@@ -4610,6 +4610,9 @@ class Interprete:
         self.conversacion = None  # la del mensaje que se está atendiendo
         self.historial = []  # en una prueba: los sobres de lo que se mandó (mejora 98)
         self.desde = (0, 0)  # el número de mensaje y de conversación al empezar la prueba
+        # Con 'ensayar': lo que viajó entre agentes (tipo, de, a, molde de, molde a), en
+        # orden, respuestas incluidas. None en cualquier otra corrida.
+        self.viajes = None
         self.pasos = 0
         self.max_pasos = MAX_PASOS  # None = sin tope
         self.linea_actual = None  # la última sentencia que se empezó a ejecutar
@@ -6285,11 +6288,15 @@ class Interprete:
         de = rem.nombre if rem else "(programa)"
         conversacion, respuesta_a = sobre or (self.en_conversacion(), None)
         # En una prueba la traza numera desde 1, igual que mensajes_enviados().
-        numero0, conversacion0 = self.desde if self.en_prueba else (0, 0)
+        numero0, conversacion0 = (
+            self.desde if self.en_prueba or self.viajes is not None else (0, 0))
         visto = numero - numero0 if numero is not None else None
         if self.en_prueba and not aviso:
             self.historial.append(
                 (numero, de, dest.nombre, msg, pregunta, conversacion, respuesta_a))
+        if self.viajes is not None and not aviso:
+            self.viajes.append((msg.tipo, de, dest.nombre,
+                                rem.decl[2] if rem else de, dest.decl[2]))
         if self.traza and aviso:
             self.trazar(f"{dest.nombre} se entera de que {rem.nombre} no pudo atender "
                         f"{msg.campos['mensaje'].tipo}: {msg.campos['motivo']}", None, hondo)
@@ -6330,6 +6337,9 @@ class Interprete:
         finally:
             self.conversacion = afuera
         if pregunta:
+            if self.viajes is not None and isinstance(valor, Registro):
+                self.viajes.append((valor.tipo, dest.nombre, de, dest.decl[2],
+                                    rem.decl[2] if rem else de))
             if self.traza:
                 self.trazar(f"{dest.nombre} responde a {de}: {formato(valor, False)}",
                             visto, hondo)
@@ -7670,7 +7680,10 @@ FUNCIONES INCLUIDAS (no hay otras)
           mostrar("Dijiste: {{dicho}}")
       }}
   (La orden 'ensayar programa.mate casos.txt' prueba un programa así sin tipear: escribe
-  cada pregunta del archivo en el primer leer() y mira lo que el programa muestra después.)
+  cada pregunta del archivo en el primer leer() y mira lo que el programa muestra después.
+  En ese archivo, debajo de cada pregunta, va lo que se espera:  tiene que decir: sin envío
+  o  no puede decir: descuento  y, entre agentes,  tiene que viajar: Reservar de Ventas a
+  Deposito  o  no tiene que viajar: Reponer .)
 - consultar_ia(instrucciones, pregunta) le pregunta a una IA de verdad (Claude) y devuelve su
   respuesta como texto. Sirve adentro de un agente: el agente arma la pregunta, consulta y
   responde con su mensaje de siempre. Es paga y necesita la clave en la variable de entorno
@@ -9087,8 +9100,9 @@ def archivos_del_equipo(nombre, orden, carpeta_de_mate=None, fin_de_renglon=None
     # Los casos de muestra traen, de nota, cómo se ensaya el ejemplo 13: acá va cómo se
     # ensaya este equipo (desde el título 'Cómo se escribe' es el mismo archivo).
     corte = de_muestra.find(_CASOS_DESDE)
-    de_muestra = (f"# Casos para ensayar {programa}: lo que pregunta un cliente y lo que la "
-                  "respuesta\n# tiene que decir (o no puede decir). Es tuyo: cambialos y "
+    de_muestra = (f"# Casos para ensayar {programa}: lo que pregunta un cliente, lo que la "
+                  "respuesta\n# tiene que decir (o no puede decir) y qué mensajes tienen que "
+                  "viajar entre los\n# agentes (o no). Es tuyo: cambialos y "
                   "agregá los que quieras.\n# OJO: los casos que vienen acá son de muestra, "
                   "escritos para la planilla de muestra\n# (yerba, azúcar, fideos). Si cambiás "
                   f"los productos de {planilla}, cambiá\n# también estos casos: si no, "
@@ -9308,6 +9322,21 @@ _TODO_ENTRE_COMILLAS = re.compile(
     rf"(?i)(?:{_ENTRE_COMILLAS})(?:\s*(?:\||,|o\b|ni\b)?\s*(?:{_ENTRE_COMILLAS}))*")
 COMO_VAN_LAS_REGLAS = ('Las reglas van debajo de la pregunta y se escriben así:  '
                        'tiene que decir: sin envío   o   no puede decir: descuento')
+# (0.7) Lo que tiene que viajar entre agentes, o no, mientras se atiende esa pregunta:
+#     tiene que viajar: Reservar de Ventas a Deposito
+#     no tiene que viajar: Reponer
+# Va el nombre del mensaje y, si se quiere, quién lo manda ('de') y quién lo recibe ('a').
+# Las respuestas ('responder') también son mensajes que viajan. Con | se dan opciones.
+_REGLA_DE_VIAJE = re.compile(
+    r"(?is)(?:[-*•·]\s*)?(no\s+)?(tiene\s+que|debe|puede)\s+viajar\s*:(.*)")
+_UN_VIAJE = re.compile(r"(?i)(\w+)(?:\s+de\s+(?!a\s)(.+?))?(?:\s+a\s+(.+?))?")
+_PARECE_VIAJE = ("tiene que viajar", "no tiene que viajar", "debe viajar", "no debe viajar",
+                 "puede viajar", "no puede viajar")
+_VIAJAR_MAL_ESCRITO = ("viajar", "biajar", "viajr", "viaja", "viagar", "vajar", "viajarr")
+_EL_PROGRAMA = "(programa)"  # así figura en la traza lo que manda el programa, no un agente
+COMO_VAN_LOS_MENSAJES = ('Lo que tiene que viajar entre agentes se escribe así:  '
+                         'tiene que viajar: Reservar de Ventas a Deposito   o   '
+                         'no tiene que viajar: Reponer')
 
 
 class _FinDelEnsayo(BaseException):
@@ -9338,12 +9367,97 @@ def regla_de_caso(renglon):
         return not regla.group(1), opciones
     suelto = para_comparar(renglon).lstrip("-*•· ")
     antes = suelto.split(":")[0].split()  # "no puede desir: ...", "tiene q decir: ..."
+    if (suelto.startswith(_PARECE_VIAJE) and "?" not in renglon) or (
+            ":" in suelto and 1 <= len(antes) <= 5 and antes[-1] in _VIAJAR_MAL_ESCRITO):
+        raise ErrorMate("este renglón parece una regla de mensajes, pero no la entiendo"
+                        + ("" if ":" in renglon else " (le faltan los dos puntos)")
+                        + ". " + COMO_VAN_LOS_MENSAJES)
     if suelto.startswith(_PARECE_REGLA) or (
             ":" in suelto and 1 <= len(antes) <= 5 and antes[-1] in _DECIR_MAL_ESCRITO):
         raise ErrorMate("este renglón parece una regla, pero no la entiendo"
                         + ("" if ":" in renglon else " (le faltan los dos puntos)")
                         + ". " + COMO_VAN_LAS_REGLAS)
     return None
+
+
+def viaje_de_caso(renglon):
+    """Si el renglón es una regla de mensajes ('tiene que viajar: Reponer de Deposito a
+    Compras'): (verdadero si tiene que viajar, las opciones). Cada opción es (mensaje, de,
+    a), con None donde no se dijo quién. Si no lo es, None. Mal escrita, un ErrorMate."""
+    regla = _REGLA_DE_VIAJE.fullmatch(renglon)
+    if not regla or not (regla.group(1) or regla.group(2).lower() != "puede"):
+        return None
+    opciones = []
+    for parte in regla.group(3).split("|"):
+        parte = " ".join(parte.split()).rstrip(".")
+        for abre, cierra in _PARES_DE_COMILLAS:  # (copiada del informe, o con comillas)
+            if len(parte) > 1 and parte.startswith(abre) and parte.endswith(cierra):
+                parte = parte[1:-1].strip()
+        if not parte:
+            continue
+        viaje = _UN_VIAJE.fullmatch(parte)
+        if not viaje:
+            raise ErrorMate(f"no entiendo qué mensaje es '{parte}': va el nombre del "
+                            "mensaje, y si querés quién lo manda y quién lo recibe. "
+                            + COMO_VAN_LOS_MENSAJES)
+        opciones.append((viaje.group(1),) + tuple(
+            _EL_PROGRAMA if quien and para_comparar(quien).strip("()") in (
+                "programa", "el programa") else quien for quien in viaje.groups()[1:]))
+    if not opciones:
+        raise ErrorMate("a esta regla le falta el nombre del mensaje, después de los dos "
+                        "puntos. " + COMO_VAN_LOS_MENSAJES)
+    return not regla.group(1), tuple(opciones)
+
+
+def viaje_escrito(regla):
+    """La regla de mensajes como se escribe en el archivo de casos (se puede copiar)."""
+    debe, opciones = regla
+    return ("tiene que viajar: " if debe else "no tiene que viajar: ") + " | ".join(
+        tipo + (f" de {de}" if de else "") + (f" a {a}" if a else "")
+        for tipo, de, a in opciones)
+
+
+def viajes_incumplidos(viajes, reglas):
+    """Las reglas de mensajes del caso que no se cumplen con lo que viajó. viajes: lo que
+    anotó el intérprete, (mensaje, de, a, molde de, molde a). Una copia de un agente
+    ('crear Vendedor llamado "Centro"') vale por su nombre entero o por el del agente."""
+    def es(pedido, nombre, molde):
+        return pedido is None or para_comparar(pedido) in (
+            para_comparar(nombre), para_comparar(molde))
+
+    def viajo(opcion):
+        return any(para_comparar(opcion[0]) == para_comparar(tipo)
+                   and es(opcion[1], de, molde_de) and es(opcion[2], a, molde_a)
+                   for tipo, de, a, molde_de, molde_a in viajes)
+    return [regla for regla in reglas if any(map(viajo, regla[1])) != regla[0]]
+
+
+def revisar_viajes(casos, programa, ruta):
+    """Que cada regla de mensajes nombre un mensaje y agentes que el programa tiene: un
+    nombre mal escrito haría que 'no tiene que viajar' pasara siempre. Deja los nombres
+    escritos como en el programa. Falla con un ErrorMate que dice el renglón."""
+    def el_de(nombre, declarados, que, renglon):
+        igual = [d for d in declarados if para_comparar(d) == para_comparar(nombre)]
+        if igual:
+            return igual[0]
+        raise ErrorMate(con_sugerencia(
+            f"{ruta}:{renglon}: el programa no tiene {que} '{nombre}'", nombre, declarados)
+            + (f" (tiene: {', '.join(declarados)})" if 0 < len(declarados) <= 12 else ""))
+
+    mensajes = [s[2] for s in programa if s[0] == "mensaje"]
+    agentes = [s[2] for s in programa if s[0] == "agente"]
+    for caso in casos:
+        for i, (debe, opciones, renglon) in enumerate(caso["mensajes"]):
+            nuevas = []
+            for tipo, de, a in opciones:
+                tipo = el_de(tipo, mensajes, "ningún mensaje llamado", renglon)
+                de, a = (quien if quien in (None, _EL_PROGRAMA) or any(
+                    para_comparar(quien).startswith(para_comparar(agente) + " ")
+                    for agente in agentes)  # (una copia: "Vendedor Centro")
+                    else el_de(quien, agentes, "ningún agente llamado", renglon)
+                    for quien in (de, a))
+                nuevas.append((tipo, de, a))
+            caso["mensajes"][i] = (debe, tuple(nuevas), renglon)
 
 
 def sin_comillas_alrededor(opcion):
@@ -9370,9 +9484,11 @@ def regla_escrita(regla):
 
 
 def casos_de_archivo(ruta):
-    """Lee el archivo de casos de 'ensayar'. Devuelve [{"renglon", "pregunta", "reglas"}],
-    o falla con un ErrorMate que dice el renglón. Una o más preguntas seguidas (una por
-    renglón) comparten las reglas que tienen debajo; # es una nota."""
+    """Lee el archivo de casos de 'ensayar'. Devuelve [{"renglon", "pregunta", "reglas",
+    "mensajes"}], o falla con un ErrorMate que dice el renglón. Una o más preguntas
+    seguidas (una por renglón) comparten las reglas que tienen debajo; # es una nota.
+    reglas: lo que la respuesta tiene que decir o no. mensajes: lo que tiene que viajar
+    entre agentes o no, cada una con su renglón: (debe, opciones, renglón)."""
     try:
         contenido = leer_fuente(ruta)
     except FileNotFoundError:
@@ -9385,13 +9501,15 @@ def casos_de_archivo(ruta):
         if not renglon or renglon.startswith("#"):
             continue
         try:
-            regla = regla_de_caso(renglon)
+            viaje = viaje_de_caso(renglon)
+            regla = viaje or regla_de_caso(renglon)
         except ErrorMate as e:
             raise ErrorMate(f"{ruta}:{numero}: {e.mensaje}")
         if regla is None:
             if con_reglas:  # las reglas de arriba cerraron el grupo: acá empieza otro
                 grupo, con_reglas = [], False
-            grupo.append({"renglon": numero, "pregunta": renglon, "reglas": []})
+            grupo.append({"renglon": numero, "pregunta": renglon, "reglas": [],
+                          "mensajes": []})
             casos.append(grupo[-1])
         elif not grupo:
             raise ErrorMate(f"{ruta}:{numero}: esta regla no tiene una pregunta arriba. "
@@ -9399,7 +9517,10 @@ def casos_de_archivo(ruta):
                             "sus reglas")
         else:
             for caso in grupo:
-                caso["reglas"].append(regla)
+                if viaje:
+                    caso["mensajes"].append(viaje + (numero,))
+                else:
+                    caso["reglas"].append(regla)
             con_reglas = True
     if grupo and not con_reglas:
         raise ErrorMate(
@@ -9430,18 +9551,29 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
     que mostró antes), error (el
     texto, o None), limite (si lo cortó un tope de Mate), consultas (las que le hizo a la
     IA, como en consultas_ia()), agentes (los que consultaron), gasto y hechas (las
-    cuentas, para la pregunta que sigue). No toca el disco: ni memoria, ni bitácora, ni
-    los archivos que el programa escriba."""
-    mostrado, corte = [], {}
+    cuentas, para la pregunta que sigue), viajes (los mensajes que viajaron entre agentes
+    desde que leyó la pregunta, como en viajes_incumplidos()) y charla (los renglones de
+    la traza de esos mensajes, numerados desde 1). No toca el disco: ni memoria, ni
+    bitácora, ni los archivos que el programa escriba."""
+    mostrado, corte, charla = [], {}, []
 
     def entrada(cartel):
         if "desde" not in corte:
             corte["desde"], corte["cartel"] = len(mostrado), str(cartel or "")
+            # Lo que se habló antes (cargar la planilla, por ejemplo) no es de este caso:
+            # tampoco lo que el programa ya había mandado con 'enviar' y estaba por llegar
+            # (se entrega acá; lo que muestre sigue contando como parte de la respuesta).
+            if interprete.contexto is None and not interprete.naciendo:
+                interprete.vaciar_cola()
+            del interprete.viajes[:], charla[:]
+            interprete.desde = (interprete.cuenta["enviar"] + interprete.cuenta["preguntar"],
+                                interprete.conversaciones)
             return pregunta
         corte.setdefault("hasta", len(mostrado))
         raise _FinDelEnsayo()
 
-    interprete = Interprete(salida=lambda texto: mostrado.append(str(texto)))
+    interprete = Interprete(salida=lambda texto: mostrado.append(str(texto)), traza=True)
+    interprete.anotar, interprete.viajes = charla.append, []
     interprete.archivo, interprete.entrada, interprete.ensayando = ruta, entrada, True
     interprete.archivos_de_prueba = {}  # lo que escriba no llega al disco
     interprete.ia_simulada, interprete.ia_respuestas = bool(simulada), list(respuestas)
@@ -9474,6 +9606,8 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
             "respuesta": "\n".join(mostrado[desde:corte.get("hasta")]).strip(),
             "antes": mostrado[:desde], "error": error, "limite": bool(limite),
             "consultas": list(interprete.ia_historial), "agentes": agentes,
+            "viajes": list(interprete.viajes) if "desde" in corte else [],
+            "charla": list(charla) if "desde" in corte else [],
             "gasto": {nombre: gasto_limpio(agente.gasto)
                       for nombre, agente in interprete.agentes.items() if agente.gasto},
             "hechas": interprete.ia_consultas}
@@ -9504,7 +9638,8 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                   if len(args) > 2 else "") + f". Por ejemplo:  {ejemplo}",
                "al escribir la orden: 'ensayar' sin el programa o sin los casos", True)
         return 2
-    for opcion, por_que in (("--traza", "muestra un informe, no la conversación"),
+    for opcion, por_que in (("--traza", "muestra un informe, con la conversación de los "
+                                        "casos que fallan en un equipo"),
                             ("--olvidar", "nunca cambia lo que recuerdan los agentes")):
         if opcion in opciones:
             avisar(f"{opcion} no va con 'ensayar' ({por_que}). Para ver una charla paso a "
@@ -9541,7 +9676,8 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         avisar(e.mensaje)
         return 2
     try:
-        con_errores = bool(verificar(analizar(leer_fuente(ruta), ruta)))
+        arbol = analizar(leer_fuente(ruta), ruta)
+        con_errores = bool(verificar(arbol))
     except OSError:
         avisar(f"no pude abrir {ruta}")
         return 2
@@ -9553,6 +9689,7 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         return 1
     archivo_memoria = archivo_de(ruta, "memoria.json")
     try:
+        revisar_viajes(casos, arbol, args[1])
         memoria = leer_memoria(archivo_memoria)[0]
     except ErrorMate as e:
         avisar(e.mensaje)
@@ -9616,7 +9753,7 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 return 2
             if dado["limite"]:
                 if falla is None:
-                    falla = dict(dado, vez=vez, incumplidas=[])
+                    falla = dict(dado, vez=vez, incumplidas=[], sin_viajar=[])
                 cortado = dado["error"]
                 break
             if sin_ia:
@@ -9636,10 +9773,12 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 mudas_seguidas = 0
             incumplidas = [] if dado["error"] else reglas_incumplidas(
                 dado["respuesta"], caso["reglas"])
-            if not dado["error"] and not incumplidas:
+            sin_viajar = [] if dado["error"] else viajes_incumplidos(
+                dado["viajes"], [regla[:2] for regla in caso["mensajes"]])
+            if not dado["error"] and not incumplidas and not sin_viajar:
                 pasadas += 1
             elif falla is None:
-                falla = dict(dado, vez=vez, incumplidas=incumplidas)
+                falla = dict(dado, vez=vez, incumplidas=incumplidas, sin_viajar=sin_viajar)
         pasaron += pasadas == veces
         sin_comprobar += bool(mudas) and falla is None
         frenadas += con_freno
@@ -9680,8 +9819,23 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 mostrar(f"          {parte}")
             for regla in falla["incumplidas"]:
                 mostrar(f"      No cumple: {regla_escrita(regla)}")
+            for regla in falla["sin_viajar"]:
+                mostrar(f"      No cumple: {viaje_escrito(regla)}")
             if falla["error"]:
                 mostrar(f"      El programa falló: {falla['error']}")
+            # La conversación del caso: si el caso pide algo de los mensajes, o si hubo
+            # agentes hablando entre ellos (un mostrador solo se informa como siempre).
+            if caso["mensajes"] or any(_EL_PROGRAMA not in viaje[1:3]
+                                       for viaje in falla["viajes"]):
+                if falla["charla"]:
+                    mostrar("      La conversación de este caso (lo que se dijeron los "
+                            "agentes, en orden):")
+                    for renglon in falla["charla"]:
+                        mostrar("        " + (renglon if len(renglon) <= 300
+                                              else renglon[:300].rstrip() + "..."))
+                else:
+                    mostrar("      En este caso no viajó ningún mensaje: nadie le habló a "
+                            "ningún agente.")
             frenos_dichos = []
             for consulta in falla["consultas"]:
                 freno = consulta.get("freno") and (
@@ -9691,12 +9845,17 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 if freno and freno not in frenos_dichos:  # (dos intentos iguales: una vez)
                     frenos_dichos.append(freno)
                     mostrar(freno)
-            if falla["error"]:
+            if falla["sin_viajar"]:
+                mostrar("      Qué mensajes viajan lo decide el programa, no la IA: una "
+                        "lección no lo cambia.")
+                mostrar("      Hay que cambiar el programa (o el caso).")
+            if falla["error"] or not falla["incumplidas"] and falla["sin_viajar"]:
                 pass
             elif not falla["consultas"]:
-                mostrar("      Esta respuesta la dio el programa, sin consultar a la IA: una "
-                        "lección no la cambia.")
-                mostrar("      Hay que cambiar el programa (o el caso).")
+                if not falla["sin_viajar"]:  # (si no, ya se dijo recién)
+                    mostrar("      Esta respuesta la dio el programa, sin consultar a la "
+                            "IA: una lección no la cambia.")
+                    mostrar("      Hay que cambiar el programa (o el caso).")
                 if not falla["respuesta"] and falla["otra"]:
                     mostrar("      (El programa volvió a pedir algo por teclado sin mostrar "
                             "nada: quizás su primer")
@@ -9821,7 +9980,11 @@ def texto_de_ayuda():
         "                           pregunta del cliente y, debajo, 'tiene que decir: ...' o",
         "                           'no puede decir: ...') y dice cuáles contestó bien. Con",
         "                           --ia-simulada no gasta; sin eso contesta la IA de verdad,",
-        "                           y los casos que fallan quedan como lección propuesta",
+        "                           y los casos que fallan quedan como lección propuesta.",
+        "                           En un equipo, un caso también puede exigir qué mensajes",
+        "                           viajan entre los agentes: 'tiene que viajar: Reservar de",
+        "                           Ventas a Deposito' o 'no tiene que viajar: Reponer'. Si un",
+        "                           caso falla, el informe muestra la conversación",
         "",
         "Para que un agente aprenda (mirá 'ayuda recordado'):",
         '  corregir  archivo.mate Mostrador "la lección"   le anota una lección a ese agente',
