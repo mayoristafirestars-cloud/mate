@@ -210,8 +210,9 @@ agente Ventas {
     }
 
     al recibir DejarDeEsperar como d {
-        sea esperaba = obtener(pendientes, d.cliente, nada)
-        pendientes = quitar(pendientes, d.cliente)
+        sea quien = recortar(d.cliente)
+        sea esperaba = obtener(pendientes, quien, nada)
+        pendientes = quitar(pendientes, quien)
         si esperaba == nada {
             responder Dejado { aviso: "" }
         }
@@ -220,14 +221,16 @@ agente Ventas {
 
     al recibir ConsultaDeCliente como c {
         # Sin saber quién habla no se puede saber de quién es el "si".
-        si recortar(c.cliente) == "" {
+        # (El nombre vale sin los espacios de alrededor: "ana" y "ana " son la misma.)
+        sea quien = recortar(c.cliente)
+        si quien == "" {
             fallar("la consulta no dice de qué cliente es (el campo 'cliente' vino vacío)")
         }
         # 0. ¿ESTE cliente tenía un pedido esperando el "si"? Lo que conteste ahora decide,
         #    y su pedido deja de esperar: solo un "si" claro, y nada más, lo anota. (Lo que
         #    esperan los demás clientes no se mira ni se toca.)
-        sea esperaba = obtener(pendientes, c.cliente, nada)
-        pendientes = quitar(pendientes, c.cliente)
+        sea esperaba = obtener(pendientes, quien, nada)
+        pendientes = quitar(pendientes, quien)
         # (lo que se le dice primero si contestó otra cosa: que lo de antes no se anotó)
         var antes = ""
         si esperaba != nada {
@@ -275,7 +278,7 @@ agente Ventas {
             # Es un pedido claro. Igual NO se anota todavía: Ventas lo repite con la cuenta
             # completa y con cuántos bultos son, lo deja esperando y pide el "si". Si
             # entendió mal, el cliente lo ve acá, antes de que se descuente nada.
-            pendientes[c.cliente] = { fila: pedido.fila, cantidad: pedido.cantidad, envio: pedido.envio }
+            pendientes[quien] = { fila: pedido.fila, cantidad: pedido.cantidad, envio: pedido.envio }
             responder RespuestaDeVentas { charla: c.charla, respuesta: antes + pregunta_de_confirmar(pedido) }
         }
         # 2. Quiere devolver, anular o dice "no quiero...": no se anota nada, y tampoco se

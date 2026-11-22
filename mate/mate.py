@@ -29,6 +29,7 @@ import csv
 import datetime
 import decimal
 import difflib
+import errno
 import io
 import json
 import math
@@ -3835,9 +3836,42 @@ def nombre_provisorio(ruta):
     return f"{ruta}.{marca}.tmp"
 
 
+PROVISORIO_DE_MATE = re.compile(r"\.\d+-[0-9a-f]{8}(\.json)?\.tmp\Z")
+LIMPIADAS = set()  # las carpetas donde esta corrida ya buscó provisorios viejos
+
+
+def limpiar_provisorios_viejos(carpeta):
+    """Saca de esa carpeta los provisorios de Mate (los de nombre_provisorio) de más de un
+    día: quedaron de una corrida que murió justo entre crearlo y ponerle el nombre. Como
+    llevan el número del proceso, la corrida siguiente ya no los pisa. Se mira una vez por
+    carpeta y por corrida; lo que no tiene esa forma de nombre no se toca, y de un acceso
+    directo se saca el acceso, no el archivo al que apunta."""
+    carpeta = os.path.abspath(carpeta or ".")
+    if carpeta in LIMPIADAS:
+        return
+    LIMPIADAS.add(carpeta)
+    try:
+        nombres = os.listdir(carpeta)
+    except OSError:
+        return
+    ahora = time.time()
+    for nombre in nombres:
+        if not PROVISORIO_DE_MATE.search(nombre.lower()):
+            continue
+        completo = os.path.join(carpeta, nombre)
+        try:
+            datos = os.lstat(completo)
+            if (stat.S_ISREG(datos.st_mode) or stat.S_ISLNK(datos.st_mode)) \
+                    and ahora - datos.st_mtime > VIDA_DE_UN_PROVISORIO:
+                os.remove(completo)
+        except OSError:
+            pass
+
+
 def escribir_entero(ruta, texto):
     """Escribe el archivo de una sola vez: primero en uno provisorio al lado y recién
     después lo pone en su lugar. Así nunca queda a medio escribir."""
+    limpiar_provisorios_viejos(os.path.dirname(ruta))
     provisorio = nombre_provisorio(ruta)
     try:
         # con la marca del principio, para que el Bloc de notas muestre bien las tildes
@@ -4161,8 +4195,10 @@ def abrir_sin_seguir(ruta):
     acceso directo a otro lado. Devuelve el archivo abierto ("rb"); OSError si no es un
     archivo común o no se puede abrir.
     - Donde el sistema lo tiene (Linux, macOS), O_NOFOLLOW hace que abrir un acceso directo
-      falle. En Windows no existe: ahí, con el archivo ya abierto, se mira que lo que hay
-      con ese nombre no sea un acceso directo (achica ese momento; no lo cierra del todo).
+      falle. En Windows no existe: ahí, con el archivo ya abierto, se controla que ese
+      archivo abierto sea el mismo que hay en la carpeta con ese nombre (y que ese nombre
+      no sea un acceso directo): si en el medio lo cambiaron por un acceso directo a otro
+      lado, lo abierto es lo de afuera y no coincide. (Sin probar en una Windows de verdad.)
     - O_NONBLOCK: una tubería con nombre de sobre no deja al programa esperando."""
     fd = os.open(ruta, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
                  | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0)
@@ -4170,7 +4206,8 @@ def abrir_sin_seguir(ruta):
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError(f"{ruta} no es un archivo común")
-        if not hasattr(os, "O_NOFOLLOW") and os.path.islink(ruta):
+        if not hasattr(os, "O_NOFOLLOW") and (
+                os.path.islink(ruta) or not es_el_de_la_carpeta(fd, ruta)):
             raise OSError(f"{ruta} es un acceso directo")
         f = os.fdopen(fd, "rb")
         fd = None
@@ -4205,18 +4242,59 @@ def leer_sobre(ruta):
     return revisar_sobre(datos)
 
 
+class SinCandado(OSError):
+    """Acá no se puede tener un candado, y no es porque lo tenga otra ventana. motivo:
+    "sistema" (la carpeta está en un lugar donde el sistema no da candados: pasa en algunas
+    carpetas de red) o "carpeta" (no hay un archivo de candado y no se puede crear: una
+    carpeta donde no se puede escribir)."""
+    def __init__(self, motivo, por_que=""):
+        super().__init__(por_que)
+        self.motivo = motivo
+
+
+def candado_ocupado(e):
+    """¿Ese error de pedir el candado quiere decir "lo tiene otro"? (Cualquier otro quiere
+    decir que acá no hay candados: no es lo mismo, y no se puede avisar lo mismo.)"""
+    ocupado = {errno.EACCES, errno.EAGAIN, getattr(errno, "EWOULDBLOCK", errno.EAGAIN),
+               getattr(errno, "EDEADLK", errno.EAGAIN), getattr(errno, "EDEADLOCK", errno.EAGAIN)}
+    return e.errno in ocupado
+
+
 def tomar_candado(ruta):
     """El candado del buzón: lo tiene una sola ventana a la vez, y el sistema lo suelta si
     el programa muere. Devuelve el archivo abierto con el candado tomado, o None si lo
-    tiene otra ventana. No espera. (OSError si el archivo no se puede crear.) Un 'candado'
-    que es un acceso directo no se sigue: se saca y se crea uno de verdad. Se crea como
-    cualquier archivo de datos (0o666 menos lo que saque el sistema), sin permiso de
-    ejecución: os.open(), si no se le dice, lo crea con 0o777."""
+    tiene otra ventana. No espera. Un 'candado' que es un acceso directo no se sigue: se
+    saca y se crea uno de verdad. Se crea como cualquier archivo de datos (0o666 menos lo
+    que saque el sistema), sin permiso de ejecución: os.open(), si no se le dice, lo crea
+    con 0o777.
+    Lo que NO es "lo tiene otra ventana" sale como error, para que nadie lo confunda:
+    - SinCandado("carpeta"): no hay archivo de candado y no se puede crear;
+    - SinCandado("sistema"): el sistema no da candados en esa carpeta;
+    - otro OSError: hay algo con ese nombre que no se puede usar de candado (una carpeta,
+      una tubería, un archivo sobre el que no hay permiso).
+    Si el archivo es de otro usuario del sistema y no se puede abrir para escribir, se abre
+    para leer: el candado se toma igual, y es el mismo para los dos."""
     if os.path.islink(ruta):
         os.remove(ruta)
-    f = open(ruta, "a+b",
-             opener=lambda donde, como: os.open(donde, como | getattr(os, "O_NOFOLLOW", 0),
-                                                0o666))
+    como = (getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0)
+            | getattr(os, "O_CLOEXEC", 0))
+    try:
+        fd = os.open(ruta, os.O_RDWR | os.O_CREAT | como, 0o666)
+    except OSError as e:
+        if not os.path.lexists(ruta):
+            raise SinCandado("carpeta", str(e))
+        if not isinstance(e, PermissionError):
+            raise
+        fd = os.open(ruta, os.O_RDONLY | como)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "no es un archivo común", ruta)
+        f = os.fdopen(fd, "rb", buffering=0)
+        fd = None
+    finally:
+        if fd is not None:
+            os.close(fd)
     try:
         if os.name == "nt":
             import msvcrt
@@ -4225,9 +4303,11 @@ def tomar_candado(ruta):
         else:
             import fcntl
             fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    except OSError as e:
         f.close()
-        return None
+        if candado_ocupado(e):
+            return None
+        raise SinCandado("sistema", str(e))
     return f
 
 
@@ -4251,7 +4331,8 @@ def tomar_candado_de_memoria(ruta, espera=0.0):
     programa). Lo tiene una sola corrida a la vez y el sistema lo suelta solo si el proceso
     muere (es el mismo mecanismo que el candado del buzón). Devuelve el archivo abierto con
     el candado tomado, o None si lo tiene otra corrida y no lo soltó en 'espera' segundos.
-    OSError si el archivo no se puede crear (una carpeta donde no se puede escribir).
+    SinCandado si acá no se puede tener uno (ver tomar_candado), y otro OSError si con ese
+    nombre hay algo que no se puede usar de candado.
     El archivo se borra al soltar; por eso, después de tomarlo, se controla que el archivo
     con candado sea el que está en la carpeta (otra corrida pudo borrarlo justo antes). En
     Windows ese control no hace falta: ahí un archivo que alguien tiene abierto no se borra."""
@@ -4260,7 +4341,15 @@ def tomar_candado_de_memoria(ruta, espera=0.0):
     while True:
         try:
             f = tomar_candado(ruta)
-        except OSError:
+        except OSError as e:
+            if getattr(e, "motivo", "") == "sistema":
+                # El archivo que se acaba de crear no sirve de nada: no se deja ahí.
+                try:
+                    if stat.S_ISREG(os.lstat(ruta).st_mode):
+                        os.remove(ruta)
+                except OSError:
+                    pass
+                raise
             # (en Windows, abrir un archivo que otra corrida está borrando da un error que
             # se va solo)
             fallas += 1
@@ -4284,7 +4373,8 @@ def tomar_candado_de_memoria(ruta, espera=0.0):
 def es_el_de_la_carpeta(f, ruta):
     """¿Ese archivo abierto es el que hoy está en la carpeta con ese nombre?"""
     try:
-        mio, puesto = os.fstat(f.fileno()), os.lstat(ruta)
+        mio = os.fstat(f if isinstance(f, int) else f.fileno())
+        puesto = os.lstat(ruta)
     except OSError:
         return False
     return (mio.st_dev, mio.st_ino) == (puesto.st_dev, puesto.st_ino)
@@ -4552,7 +4642,13 @@ class Buzon:
             return []
         try:
             self.candado = tomar_candado(os.path.join(self.carpeta, "candado"))
-        except OSError:
+        except OSError as e:
+            if getattr(e, "motivo", "") == "sistema":
+                self.avisar(f"en la carpeta de {self.archivo} el sistema no da candados "
+                            "(pasa en algunas carpetas de red), y sin candado no atiendo "
+                            f"el buzón ({nombre}): los mensajes quedan ahí. Poné los "
+                            "programas en una carpeta común de esta computadora")
+                return []
             self.avisar(f"no pude tomar el candado del buzón ({nombre}): los mensajes "
                         "quedan para la próxima corrida. Fijate que se pueda escribir en "
                         "esa carpeta")
@@ -13575,9 +13671,16 @@ def _main(argv, donde):
             return True
         try:
             candado = tomar_candado_de_memoria(archivo_candado, espera)
-        except OSError:  # (una carpeta donde no se puede escribir: se sigue sin candado)
+        except SinCandado as e:  # acá no hay candados: se sigue sin (avisando, si importa)
+            avisar_sin_candado(e)
             hacer()
             return True
+        except OSError as e:  # hay algo con ese nombre que no sirve de candado: no se hace
+            if not aprendido.get("avisado"):
+                aprendido["avisado"] = True
+                avisar("aviso: " + no_pude_tomar_el_candado(e) + ". Mientras tanto, lo que "
+                       "quedó por salir al buzón de otro programa sale recién al terminar")
+            return False
         if candado is None:
             return False
         try:
@@ -13585,6 +13688,31 @@ def _main(argv, donde):
         finally:
             soltar_candado_de_memoria(candado, archivo_candado)
         return True
+
+    def avisar_sin_candado(e):
+        """Sin candado porque el sistema no los da en esa carpeta: la memoria igual se
+        guarda, así que se avisa (una vez) que acá nadie cuida que haya una sola ventana.
+        Si es porque en la carpeta no se puede escribir, no hay nada que avisar: ahí la
+        memoria tampoco se puede guardar, y eso ya se avisa al terminar."""
+        if e.motivo == "sistema" and not aprendido.get("avisado"):
+            aprendido["avisado"] = True
+            avisar(f"aviso: en esta carpeta el sistema no da candados (pasa en algunas "
+                   f"carpetas de red), así que no puedo fijarme si {os.path.basename(ruta)} "
+                   "ya está abierto en otra ventana. Usalo en una sola ventana a la vez: "
+                   "con dos, una pisa lo que anotó la otra")
+
+    def no_pude_tomar_el_candado(e):
+        nombre = os.path.basename(archivo_candado)
+        if os.path.isdir(archivo_candado):
+            que = "con ese nombre hay una carpeta"
+        elif isinstance(e, PermissionError):
+            que = "no tengo permiso para abrirlo (¿lo creó otro usuario de esta computadora?)"
+        else:
+            que = "con ese nombre hay algo que no es un archivo común"
+        return (f"no pude tomar {nombre}, el archivo que marca que "
+                f"{os.path.basename(ruta)} está abierto: {que}. Si no hay ninguna otra "
+                "ventana con este programa, borralo (o cambiale el nombre) y corré esto de "
+                "nuevo")
 
     def cerrar_buzon(buzon, nueva):
         """Al terminar 'correr', si en esta corrida hubo buzón. La memoria es el punto de
@@ -13741,8 +13869,18 @@ def _main(argv, donde):
                 try:
                     aprendido["candado"] = tomar_candado_de_memoria(archivo_candado)
                     ocupado = aprendido["candado"] is None
-                except OSError:  # (una carpeta donde no se puede escribir: sin candado)
+                except SinCandado as e:
+                    # Acá no se puede tener candado y no es por otra ventana: el programa
+                    # corre igual (decir "ya hay otra ventana" lo dejaría sin correr nunca).
+                    avisar_sin_candado(e)
                     ocupado = False
+                except OSError as e:
+                    # Hay algo con ese nombre que no se puede tomar (una carpeta, un archivo
+                    # ajeno sin permiso): no se puede saber si hay otra ventana, y correr
+                    # igual sería perder justo lo que el candado cuida. No se arranca.
+                    avisar(no_pude_tomar_el_candado(e) + ". Acá no se tocó nada: ni la "
+                           "memoria ni el buzón")
+                    return 2
                 if ocupado:
                     nombre = os.path.basename(ruta)
                     avisar(f"ya hay otra ventana abierta con {nombre}. Este programa "

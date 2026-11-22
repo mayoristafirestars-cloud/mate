@@ -1171,8 +1171,13 @@ que alguien haya dejado adentro (ni en los archivos provisorios `.tmp` ni en el 
 lo saca y crea un archivo de verdad. Tampoco lee a través de uno: cada sobre se abre una
 sola vez, sin seguir accesos directos, y se controla que sea un archivo común sobre ese
 mismo archivo ya abierto (así nadie lo cambia entre que Mate lo mira y lo lee); lo que no
-es un archivo común queda ahí, sin atender ni borrar. Los provisorios llevan el número del
-proceso en el nombre: dos corridas que escriben a la vez no se pisan el suyo. Lo que un programa ya atendió y lo que todavía tiene
+es un archivo común queda ahí, sin atender ni borrar. (En Windows el sistema no deja pedir
+"abrir sin seguir accesos directos": ahí Mate abre y después controla que lo que abrió sea
+el mismo archivo que está en la carpeta con ese nombre. Esa parte no se probó en una
+Windows de verdad.) Los provisorios llevan el número del
+proceso en el nombre: dos corridas que escriben a la vez no se pisan el suyo; si una
+corrida muere justo en el medio, el suyo puede quedar (`algo.1234-ab12cd34.tmp`): Mate lo
+borra solo cuando tiene más de un día. Lo que un programa ya atendió y lo que todavía tiene
 que repartir queda anotado en su archivo de memoria (`deposito.memoria.json`, en la parte
 `"buzon"`), que `corregir`, `lecciones` y `--olvidar` no tocan. Esas dos funciones tampoco
 escriben en la memoria de un programa nombrado con `usar buzon` (la de otros programas de
@@ -1630,6 +1635,12 @@ python mate\mate.py correr mi_mostrador.mate          (arranca en 1 y termina en
   terminar; si la ventana se cierra de golpe (la X, un corte de luz) el archivo puede
   quedar, pero el candado lo suelta el sistema y la corrida siguiente arranca normalmente.
   No hace falta borrarlo, y borrarlo a mano con el programa abierto le saca la protección.
+  Dos casos raros: si con ese nombre hay algo que Mate no puede usar (una carpeta, o un
+  archivo sobre el que no tenés permiso), el programa **no arranca** y avisa `no pude tomar
+  mi_mostrador.memoria.candado`: sacalo de ahí y corré de nuevo (correr sin candado sería
+  perder la protección sin enterarte). Y si la carpeta está en un lugar donde el sistema no
+  da candados (pasa en algunas carpetas de red), el programa corre igual y avisa `aviso: en
+  esta carpeta el sistema no da candados`: ahí nadie cuida que haya una sola ventana.
 - **Con el programa abierto en una ventana se puede seguir trabajando desde otra** en todo
   lo que no es correrlo: `probar`, `verificar` y `ensayar` no se traban (no escriben el
   estado), y tampoco anotar una lección con `corregir` o aprobar una propuesta. Al guardar,
@@ -3311,8 +3322,13 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
   arranca, así que dos cajas no pueden atender a la vez con el mismo programa; para eso
   haría falta otra cosa que un archivo (queda para más adelante). El candado es entre
   ventanas de una misma computadora: en una carpeta compartida por red o sincronizada
-  (OneDrive, Dropbox) no está probado y no hay que contar con él. El pedido que espera el
-  `si` es por cliente, pero la charla por teclado tiene un solo cliente. Las lecciones solo le llegan a la IA por `consultar_ia`: no cambian lo que
+  (OneDrive, Dropbox) no está probado y no hay que contar con él (si el sistema directamente
+  no da candados ahí, Mate lo avisa y corre sin esa protección; el buzón, sin candado, no
+  se atiende). Otro usuario de la misma computadora que pueda leer la carpeta puede tener
+  tomado el candado y dejar el programa sin arrancar. Las órdenes que anotan en la memoria
+  sin correr el programa (`corregir`, aprobar una propuesta) no toman el candado: dos a la
+  vez, justo en el mismo instante, pueden pisarse una lección. El pedido que espera el
+  `si` es por cliente, pero la charla por teclado tiene un solo cliente. Ese pedido no caduca solo: espera hasta que ese cliente vuelva a escribir o el programa termine (el nombre del cliente vale sin los espacios de alrededor). Las lecciones solo le llegan a la IA por `consultar_ia`: no cambian lo que
   hace el resto del programa (para eso está `lecciones()`).
 - El registro de errores de uso anota un renglón por corrida que falla (el primer error, y
   cuántos más hubo) y no anota nada con `probar`. Tapa lo que tiene forma de dato tuyo, pero
