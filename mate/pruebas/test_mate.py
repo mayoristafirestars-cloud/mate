@@ -12374,13 +12374,13 @@ def test_el_equipo_creado_se_puede_abrir_con_el_bloc_de_notas_y_se_ensaya_sin_to
     codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "tienda_casos.txt",
                                      "--ia-simulada")
     assert (codigo, err) == (0, "")
-    assert "9 de 9 casos pasaron." in salida and "  ✓ quiero 3 yerbas\n" in salida
+    assert "10 de 10 casos pasaron." in salida and "  ✓ quiero 3 yerbas\n" in salida
     assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == antes
     # lo mismo con los casos de muestra contra el ejemplo 13
     ruta = copia_del_equipo(tmp_path / "ejemplo") if (tmp_path / "ejemplo").mkdir() is None else ""
     codigo, salida, err = orden_mate(capsys, "ensayar", ruta,
                                      RAIZ / "ejemplos" / "casos_del_equipo.txt", "--ia-simulada")
-    assert (codigo, err) == (0, "") and "9 de 9 casos pasaron." in salida
+    assert (codigo, err) == (0, "") and "10 de 10 casos pasaron." in salida
     assert sorted(p.name for p in (tmp_path / "ejemplo").iterdir()) == [
         "12_mostrador_con_reglas.mate", EQUIPO, "precios.csv"]
 
@@ -13135,10 +13135,10 @@ def test_los_casos_del_equipo_exigen_la_conversacion_y_avisan_si_se_rompe(tmp_pa
                   "    no tiene que viajar: Reservar | ConsultarStock\n"]:
         assert frase in texto, frase
     casos = mate.casos_de_archivo("tienda_casos.txt")
-    assert len(casos) == 9 and all(caso["mensajes"] for caso in casos)
+    assert len(casos) == 10 and all(caso["mensajes"] for caso in casos)
     codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "tienda_casos.txt",
                                      "--ia-simulada")
-    assert (codigo, err) == (0, "") and "9 de 9 casos pasaron." in salida
+    assert (codigo, err) == (0, "") and "10 de 10 casos pasaron." in salida
     # un equipo roto donde la respuesta al cliente sigue igual: Depósito ya no avisa a Compras
     programa = (tmp_path / "tienda.mate").read_text(encoding="utf-8-sig")
     assert programa.count("\nsea stock_minimo = 10\n") == 1
@@ -13146,7 +13146,7 @@ def test_los_casos_del_equipo_exigen_la_conversacion_y_avisan_si_se_rompe(tmp_pa
         programa.replace("\nsea stock_minimo = 10\n", "\nsea stock_minimo = 0\n"), encoding="utf-8")
     codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "tienda_casos.txt",
                                      "--ia-simulada")
-    assert (codigo, err) == (1, "") and "8 de 9 casos pasaron." in salida
+    assert (codigo, err) == (1, "") and "9 de 10 casos pasaron." in salida
     falla = salida.split("  ✗ quiero 20 azucar   (renglón ")[1].split("\n  ✓ ")[0]
     assert "      Contestó: Ventas: Anotado: 20 x Azúcar" in falla
     assert 'No cumple: tiene que decir' not in falla
@@ -13178,3 +13178,412 @@ def test_ensayar_la_conversacion_esta_documentado():
     ficha = mejoras.split("\n**125. `ensayar` también mira la conversación entre agentes**")[1]
     ficha = ficha.split("\n\n")[0]
     assert "Estado: hecha" in ficha and "Nota de lo decidido" in ficha and "Quedó afuera" in ficha
+
+
+# ── 0.7, cambio 2, vuelta 2: lo mandado con 'enviar', reglas mal armadas, casos viejos ──
+
+# Un equipo donde los avisos salen con 'enviar' (quedan en la cola hasta más tarde).
+EQUIPO_QUE_ENVIA = """
+mensaje Consulta { dicho: texto } responde Respuesta
+mensaje Respuesta { texto: texto }
+mensaje Reservar { cantidad: numero } responde Reserva
+mensaje Reserva { reservadas: numero }
+mensaje Aviso { quedan: numero }
+mensaje Recibido
+mensaje Arranque
+
+agente Compras {
+    estado avisos = 0
+    al recibir Aviso como a {
+        avisos = avisos + 1
+        asegurar a.quedan != 7, "no entiendo un 7"
+        mostrar("Compras: me avisaron que quedan {a.quedan}")
+        responder Recibido {}
+    }
+}
+agente Deposito {
+    estado stock = 10
+    al recibir Arranque { mostrar("Depósito listo") }
+    al recibir Recibido { mostrar("Depósito: Compras recibió el aviso") }
+    al recibir Reservar como r {
+        stock = stock - r.cantidad
+        enviar Aviso { quedan: stock } a Compras
+        responder Reserva { reservadas: r.cantidad }
+    }
+}
+agente Ventas {
+    al recibir Consulta como c {
+        si tiene(c.dicho, "quiero") {
+            var cantidad = 2
+            si tiene(c.dicho, "tres") { cantidad = 3 }
+            sea r = preguntar Reservar { cantidad: cantidad } a Deposito
+            responder Respuesta { texto: "Anotado: {r.reservadas}" }
+        }
+        responder Respuesta { texto: "Decime qué querés" }
+    }
+}
+
+enviar Arranque {} a Deposito
+mientras verdadero {
+    sea dicho = leer("Cliente:", "chau")
+    si dicho == "chau" { romper }
+    si dicho == "aviso suelto" {
+        enviar Aviso { quedan: 99 } a Compras
+        mostrar("Mandado")
+        continuar
+    }
+    sea r = preguntar Consulta { dicho: dicho } a Ventas
+    mostrar("Ventas: {r.texto}")
+}
+"""
+
+
+def test_ensayar_cuenta_lo_que_se_mando_con_enviar_mientras_se_atiende_la_pregunta(
+        tmp_path, capsys, monkeypatch):
+    # (P112) Un 'enviar' queda en la cola: antes el ensayo cortaba sin entregarlo, y
+    # 'no tiene que viajar: Aviso' pasaba siempre.
+    casos = ("quiero dos\n"
+             "    tiene que decir: anotado: 2\n"
+             "    tiene que viajar: Aviso de Deposito a Compras\n"
+             "    tiene que viajar: Recibido de Compras a Deposito\n"
+             "    no tiene que viajar: Arranque\n"
+             "    no puede decir: me avisaron | recibió el aviso\n"
+             "aviso suelto\n"
+             "    tiene que decir: mandado\n"
+             "    tiene que viajar: Aviso de el programa a Compras\n"
+             "    no tiene que viajar: Consulta | Recibido\n"
+             "hola\n"
+             "    no tiene que viajar: Aviso\n")
+    para_ensayar(tmp_path, monkeypatch, casos, EQUIPO_QUE_ENVIA)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "") and "3 de 3 casos pasaron." in salida
+    # y al revés: lo que antes pasaba siempre ahora falla, con la conversación a la vista
+    casos = ("quiero dos\n    no tiene que viajar: Aviso\n"
+             "aviso suelto\n    no tiene que viajar: Aviso de el programa\n")
+    para_ensayar(tmp_path, monkeypatch, casos, EQUIPO_QUE_ENVIA)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "")
+    assert ("  ✗ quiero dos   (renglón 1 de casos.txt)\n"
+            # (el Arranque de antes llega con esta pregunta: lo que muestra se ve, como
+            # siempre, pero no es un mensaje del caso)
+            "      Contestó: Depósito listo\n"
+            "          Ventas: Anotado: 2\n"
+            "      No cumple: no tiene que viajar: Aviso\n"
+            "      La conversación de este caso (lo que se dijeron los agentes, en orden):\n"
+            '          ·  1. (programa) pregunta a Ventas: Consulta { dicho: "quiero dos" }'
+            "   (conversación 1)\n"
+            "          ·  2.    Ventas pregunta a Deposito: Reservar { cantidad: 2 }\n"
+            "          ·  2.    Deposito responde a Ventas: Reserva { reservadas: 2 }\n"
+            '          ·  1. Ventas responde a (programa): Respuesta { texto: "Anotado: 2" }\n'
+            "          ·     (lo que sigue quedó mandado con 'enviar': llega después de "
+            "contestarle al cliente)\n"
+            "          ·  3. Deposito → Compras: Aviso { quedan: 8 }   (conversación 1)\n"
+            "          ·  4. Compras → Deposito: Recibido   (conversación 1, en respuesta al 3)\n"
+            "      Qué mensajes viajan lo decide el programa, no la IA: una lección no lo cambia.\n"
+            "      Hay que cambiar el programa (o el caso).\n"
+            "  ✗ aviso suelto   (renglón 3 de casos.txt)\n"
+            "      Contestó: Mandado\n"
+            # (el informe escribe 'el programa', como se enseña: P117)
+            "      No cumple: no tiene que viajar: Aviso de el programa\n"
+            "      La conversación de este caso (lo que se dijeron los agentes, en orden):\n"
+            "          ·     (lo que sigue quedó mandado con 'enviar': llega después de "
+            "contestarle al cliente)\n"
+            "          ·  1. (programa) → Compras: Aviso { quedan: 99 }   (conversación 1)\n") in salida
+    assert "nadie le habló a ningún agente" not in salida
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+
+
+def test_lo_que_se_entrega_despues_de_contestar_no_entra_en_la_respuesta(tmp_path, monkeypatch):
+    para_ensayar(tmp_path, monkeypatch, "x\n  tiene que decir: x\n", EQUIPO_QUE_ENVIA)
+    dado = mate.preguntar_al_programa("m.mate", "quiero dos", {}, entregar_lo_enviado=True)
+    assert dado["respuesta"] == "Depósito listo\nVentas: Anotado: 2" and dado["error"] is None
+    assert [viaje[:3] for viaje in dado["viajes"]] == [
+        ("Consulta", "(programa)", "Ventas"), ("Reservar", "Ventas", "Deposito"),
+        ("Reserva", "Deposito", "Ventas"), ("Respuesta", "Ventas", "(programa)"),
+        ("Aviso", "Deposito", "Compras"), ("Recibido", "Compras", "Deposito")]
+    assert dado["sin_entregar"] == []
+    # sin pedirlo (un caso sin reglas de mensajes) no se entrega nada de más: queda en la cola
+    dado = mate.preguntar_al_programa("m.mate", "quiero dos", {})
+    assert dado["respuesta"] == "Depósito listo\nVentas: Anotado: 2" and dado["error"] is None
+    assert [viaje[0] for viaje in dado["viajes"]] == ["Consulta", "Reservar", "Reserva", "Respuesta"]
+    assert dado["sin_entregar"] == [("Aviso", "Deposito", "Compras")]
+    assert not any("Aviso" in renglon for renglon in dado["charla"])
+
+
+def test_si_un_agente_falla_con_lo_enviado_el_caso_con_reglas_de_mensajes_falla(
+        tmp_path, capsys, monkeypatch):
+    # "quiero tres" deja 7, y Compras no entiende un 7: en una corrida de verdad ese error
+    # sale más tarde; el ensayo que mira los mensajes lo muestra en el caso.
+    casos = ("quiero tres\n    tiene que viajar: Aviso de Deposito a Compras\n")
+    para_ensayar(tmp_path, monkeypatch, casos, EQUIPO_QUE_ENVIA)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "")
+    assert "          Ventas: Anotado: 3\n" in salida
+    assert "      El programa falló: " in salida and "no entiendo un 7" in salida
+    assert "          ·  3. Compras falló: " in salida
+    # el mismo caso sin reglas de mensajes anda como siempre: el aviso ni se entrega
+    para_ensayar(tmp_path, monkeypatch, "quiero tres\n    tiene que decir: anotado: 3\n",
+                 EQUIPO_QUE_ENVIA)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "") and "1 de 1 casos pasaron." in salida
+
+
+def test_un_caso_sin_reglas_de_mensajes_que_falla_dice_lo_que_quedo_mandado(
+        tmp_path, capsys, monkeypatch):
+    para_ensayar(tmp_path, monkeypatch, "quiero dos\n    tiene que decir: anotado: 5\n",
+                 EQUIPO_QUE_ENVIA)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "")
+    assert ('          ·  1. Ventas responde a (programa): Respuesta { texto: "Anotado: 2" }\n'
+            "          (quedó mandado con 'enviar' y llega después: Aviso de Deposito a Compras)\n"
+            "      Esta respuesta la dio el programa") in salida
+    assert "→ Compras" not in salida and "me avisaron" not in salida
+
+
+# (P114) El programa del agente de pruebas: manda algo con 'enviar' antes de leer y después
+# charla sin preguntarle a ningún agente.
+PROGRAMA_QUE_ENVIA_ANTES = """
+mensaje Encargo { tema: texto }
+mensaje Saludo { texto: texto }
+agente Coordinador {
+    al recibir Saludo como s {
+        mostrar("Coordinador listo: {s.texto}")
+    }
+    al recibir Encargo como e {
+        mostrar("Listo: {e.tema}")
+    }
+}
+enviar Saludo { texto: "hola" } a Coordinador
+var sigue = verdadero
+mientras sigue {
+    sea dicho = leer("Tema:", "chau")
+    si dicho == "chau" {
+        sigue = falso
+    } sino {
+        enviar Encargo { tema: dicho } a Coordinador
+        mostrar("Encargado: {dicho}")
+    }
+}
+"""
+
+
+def test_un_caso_viejo_contesta_igual_aunque_el_programa_haya_enviado_algo_antes(
+        tmp_path, capsys, monkeypatch):
+    # lo enviado antes de la pregunta NO se adelanta: en la corrida de verdad sale al final
+    casos = ("ventas\n   tiene que decir: Encargado: ventas\n"
+             "   no puede decir: Coordinador listo\n")
+    para_ensayar(tmp_path, monkeypatch, casos, PROGRAMA_QUE_ENVIA_ANTES)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "") and "1 de 1 casos pasaron." in salida
+    for entregar in (False, True):
+        dado = mate.preguntar_al_programa("m.mate", "ventas", {}, entregar_lo_enviado=entregar)
+        assert dado["respuesta"] == "Encargado: ventas" and dado["antes"] == []
+    # con reglas de mensajes: el Encargo de esta pregunta viaja; el Saludo de antes no cuenta
+    # (ni se entrega), y lo que muestra el Coordinador al recibir no es parte de la respuesta
+    casos = ("ventas\n   tiene que viajar: Encargo de el programa a Coordinador\n"
+             "   no tiene que viajar: Saludo\n   no puede decir: Listo | Coordinador listo\n")
+    para_ensayar(tmp_path, monkeypatch, casos, PROGRAMA_QUE_ENVIA_ANTES)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "") and "1 de 1 casos pasaron." in salida
+    assert dado["viajes"] == [("Encargo", "(programa)", "Coordinador", "(programa)", "Coordinador")]
+    assert not any("Saludo" in renglon for renglon in dado["charla"])
+    # la corrida de verdad: lo del Coordinador sale recién al final, después de chau
+    salida, _, _ = correr_con_teclado(PROGRAMA_QUE_ENVIA_ANTES, ["ventas", "chau"])
+    assert salida == ["Encargado: ventas", "Coordinador listo: hola", "Listo: ventas"]
+
+
+def test_lo_enviado_antes_que_llega_durante_la_pregunta_no_se_cuenta_ni_se_muestra(
+        tmp_path, monkeypatch):
+    # el Arranque se mandó antes de leer; se entrega cuando el programa pregunta a Ventas:
+    # lo que muestre entra en la respuesta (como siempre), pero no es un mensaje del caso
+    para_ensayar(tmp_path, monkeypatch, "x\n  tiene que decir: x\n", EQUIPO_QUE_ENVIA)
+    dado = mate.preguntar_al_programa("m.mate", "hola", {}, entregar_lo_enviado=True)
+    assert dado["respuesta"] == "Depósito listo\nVentas: Decime qué querés"
+    assert [viaje[0] for viaje in dado["viajes"]] == ["Consulta", "Respuesta"]
+    assert dado["charla"] == [
+        '  ·  1. (programa) pregunta a Ventas: Consulta { dicho: "hola" }   (conversación 1)',
+        '  ·  1. Ventas responde a (programa): Respuesta { texto: "Decime qué querés" }']
+
+
+@pytest.mark.parametrize("regla,frase", [
+    # (P113) el orden al revés, sin destino, palabras de más: antes pasaban en silencio
+    ("Reservar a Deposito de Ventas",
+     "casos.txt:2: no entiendo 'Deposito de Ventas'. Primero va quién manda el mensaje (de) y "
+     "después quién lo recibe (a)"),
+    ("Reservar de Ventas a", "casos.txt:2: no entiendo 'Ventas a'. Primero va quién manda"),
+    ("Reservar de Ventas a Deposito y Reserva",
+     "casos.txt:2: no entiendo 'Deposito y Reserva'. Después de 'de' y de 'a' va solo el nombre "
+     "de un agente (o 'el programa'). El programa tiene: Compras, Deposito, Ventas. Deposito no "
+     "tiene copias con nombre en el programa."),
+    ("Reservar de Ventas hacia Deposito", "casos.txt:2: no entiendo 'Ventas hacia Deposito'"),
+    ("Reservar de Ventas zzz a Deposito", "casos.txt:2: no entiendo 'Ventas zzz'"),
+    ("Reservar de Ventas (el vendedor) a Deposito",
+     "casos.txt:2: no entiendo 'Ventas (el vendedor)'"),
+    ("Reservar a Vendedor Oeste", "casos.txt:2: no entiendo 'Vendedor Oeste'. Después de 'de'"),
+    ("Reponer | Reservar a Deposito de Ventas", "casos.txt:2: no entiendo 'Deposito de Ventas'"),
+    # (P116) dos mensajes con coma
+    ("Reservar de Ventas, Reserva de Deposito",
+     "casos.txt:2: no entiendo 'Ventas, Reserva de Deposito'. En cada regla va un solo mensaje. "
+     "Si tienen que viajar los dos, escribí un renglón 'tiene que viajar:' para cada uno; si "
+     "alcanza con cualquiera, separalos con una barra |"),
+    ("Reservar, Reserva", "En cada regla va un solo mensaje"),
+    ("Reservar de", "casos.txt:2: no entiendo qué mensaje es 'Reservar de'"),
+])
+@pytest.mark.parametrize("debe", ["tiene que viajar", "no tiene que viajar"])
+def test_una_regla_de_mensajes_mal_armada_no_pasa_en_silencio(regla, frase, debe, tmp_path,
+                                                             capsys, monkeypatch):
+    para_ensayar(tmp_path, monkeypatch, f"quiero dos\n   {debe}: {regla}\n", EQUIPO_PARA_ENSAYAR)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert codigo == 2 and salida == "" and frase in err, err
+
+
+EQUIPO_CON_COPIAS = """
+mensaje Pedido { que: texto } responde Listo
+mensaje Listo
+agente Vendedor {
+    al recibir Pedido como p { responder Listo {} }
+}
+agente Caja {
+    al recibir Pedido como p { responder Listo {} }
+}
+sea centro = crear Vendedor llamado "Centro"
+sea sur = crear Vendedor llamado "Del Sur"
+mientras verdadero {
+    sea dicho = leer("Cliente:", "chau")
+    si dicho == "chau" { romper }
+    sea r = preguntar Pedido { que: dicho } a centro
+    mostrar("hecho")
+}
+"""
+
+
+def test_una_copia_vale_solo_si_el_programa_la_crea(tmp_path, capsys, monkeypatch):
+    casos = ("hola\n  tiene que viajar: Pedido de el programa a vendedor centro\n"
+             "  tiene que viajar: Listo de Vendedor a el programa\n"
+             "  no tiene que viajar: Pedido a Vendedor Del Sur | Pedido a Caja\n")
+    para_ensayar(tmp_path, monkeypatch, casos, EQUIPO_CON_COPIAS)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "") and "1 de 1 casos pasaron." in salida
+    # una copia que el programa no crea: no se ensaya (antes, 'no tiene que viajar' pasaba)
+    para_ensayar(tmp_path, monkeypatch, "hola\n  no tiene que viajar: Pedido a Vendedor Oeste\n",
+                 EQUIPO_CON_COPIAS)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert codigo == 2 and salida == ""
+    assert ("casos.txt:2: el programa no tiene ningún Vendedor llamado 'Vendedor Oeste'"
+            in err and "(tiene: Vendedor Centro, Vendedor Del Sur)" in err)
+    # Caja no tiene copias
+    para_ensayar(tmp_path, monkeypatch, "hola\n  no tiene que viajar: Pedido a Caja Centro\n",
+                 EQUIPO_CON_COPIAS)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert codigo == 2 and "casos.txt:2: no entiendo 'Caja Centro'" in err
+    assert "Caja no tiene copias con nombre en el programa." in err
+    # si el nombre de la copia se arma al correr, no se puede revisar antes: se deja pasar
+    arbol = mate.analizar('agente V { al recibir M { } }\nmensaje M\nsea n = "Sur"\n'
+                          'sea a = [crear V llamado "Centro"]\nsea b = crear V llamado "Del " + n\n'
+                          'agente W { al recibir M { } }\nsea c = crear W llamado "Uno"\n'
+                          "sea d = crear W\n", "x.mate")
+    assert mate.copias_del_programa(arbol) == {"V": None, "W": ["W Uno"]}
+    caso = {"renglon": 1, "pregunta": "hola", "reglas": [],
+            "mensajes": [(False, (("m", "v del sur", "w uno"),), 2)]}
+    mate.revisar_viajes([caso], arbol, "casos.txt")
+    assert caso["mensajes"] == [(False, (("M", "v del sur", "W Uno"),), 2)]
+
+
+def test_una_pregunta_que_habla_de_viajar_sigue_siendo_una_pregunta(tmp_path, capsys,
+                                                                   monkeypatch):
+    # (P115) con la versión anterior a las reglas de mensajes estos renglones eran preguntas
+    casos = ("puede viajar mi pedido hoy\n  no puede decir: zzz\n"
+             "el pedido viaja: hoy o mañana?\n  no puede decir: zzz\n"
+             "mi hijo viaja: quiero dos\n  tiene que decir: anotado: 2\n"
+             "tiene que viajar mañana, me lo guardan\nno puede viajar el pedido a Rosario\n"
+             "quiero viajar: tienen algo\n  no puede decir: zzz\n")
+    para_ensayar(tmp_path, monkeypatch, casos, EQUIPO_PARA_ENSAYAR)
+    assert [caso["pregunta"] for caso in mate.casos_de_archivo("casos.txt")] == [
+        "puede viajar mi pedido hoy", "el pedido viaja: hoy o mañana?",
+        "mi hijo viaja: quiero dos", "tiene que viajar mañana, me lo guardan",
+        "no puede viajar el pedido a Rosario", "quiero viajar: tienen algo"]
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "") and "6 de 6 casos pasaron." in salida
+
+
+@pytest.mark.parametrize("casos,renglon", [
+    # tienen la forma de una regla, o nombran un mensaje del programa: no son preguntas
+    ("hola\n  no puede decir: zzz\ntiene que viajar reponer de deposito\n  no puede decir: zzz\n", 3),
+    ("hola\n  no puede decir: zzz\npuede viajar reservar hoy\n  no puede decir: zzz\n", 3),
+    ("hola\n  no puede decir: zzz\ntiene que viajar Reponer, Reserva\n  no puede decir: zzz\n", 3),
+    ("hola\n  tiene que viajar reservar\n", 2),
+    ("hola\n  no puede decir: zzz\nNo tiene que viajar Zzz a Ventas\n  no puede decir: zzz\n", 3),
+])
+def test_una_regla_de_mensajes_sin_los_dos_puntos_no_se_toma_por_pregunta(
+        casos, renglon, tmp_path, capsys, monkeypatch):
+    para_ensayar(tmp_path, monkeypatch, casos, EQUIPO_PARA_ENSAYAR)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert codigo == 2 and salida == ""
+    assert (f"casos.txt:{renglon}: este renglón parece una regla de mensajes, pero no la "
+            "entiendo (le faltan los dos puntos)") in err
+
+
+def test_ensayar_avisa_cuando_un_caso_falla_y_los_agentes_recuerdan_algo(tmp_path, capsys,
+                                                                        monkeypatch):
+    # (P89) después de vender de verdad, un caso de muestra falla por el stock que quedó
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", "equipo", "tienda"]) == 0
+    capsys.readouterr()
+    aviso = ("Ojo: Deposito y Compras arrancan cada pregunta con lo que recuerdan de las "
+             "corridas de verdad\n(tienda.memoria.json). Si un caso falló por eso")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "tienda_casos.txt",
+                                     "--ia-simulada")
+    assert codigo == 0 and "Ojo:" not in salida
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("quiero 20 azucar\nchau\n"))
+    assert mate.main(["correr", "tienda.mate", "--ia-simulada"]) == 0
+    memoria = (tmp_path / "tienda.memoria.json").read_bytes()
+    codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "tienda_casos.txt",
+                                     "--ia-simulada")
+    assert (codigo, err) == (1, "") and "\n9 de 10 casos pasaron." in salida
+    assert "  ✗ quiero 20 azucar" in salida and "no llego a 20" in salida
+    assert aviso in salida and "con --olvidar\n" in salida
+    assert max(len(renglon) for renglon in salida.split("Ojo: ")[1].splitlines()) <= 100
+    assert (tmp_path / "tienda.memoria.json").read_bytes() == memoria
+    # si todos pasan no se dice nada, aunque haya algo recordado
+    (tmp_path / "c.txt").write_text("quiero 3 yerbas\n  tiene que decir: anotado\n",
+                                    encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "c.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "") and "Ojo:" not in salida
+
+
+def test_los_casos_del_equipo_ensayan_el_aviso_que_sale_con_enviar(tmp_path, capsys,
+                                                                 monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", "equipo", "tienda"]) == 0
+    texto = (tmp_path / "tienda_casos.txt").read_text(encoding="utf-8-sig")
+    for frase in ["ingreso 30 azucar\n", "    tiene que viajar: Ingreso de el programa a Deposito\n",
+                  "    tiene que viajar: Llego de Deposito a Compras\n",
+                  "    no tiene que viajar: SigueFaltando | Reservar\n",
+                  '#     Lo que manda el programa, y no un agente, se escribe "el programa":\n']:
+        assert frase in texto, frase
+    assert max(len(renglon) for renglon in texto.splitlines() if "mate.py" not in renglon) <= 91
+    # lo que antes pasaba siempre: decir que NO viaja el aviso que sí viaja
+    (tmp_path / "c.txt").write_text(
+        "ingreso 30 azucar\n    no tiene que viajar: Llego\n"
+        "ingreso 3 azucar\n    tiene que viajar: Llego | SigueFaltando\n"
+        "    no tiene que viajar: Reservar\n", encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "tienda.mate", "c.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "") and "\n1 de 2 casos pasaron." in salida
+    assert "      No cumple: no tiene que viajar: Llego\n" in salida
+    assert '          ·  2. Deposito → Compras: Llego { producto: "Azúcar" }   (conversación 1)\n' in salida
+
+
+def test_ensayar_la_conversacion_vuelta_2_esta_documentada():
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    seccion = readme.split("### Ensayar la conversación de un equipo")[1].split("\n## ")[0]
+    for frase in ["**Lo mandado con `enviar` también cuenta.**", "**Un mensaje por regla.**",
+                  "`Reservar a\n  Deposito de Ventas`", "sigue siendo una pregunta",
+                  "lo que sigue quedó mandado con 'enviar'", "`--olvidar`",
+                  "En un caso **sin** reglas de mensajes nada cambió"]:
+        assert frase in seccion, frase
+    mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+    ficha = mejoras.split("\n**125. `ensayar` también mira la conversación entre agentes**")[1]
+    ficha = ficha.split("\n\n")[0]
+    for frase in ["Nota de la vuelta 2", "Lo mandado con `enviar` ahora sí cuenta",
+                  "Un caso viejo contesta como antes", "Una regla mal armada no pasa en silencio"]:
+        assert frase in ficha, frase

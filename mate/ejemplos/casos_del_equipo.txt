@@ -22,6 +22,9 @@
 #         tiene que viajar: Reservar de Ventas a Deposito
 #         no tiene que viajar: Reponer
 #     Las respuestas también viajan:   tiene que viajar: Reserva de Deposito a Ventas
+#     Lo que manda el programa, y no un agente, se escribe "el programa":
+#         tiene que viajar: Ingreso de el programa a Deposito
+#     Un mensaje por regla: después de "de" y de "a" va solo el nombre de un agente.
 #     Si un caso falla, el informe muestra la conversación de esa pregunta, paso a paso.
 #   - Varias formas de preguntar lo mismo: una pregunta por renglón, una abajo de la
 #     otra, y las reglas una sola vez, debajo de todas.
@@ -58,6 +61,15 @@ tenes 3 yerbas?
     no puede decir: anotado: 3 x
     tiene que viajar: ConsultarStock de Ventas a Deposito
     no tiene que viajar: Reservar
+
+# La mercadería que llega: Depósito la suma y le avisa a Compras que ya llegó (con 25
+# bolsas más 30 pasa el mínimo, así que no "sigue faltando"). Ese aviso sale con
+# 'enviar': llega después de contestar, y el ensayo lo cuenta igual.
+ingreso 30 azucar
+    tiene que decir: entraron 30
+    tiene que viajar: Ingreso de el programa a Deposito
+    tiene que viajar: Llego de Deposito a Compras
+    no tiene que viajar: SigueFaltando | Reservar
 
 # No se vende lo que no hay: ni total ni envío.
 quiero 12 fideos con envio

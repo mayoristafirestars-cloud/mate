@@ -2185,12 +2185,32 @@ cuanto salen 3 yerbas?
 - Con una barra `|` se dan opciones, como en las otras reglas: `tiene que viajar:` se cumple
   con cualquiera; `no tiene que viajar:` falla si viaja alguno.
 - Se mira **solo lo que viaja por esa pregunta**: desde que el programa la lee hasta que
-  vuelve a pedir algo por teclado. Lo que se hablaron antes (cargar la planilla) no cuenta.
+  vuelve a pedir algo por teclado. Lo que se hablaron antes (cargar la planilla) no cuenta,
+  y tampoco lo que el programa había mandado antes con `enviar`, aunque llegue en ese momento.
+- **Lo mandado con `enviar` también cuenta.** Un `enviar` no llega en el momento: queda
+  esperando y se entrega más tarde (cuando el programa le vuelve a preguntar a un agente, o
+  al terminar). Si un caso tiene reglas de mensajes, el ensayo entrega lo que quedó mandado
+  por esa pregunta antes de pasar a la siguiente, y lo cuenta: `tiene que viajar: Llego de
+  Deposito a Compras` se cumple, y `no tiene que viajar: Llego` falla. En la conversación
+  del informe esos mensajes van debajo del renglón "lo que sigue quedó mandado con 'enviar'".
+  Lo que un agente muestre al recibirlos no entra en `tiene que decir:` ni en `no puede
+  decir:`, porque el cliente lo vería después de su respuesta, no adentro.
+- **Un mensaje por regla.** Después de `de` y de `a` va solo el nombre de un agente (o `el
+  programa`, o una copia hecha con `crear ... llamado`, con su nombre entero: `Vendedor
+  Centro`). Si tienen que viajar dos mensajes, va un renglón `tiene que viajar:` para cada uno.
 - Las reglas de mensajes se pueden mezclar con las de `tiene que decir:`, y un caso puede
   tener solo de unas o solo de otras. Los archivos de casos que ya tenías andan igual.
 - Si el nombre de un mensaje o de un agente no está en el programa, Mate no ensaya y dice en
   qué renglón está (y cuál se parece): si no, un `no tiene que viajar:` con el nombre mal
-  escrito pasaría siempre.
+  escrito pasaría siempre. Lo mismo con una regla mal armada: el orden al revés (`Reservar a
+  Deposito de Ventas`), sin terminar (`Reservar de Ventas a`), con palabras de más (`de
+  Ventas hacia Deposito`), dos mensajes separados con coma, o una copia que el programa no
+  crea. La única que no se puede revisar antes es una copia cuyo nombre se arma mientras el
+  programa corre (`llamado "Sucursal " + nombre`).
+- Una pregunta de un cliente que habla de viajar ("puede viajar mi pedido hoy", "el pedido
+  viaja: hoy o mañana?") sigue siendo una pregunta. Mate la toma por una regla mal escrita
+  solo si tiene la forma de una (`tiene que viajar Reponer`, sin los dos puntos; `tiene que
+  biajar: Reponer`) o si nombra un mensaje del programa.
 
 Cuando un caso de un equipo falla (por los mensajes o por lo que contestó), el informe muestra
 **la conversación de esa pregunta**: los mismos renglones que muestra `correr --traza`,
@@ -2198,7 +2218,7 @@ numerados desde 1. Este es el del primer caso de arriba, con un equipo al que le
 `stock_minimo = 0` (así Depósito no pide nunca la reposición):
 
 ```
-  ✗ quiero 20 azucar   (renglón 49 de mi_negocio_casos.txt)
+  ✗ quiero 20 azucar   (renglón 52 de mi_negocio_casos.txt)
       Contestó: Ventas: Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.
       No cumple: tiene que viajar: Reponer de Deposito a Compras
       No cumple: tiene que viajar: Anotado de Compras a Deposito
@@ -2214,6 +2234,19 @@ numerados desde 1. Este es el del primer caso de arriba, con un equipo al que le
 Un caso que falla **solo** por los mensajes no deja una lección propuesta: qué mensajes viajan
 lo decide el programa, y una lección es un pedido a la IA. Con un mostrador de un solo agente
 el informe es el de siempre, sin la conversación (salvo que el caso tenga reglas de mensajes).
+
+Dos cosas más del informe:
+
+- En un caso **sin** reglas de mensajes nada cambió: lo mandado con `enviar` queda sin
+  entregar, como antes. Si ese caso falla y se muestra la conversación, un renglón al final
+  dice qué quedó mandado ("quedó mandado con 'enviar' y llega después: Llego de Deposito a
+  Compras").
+- Un ensayo arranca cada pregunta con **lo que los agentes recuerdan** de las corridas de
+  verdad (en un equipo, el stock de Depósito). Si ya vendiste casi toda el azúcar, "quiero 20
+  azucar" va a fallar aunque el programa esté bien. Por eso, cuando algún caso falla y hay
+  algo recordado, el informe termina con un aviso ("Ojo: Deposito arranca cada pregunta con
+  lo que recuerda de las corridas de verdad...") que dice qué hacer: cambiar el caso, o
+  empezar de nuevo corriendo el programa con `--olvidar`.
 
 ## Referencia rápida
 
