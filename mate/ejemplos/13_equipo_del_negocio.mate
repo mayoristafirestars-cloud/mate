@@ -48,8 +48,10 @@
 # luz), se pierde lo anotado en esa charla: el stock queda como estaba al abrirla. Y no
 # abras el mismo equipo en dos ventanas a la vez: la que cierra última pisa a la otra.
 # Un pedido se anota solo si está CLARO ("quiero 20 azucar", "20 azucar", "dame 12 yerbas
-# con envio"). Con una pregunta, un "no", una duda o una palabra que Ventas no conoce
-# ("recibí 10 yerbas", "haceme un descuento en 20 yerbas") contesta la cuenta y NO anota.
+# con envio"). Con una pregunta, un "no", una duda, una palabra que Ventas no conoce
+# ("recibí 10 yerbas", "haceme un descuento en 20 yerbas") o una frase que habla de un
+# pedido que YA está hecho ("retiro el pedido de 5 azucar", "gracias por las 10 yerbas")
+# contesta la cuenta y NO anota. Un pedido ya anotado no se anula desde la charla.
 # Para tu negocio no hace falta copiar este archivo: la orden 'nuevo equipo mi_negocio'
 # crea en tu carpeta un programa con este mismo equipo y su planilla. (Copia lo que hay
 # entre los títulos "El equipo" y "Las pruebas" de este archivo, y del ejemplo 12 las
@@ -68,6 +70,7 @@ usar "12_mostrador_con_reglas.mate"
 sea stock_minimo = 10
 
 # Lo más que se anota en un solo "ingreso": frena un cero de más ("ingreso 300000 azucar").
+# Va un número entero, sin comillas: 1 o más.
 sea ingreso_maximo = 100000
 
 # Los mensajes del cliente a Ventas (charla: el nombre de esa consulta, para no mezclarlas).
@@ -179,7 +182,12 @@ agente Ventas {
             } a Deposito
             responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_venta(pedido, reserva) }
         }
-        # 2. No era un pedido: contesta la IA, con los frenos de arriba.
+        # 2. Quiere devolver, anular o dice "no quiero...": no se anota nada, y tampoco se
+        #    deshace un pedido desde la charla. Se lo dice el programa, sin IA.
+        si entender(filas, c.dicho).otra_cosa {
+            responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_anular() }
+        }
+        # 3. No era un pedido: contesta la IA, con los frenos de arriba.
         sea instrucciones = """
             Atendés las ventas de un mayorista de almacén. Contestá en castellano
             rioplatense, con amabilidad y en pocas palabras. Usá SOLO los precios de esta
@@ -313,56 +321,135 @@ funcion sin_el_producto(pedidos, producto) {
     devolver siguen
 }
 
-# Las palabras que puede traer un pedido CLARO, además de la cantidad y del producto:
-# las de pedir, las de saludar, las de relleno y las del envío o el retiro. Con cualquier
-# otra palabra ("no", "si", "puedo", "descuento", "recibí", "llegaron", "debo") no se anota.
-funcion palabras_de_un_pedido() {
-    devolver ["quiero", "queria", "quisiera", "necesito", "preciso", "dame", "deme", "anotame",
-              "poneme", "agregame", "sumame", "reservame", "separame", "guardame", "vendeme",
-              "llevo", "pido", "pedido", "hago", "encargo", "encargame", "compro",
-              "hola", "buenas", "buen", "buenos", "dia", "dias", "tardes", "noches", "che",
-              "por", "favor", "porfa", "gracias", "muchas",
-              "de", "del", "el", "la", "los", "las", "lo", "le", "me", "te", "un", "una",
-              "unos", "unas", "y", "con", "para", "mi", "a", "en", "x", "yo", "ya", "mas",
-              "otro", "otra", "otros", "otras", "unidad", "unidades", "bulto", "bultos",
-              "envio", "envios", "enviame", "enviamelo", "envien", "enviar", "mandame",
-              "mandamelo", "manden", "mandar", "mandas", "mandan", "flete", "reparto",
-              "domicilio", "casa", "traeme", "traer", "traigan", "llevame", "llevar", "lleven",
-              "alcanzame", "acercame",
-              "retiro", "retira", "retiramos", "retirar", "local"]
+# Un pedido CLARO se arma solo con la cantidad, el producto y las palabras de estas cuatro
+# listas. Con cualquier otra palabra ("no", "si", "puedo", "descuento", "recibí", "ya",
+# "mandan", "debo", "mañana") no se anota. Si tus clientes piden con una palabra que no
+# está, agregala en la lista que le toca.
+
+# 1. Las de PEDIR: lo que dice el que quiere comprar ahora. No van las que cuentan algo
+#    que ya pasó ("pedí", "compré", "llevé") ni las que dice otro ("mandan", "llevan").
+funcion palabras_de_pedir() {
+    devolver ["quiero", "queria", "quisiera", "necesito", "preciso", "dame", "deme", "das",
+              "anotame", "poneme", "agregame", "sumame", "reservame", "separame", "guardame",
+              "vendeme", "pasame", "llevo", "pido", "encargo", "encargame", "compro",
+              "comprar", "pedir", "encargar", "reservar", "hago", "hacer", "hacerte", "haceme",
+              "mandame", "mandamelo", "mandas", "manden", "enviame", "enviamelo", "envien",
+              "traeme", "traigan", "llevame", "alcanzame", "acercame"]
 }
 
-# ¿Hay un signo menos pegado adelante de un número? ("quiero -3 azucar", "ingreso -5 azucar")
+# 2. Las SUELTAS: saludar y contar ("2 bolsas de arroz"). Valen en cualquier lugar.
+#    ("buen día", "buenas tardes" y "por favor" también valen: se miran más abajo.)
+funcion palabras_sueltas() {
+    devolver ["hola", "buenas", "buen", "buenos", "che", "porfa", "de", "x", "unidad",
+              "unidades", "bulto", "bultos"]
+}
+
+# 3. Las que ACOMPAÑAN a una palabra de pedir ("me das", "te pido", "dame otras 5"). Solas,
+#    adelante de la cantidad, no alcanzan: "che, y el pedido de 5 yerbas" no pide nada.
+funcion palabras_que_acompanan() {
+    devolver ["me", "te", "le", "yo", "y", "un", "una", "unos", "unas", "mas", "otro", "otra",
+              "otros", "otras"]
+}
+
+# 4. Las de CÓMO SE LO LLEVA: el envío, el retiro y el gracias del final. Valen solo
+#    DESPUÉS de la cantidad ("5 yerbas, las retiro yo", "12 azucar con envio a mi casa").
+#    Adelante hablan de algo que ya existe: "retiro el pedido de 5 yerbas", "gracias por
+#    las 10 yerbas", "los 10 arroz". Eso no es un pedido nuevo, y no se anota.
+funcion palabras_de_como_se_lleva() {
+    devolver ["envio", "envios", "enviar", "mandar", "flete", "reparto", "domicilio", "casa",
+              "traer", "llevar", "retiro", "retira", "retiramos", "retirar", "local",
+              "con", "para", "a", "al", "en", "el", "la", "lo", "los", "las", "mi", "del",
+              "gracias", "muchas"]
+}
+
+# ¿Hay un signo menos adelante de un número? Pegado o con espacios, con el guion común o
+# con una raya larga: "quiero -3 azucar", "quiero - 3 azucar", "ingreso –5 azucar".
 funcion trae_un_menos(dicho) {
     para i en rango(largo(dicho) - 1) {
-        si tiene("-−", dicho[i]) y es_cifra(dicho[i + 1]) {
-            devolver verdadero
+        si tiene("-−–—", dicho[i]) {
+            # (se saltean los espacios que haya entre la raya y lo que sigue)
+            var j = i + 1
+            mientras j < largo(dicho) y dicho[j] == " " {
+                j += 1
+            }
+            si j < largo(dicho) y es_cifra(dicho[j]) {
+                devolver verdadero
+            }
         }
+    }
+    devolver falso
+}
+
+# ¿La palabra número i vale solo por la que tiene al lado? "por favor", "buen día",
+# "buenas tardes", "sin envío" (el único "no" que vale en un pedido) y "hago un pedido".
+# Así "gracias POR las 10 yerbas", "el otro DÍA" o "MI pedido" no pasan.
+funcion vale_por_la_de_al_lado(palabras, i) {
+    sea palabra = palabras[i]
+    # (la de antes, la de más atrás y la que sigue; "" si no hay)
+    var antes = ""
+    var mas_atras = ""
+    var sigue = ""
+    si i > 0 {
+        antes = palabras[i - 1]
+    }
+    si i > 1 {
+        mas_atras = palabras[i - 2]
+    }
+    si i + 1 < largo(palabras) {
+        sigue = palabras[i + 1]
+    }
+    si palabra == "por" {
+        devolver sigue == "favor"
+    }
+    si palabra == "favor" {
+        devolver antes == "por"
+    }
+    si palabra == "dia" o palabra == "dias" {
+        devolver antes == "buen" o antes == "buenos"
+    }
+    si palabra == "tardes" o palabra == "noches" {
+        devolver antes == "buenas"
+    }
+    si palabra == "sin" {
+        devolver tiene(["envio", "envios", "flete", "reparto"], sigue)
+    }
+    # "Hago un pedido de 5 yerbas" pide; "mi pedido", "el pedido" y "retiro un pedido" no.
+    si palabra == "pedido" {
+        devolver antes == "un" y tiene(["hago", "hacer", "hacerte", "haceme"], mas_atras)
     }
     devolver falso
 }
 
 # ¿Es un pedido CLARO de ese producto? Sí: "quiero 20 azúcar", "20 azúcar", "dame 12 yerbas
 # con envío", "5 yerbas, las retiro yo". No: una pregunta ("¿cuánto salen 20 azúcar?", "2
-# azúcar?"), un número con menos, o una frase con alguna palabra que no sea de pedir: ahí
-# puede haber un "no", una duda ("quería saber si puedo...") u otra cosa ("recibí 10
-# yerbas", "a las 3 paso a buscar la yerba"). Se miran las palabras una por una.
+# azúcar?"), un número con menos, una frase con alguna palabra que no esté en las listas
+# de arriba ("no", "recibí", "a las 3 paso a buscar la yerba") o una que habla de un
+# pedido que ya existe ("gracias por las 10 yerbas", "retiro el pedido de 5 yerbas", "mi
+# pedido de 20 azúcar", "te llevo 10 yerbas"). Se miran las palabras una por una.
 funcion es_pedido_claro(fila, dicho) {
-    si tiene(dicho, "?") o tiene(dicho, "¿") o trae_un_menos(dicho) {
+    # (el último signo de pregunta es el ancho, el de algunos teclados de celular)
+    si tiene(dicho, "?") o tiene(dicho, "¿") o tiene(dicho, "？") o trae_un_menos(dicho) {
         devolver falso
     }
     sea palabras = palabras_de(dicho)
     # (las palabras del producto y de cómo se vende: "azucar", "bolsa", "kg")
     sea del_producto = palabras_de("{fila.producto} {fila.presentacion}")
-    sea de_pedir = palabras_de_un_pedido()
+    var hay_de_pedir = falso
+    var falta_la_de_pedir = falso
+    var paso_la_cantidad = falso
     para i en rango(largo(palabras)) {
         sea palabra = palabras[i]
-        # Un número, o una palabra de pedir: sigue.
-        si numero_de(palabra) != nada o tiene(de_pedir, palabra) {
+        # Un número: de acá para atrás ya se dijo la cantidad.
+        si numero_de(palabra) != nada {
+            paso_la_cantidad = verdadero
             continuar
         }
-        # "Sin envío", "sin flete": el único "no" que vale en un pedido.
-        si palabra == "sin" y i + 1 < largo(palabras) y tiene(["envio", "envios", "flete", "reparto"], palabras[i + 1]) {
+        si tiene(palabras_de_pedir(), palabra) {
+            # "Te llevo 10 yerbas" lo dice el que trae mercadería, no el que compra.
+            si palabra == "llevo" y i > 0 y tiene(["te", "le", "se"], palabras[i - 1]) {
+                devolver falso
+            }
+            hay_de_pedir = verdadero
             continuar
         }
         # Una palabra del producto, en singular o en plural: sigue.
@@ -372,11 +459,24 @@ funcion es_pedido_claro(fila, dicho) {
                 es_del_producto = verdadero
             }
         }
-        si no es_del_producto {
-            devolver falso
+        si es_del_producto o tiene(palabras_sueltas(), palabra) o vale_por_la_de_al_lado(palabras, i) {
+            continuar
         }
+        # Las que acompañan, adelante de la cantidad, necesitan una palabra de pedir.
+        si tiene(palabras_que_acompanan(), palabra) {
+            si no paso_la_cantidad {
+                falta_la_de_pedir = verdadero
+            }
+            continuar
+        }
+        # Las de cómo se lo lleva valen solo después de la cantidad.
+        si paso_la_cantidad y tiene(palabras_de_como_se_lleva(), palabra) {
+            continuar
+        }
+        # Cualquier otra palabra: no está claro, no se anota.
+        devolver falso
     }
-    devolver verdadero
+    devolver hay_de_pedir o no falta_la_de_pedir
 }
 
 # ¿El pedido se anota (y descuenta stock)? Solo si es un pedido claro. Tampoco si pide
@@ -387,6 +487,11 @@ funcion es_para_anotar(pedido, dicho) {
         devolver falso
     }
     devolver no (pedido.envio == "si" y pedido.cantidad < unidades_para_envio)
+}
+
+# Lo que se contesta a una devolución, una anulación o un "no quiero 5 yerbas".
+funcion respuesta_de_anular() {
+    devolver "No anoté nada. Y si es por un pedido que ya está anotado: desde esta charla no se anula ni se devuelve, eso lo arregla una persona del negocio."
 }
 
 # Cómo se pide de verdad ese producto: con la primera palabra de su nombre.
@@ -428,14 +533,30 @@ funcion es_un_ingreso(dicho) {
     devolver largo(partes) > 0 y partes[0] == "ingreso"
 }
 
-# "ingreso 30 azucar": llegó mercadería. Va la palabra ingreso, la cantidad y el producto;
-# la suma la hace Depósito. Si no está escrito así, no suma nada y explica cómo va.
+# ¿Quiso anotar un ingreso y lo escribió parecido? "ingresó 30 azucar" (con la tilde que
+# pone el teclado del celular), "ingreso: 30 azucar", "ingresos 30 azucar": la palabra
+# ingreso y atrás un número. No se suma nada: se le explica cómo va. ("Ingresaron 5
+# fideos" o "¿ingresó mi pedido?" son de un cliente, y van a Ventas.)
+funcion parece_un_ingreso(dicho) {
+    sea palabras = palabras_de(dicho)
+    devolver largo(palabras) > 1 y tiene(["ingreso", "ingresos"], palabras[0]) y numero_de(palabras[1]) != nada
+}
+
+# "ingreso 30 azucar": llegó mercadería. Va la palabra ingreso, la cantidad y el nombre
+# del producto, y NADA más (ni signos, ni "de", ni "gracias"); la suma la hace Depósito.
+# Si no está escrito así, no suma nada y explica cómo va.
 funcion anotar_ingreso(tabla, dicho) {
-    sea como_va = "No entendí el ingreso. Va la palabra ingreso, la cantidad (un número, sin signos) y un producto de la planilla, y nada más. Por ejemplo: ingreso 30 azucar"
-    # La segunda palabra tiene que ser la cantidad: "ingreso -5 azucar" no vale.
+    sea como_va = "No entendí el ingreso. No sumé nada. Va la palabra ingreso (sin tilde), la cantidad (un número, sin signos) y el nombre de un producto de la planilla, y nada más. Por ejemplo: ingreso 30 azucar"
     sea partes = quitar(partir(minusculas(recortar(dicho)), " "), "")
-    si largo(partes) < 3 o numero_de(partes[1]) == nada o trae_un_menos(dicho) {
+    si largo(partes) < 3 o partes[0] != "ingreso" o numero_de(partes[1]) == nada o trae_un_menos(dicho) {
         devolver como_va
+    }
+    # Cada parte tiene que ser una palabra o un número, sin signos: "azucar?" no vale.
+    para parte en partes {
+        sea limpia = palabras_y_cortes(parte)
+        si largo(limpia) != 1 o largo(limpia[0]) != largo(parte) {
+            devolver como_va
+        }
     }
     # La cantidad y el producto se entienden igual que en un pedido. Un ingreso no lleva
     # envío ni otra cosa: ante la duda no se suma.
@@ -445,6 +566,20 @@ funcion anotar_ingreso(tabla, dicho) {
     }
     si pedido.envio != "" {
         devolver como_va
+    }
+    # Después de la cantidad van solo palabras del NOMBRE del producto.
+    sea palabras = palabras_de(dicho)
+    sea del_nombre = palabras_de(texto(pedido.fila.producto))
+    para i en rango(2, largo(palabras)) {
+        var es_del_nombre_suyo = falso
+        para suya en del_nombre {
+            si misma_palabra(palabras[i], suya) {
+                es_del_nombre_suyo = verdadero
+            }
+        }
+        si no es_del_nombre_suyo {
+            devolver como_va
+        }
     }
     si pedido.cantidad > ingreso_maximo {
         devolver "No lo anoté: {pedido.cantidad} es mucho para un solo ingreso (anoto hasta {ingreso_maximo} por vez). Fijate si no hay un cero de más."
@@ -484,8 +619,9 @@ funcion charlar_con_el_equipo(tabla) {
             mostrar("    Seguís dentro de la charla. Para salir, escribí chau y apretá Enter.)")
             continuar
         }
-        # "ingreso 30 azucar" no es del cliente: es mercadería que llegó.
-        si es_un_ingreso(dicho) {
+        # "ingreso 30 azucar" no es del cliente: es mercadería que llegó. (Si está escrito
+        # parecido, "ingresó 30 azucar", no se suma nada y se explica cómo va.)
+        si es_un_ingreso(dicho) o parece_un_ingreso(dicho) {
             mostrar("Depósito: {anotar_ingreso(tabla, dicho)}")
             continuar
         }
@@ -496,8 +632,13 @@ funcion charlar_con_el_equipo(tabla) {
     devolver consultas
 }
 
-# Reparte la planilla: los precios a Ventas y el stock de arranque a Depósito.
+# Reparte la planilla: los precios a Ventas y el stock de arranque a Depósito. Con uno de
+# los números de arriba mal puesto no abre: dice cuál es y cómo va.
 funcion abrir_el_negocio(tabla) {
+    sea mal_puesto = numeros_mal_puestos()
+    si mal_puesto != nada {
+        fallar(mal_puesto)
+    }
     enviar ListaDePrecios { filas: tabla } a Ventas
     enviar Inventario { filas: tabla, reponer_bajo: stock_minimo } a Deposito
 }
@@ -509,14 +650,35 @@ funcion es_entero_desde(valor, piso) {
     devolver tipo(valor) == "numero" y valor >= piso y valor == redondear(valor)
 }
 
-# ¿Se puede atender? Mira los dos números que se cambian arriba (el del envío y el mínimo)
-# y la planilla. Devuelve qué hay que arreglar, dicho para una persona; o nada.
-funcion que_arreglar(tabla) {
-    si no es_entero_desde(unidades_para_envio, 1) {
-        devolver "Arriba, en el programa, unidades_para_envio tiene que ser un número entero, 1 o más, sin comillas. Ahora dice: {unidades_para_envio}"
+# Cómo está escrito un valor, para mostrárselo a quien lo puso: un texto va con sus
+# comillas, que son justo lo que hay que sacar.
+funcion como_esta_escrito(valor) {
+    si tipo(valor) == "texto" {
+        devolver "\"{valor}\" (con comillas: hay que sacarlas)"
     }
-    si no es_entero_desde(stock_minimo, 0) {
-        devolver "Arriba, en el programa, stock_minimo tiene que ser un número entero, 0 o más, sin comillas. Ahora dice: {stock_minimo}"
+    devolver texto(valor)
+}
+
+# Los tres números que se cambian arriba: el del envío, el mínimo y el tope de un ingreso.
+# Si alguno no es un número entero de su piso para arriba, devuelve cuál y cómo va; si
+# están bien, nada.
+funcion numeros_mal_puestos() {
+    para n en [{ nombre: "unidades_para_envio", valor: unidades_para_envio, piso: 1 },
+               { nombre: "stock_minimo", valor: stock_minimo, piso: 0 },
+               { nombre: "ingreso_maximo", valor: ingreso_maximo, piso: 1 }] {
+        si no es_entero_desde(n.valor, n.piso) {
+            devolver "Arriba, en el programa, {n.nombre} tiene que ser un número entero, {n.piso} o más, sin comillas. Ahora dice: {como_esta_escrito(n.valor)}"
+        }
+    }
+    devolver nada
+}
+
+# ¿Se puede atender? Mira los tres números que se cambian arriba y la planilla. Devuelve
+# qué hay que arreglar, dicho para una persona; o nada.
+funcion que_arreglar(tabla) {
+    sea mal_puesto = numeros_mal_puestos()
+    si mal_puesto != nada {
+        devolver mal_puesto
     }
     sea de_la_planilla = revisar_planilla(tabla)
     si de_la_planilla != nada {
@@ -805,4 +967,92 @@ prueba "un mínimo mal puesto o un stock con decimales se avisan antes de atende
     asegurar que_arreglar(con_decimales) == "En precios.csv, el stock de 'Queso' tiene decimales: va en unidades enteras (por ejemplo 2 o 3)."
     # Y lo que ya avisaba la planilla mal cargada, se sigue avisando.
     asegurar que_arreglar([{ producto: "Queso", presentacion: "horma", precio: 1000, stock: "" }]) != nada
+}
+
+prueba "hablar de un pedido que YA está hecho no lo anota otra vez" {
+    abrir_el_negocio(lista)
+    # El cliente agradece, viene a retirar o pregunta por lo que ya pidió: si se anotara,
+    # se le vendería dos veces. Todas tienen una cantidad y un producto.
+    para dicho en ["retiro el pedido de 5 azucar", "gracias por las 5 azucar",
+                   "ya llevo el pedido de 5 azucar", "hola, por mi pedido de 5 azucar",
+                   "te llevo 10 yerbas", "me mandan 10 azucar", "otro dia quiero 20 azucar",
+                   "gracias por las 10 yerbas", "gracias por el pedido de 20 azucar",
+                   "gracias por los 10 arroz del otro dia", "retiro el pedido de 5 yerbas",
+                   "gracias, ya retiro mi pedido de 5 yerbas",
+                   "hola, el pedido de 10 yerbas ya lo retiro",
+                   "buenas, ya mandan mi pedido de 12 arroz", "ya me mandan los 10 arroz",
+                   "mi pedido de 20 azucar", "che, y el pedido de 5 yerbas",
+                   "los 10 arroz", "retiro 5 yerbas", "un pedido de 5 yerbas",
+                   "quiero retirar un pedido de 5 yerbas", "me llevo las 5 yerbas",
+                   "pedi 5 yerbas", "compre 5 yerbas ayer", "le llevo 5 yerbas"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada: para pedirlo, escribí \"quiero "), dicho
+    }
+    # Nadie reservó nada ni se le avisó a Compras: el stock está entero.
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 25
+    asegurar (preguntar CuantoQueda { producto: "Arroz largo fino" } a Deposito).unidades == 15
+}
+
+prueba "un menos con espacio o con raya larga, o un signo de pregunta ancho, no anotan" {
+    abrir_el_negocio(lista)
+    para dicho en ["quiero - 3 azucar", "quiero –3 azucar", "quiero — 3 azucar", "quiero −3 azucar",
+                   "quiero 20 azucar？"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada"), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar trae_un_menos("ingreso - 5 azucar") y no trae_un_menos("quiero 5 azucar - gracias")
+}
+
+prueba "las maneras corrientes de pedir se anotan" {
+    abrir_el_negocio(lista)
+    para dicho en ["quiero comprar 2 yerbas", "quiero pedir 2 yerbas", "me das 2 yerbas",
+                   "pasame 2 yerbas", "hago un pedido de 2 yerbas", "te pido 2 yerbas, gracias",
+                   "buen día, quiero hacer un pedido de 2 yerbas", "me llevo 2 yerbas",
+                   "buenas tardes, 2 yerbas por favor", "2 yerbas, las retiro yo",
+                   "dame otras 2 yerbas"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+    }
+    asegurar empieza_con(consultar_a_ventas("z", "12 yerbas con envio a mi casa, muchas gracias"), "Anotado: 12 x Yerba mate")
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40 - 11 * 2 - 12
+}
+
+prueba "devolver o anular no anota nada, y Ventas dice que eso lo arregla una persona" {
+    abrir_el_negocio(lista)
+    simular_ia("Listo, te lo anulé.")
+    para dicho en ["devuelvo 5 yerbas", "cancelame 5 yerbas", "anulame el pedido de 5 yerbas",
+                   "ya no quiero 5 yerbas", "quiero devolver un producto"] {
+        asegurar consultar_a_ventas(dicho, dicho) == respuesta_de_anular(), dicho
+    }
+    asegurar empieza_con(respuesta_de_anular(), "No anoté nada.")
+    # No se le preguntó a la IA ni a Depósito.
+    asegurar largo(consultas_ia()) == 0
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("ConsultarStock")) == 0
+}
+
+prueba "un ingreso lleva la cantidad y el producto, y nada más" {
+    abrir_el_negocio(lista)
+    para dicho en ["ingreso 5 yerbas no", "ingreso 5 yerbas?", "ingreso 5 de yerba",
+                   "ingreso 30 azucar?", "ingreso 30 azucar gracias", "ingresó 30 azucar",
+                   "ingreso: 30 azucar", "ingresos 30 azucar", "ingreso - 5 azucar",
+                   "ingreso –5 azucar", "ingreso 30 azucar."] {
+        asegurar empieza_con(anotar_ingreso(lista, dicho), "No entendí el ingreso. No sumé nada."), dicho
+    }
+    asegurar largo(mensajes_enviados("Ingreso")) == 0
+    # Lo que vale: el nombre del producto, con una palabra o con todas.
+    asegurar anotar_ingreso(lista, "ingreso 30 azucar") == "Entraron 30 de Azúcar: ahora hay 55."
+    asegurar anotar_ingreso(lista, "  Ingreso 5 Yerba Mate") == "Entraron 5 de Yerba mate: ahora hay 45."
+    # Escrito parecido ("ingresó", "ingreso:"), en la charla se explica cómo va: no va a
+    # Ventas como si fuera un cliente. Una pregunta de un cliente sí va a Ventas.
+    asegurar parece_un_ingreso("ingresó 30 azucar") y parece_un_ingreso("ingreso: 30 azucar") y parece_un_ingreso("ingresos 30 azucar")
+    asegurar no parece_un_ingreso("Ingresó mi pedido de 20 azucar?") y no parece_un_ingreso("quiero 30 azucar") y no parece_un_ingreso("ingresaron 5 fideos")
+    simular_teclado(["ingresó 30 azucar", "ingreso: 30 azucar", "ingreso 30 azucar?", "chau"])
+    asegurar charlar_con_el_equipo(lista) == 0
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 55
+}
+
+prueba "los números de arriba mal puestos se muestran como están escritos" {
+    asegurar numeros_mal_puestos() == nada
+    asegurar como_esta_escrito("10") == "\"10\" (con comillas: hay que sacarlas)"
+    asegurar como_esta_escrito(2.5) == "2.5" y como_esta_escrito(-5) == "-5"
 }

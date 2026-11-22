@@ -10726,7 +10726,7 @@ def test_nuevo_mostrador_crea_el_programa_y_la_planilla_listos_para_usar(tmp_pat
                                                          "mi_negocio_precios.csv"]
     # los pasos que siguen, con los comandos enteros (la orden lleva la ruta de mate.py
     # vista desde la carpeta donde se creó: se pueden copiar tal cual)
-    orden = f"python3 {RAIZ / 'mate.py'}" if mate.os.name != "nt" else f"python {RAIZ / 'mate.py'}"
+    orden = f"python3 {MATE_PY()}" if mate.os.name != "nt" else f"python {MATE_PY()}"
     for comando in (f"{orden} probar mi_negocio.mate",
                     f"{orden} correr mi_negocio.mate --ia-simulada",
                     "notepad mi_negocio_precios.csv", f"{orden} correr mi_negocio.mate\n",
@@ -10989,7 +10989,7 @@ def test_nuevo_mostrador_sugiere_los_comandos_con_la_orden_de_esa_computadora(tm
     monkeypatch.setattr(mate.os, "name", "nt")
     monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
     codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "dos")
-    assert codigo == 0 and f"\n       py {RAIZ / 'mate.py'} probar dos.mate\n" in salida
+    assert codigo == 0 and f"\n       py {MATE_PY()} probar dos.mate\n" in salida
     assert "python" not in salida
     # parado al lado de la carpeta mate, la ruta es la corta
     monkeypatch.chdir(RAIZ.parent)
@@ -10997,7 +10997,7 @@ def test_nuevo_mostrador_sugiere_los_comandos_con_la_orden_de_esa_computadora(tm
     # y los errores también sugieren con esa forma
     monkeypatch.chdir(tmp_path)
     assert mate.main(["nuevo", "mostrador"]) == 2
-    assert f"Por ejemplo:  py {RAIZ / 'mate.py'} nuevo mostrador mi_negocio" in capsys.readouterr().err
+    assert f"Por ejemplo:  py {MATE_PY()} nuevo mostrador mi_negocio" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("args,frase", [
@@ -11288,7 +11288,7 @@ def test_ensayar_los_casos_de_muestra_con_el_ejemplo_12(capsys):
 def test_ensayar_lo_que_crea_nuevo_mostrador_sin_tocarlo(tmp_path, capsys, monkeypatch):
     codigo, salida, _ = crear_mostrador(tmp_path, capsys, monkeypatch)
     assert codigo == 0
-    orden = f"python3 {RAIZ / 'mate.py'}" if mate.os.name != "nt" else f"python {RAIZ / 'mate.py'}"
+    orden = f"python3 {MATE_PY()}" if mate.os.name != "nt" else f"python {MATE_PY()}"
     comando = f"{orden} ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada"
     assert f"       {comando}\n" in salida
     # los casos salen para el Bloc de notas y con el comando de ESTE mostrador arriba
@@ -11941,7 +11941,7 @@ def test_los_casos_del_manual_son_los_que_mate_entiende(tmp_path):
 EQUIPO = "13_equipo_del_negocio.mate"
 
 
-def copia_del_equipo(tmp_path):
+def copia_del_equipo(tmp_path):  # (MATE_PY está más abajo, con las pruebas de la vuelta 3)
     """El ejemplo 13 en una carpeta propia, con lo que usa: el ejemplo 12 (trae sus
     funciones con 'usar') y la planilla. Devuelve la ruta del programa."""
     import shutil
@@ -11982,14 +11982,20 @@ def test_el_ejemplo_13_pasa_sus_pruebas_y_no_deja_nada(tmp_path, capsys):
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["probar", ruta]) == 0
     salida = capsys.readouterr().out
-    assert "20 de 20 pruebas pasaron" in salida and "✗" not in salida
+    assert "26 de 26 pruebas pasaron" in salida and "✗" not in salida
     for prueba in ("al bajar del mínimo sale UN pedido de reposición, no uno por cada venta",
                    "pedir más de lo que hay no vende, y no descuenta nada",
                    "la conversación va de Ventas a Depósito, y de Depósito a Compras",
                    "el contrato no deja saltearse a Ventas ni hablarle a Compras por afuera",
                    "lo que no es un pedido claro no se anota: negaciones, dudas, preguntas y avisos",
                    "si entra poca mercadería y sigue bajo el mínimo, el pedido de reposición queda",
-                   "un ingreso mal escrito no suma nada"):
+                   "un ingreso mal escrito no suma nada",
+                   "hablar de un pedido que YA está hecho no lo anota otra vez",
+                   "un menos con espacio o con raya larga, o un signo de pregunta ancho, no anotan",
+                   "las maneras corrientes de pedir se anotan",
+                   "devolver o anular no anota nada, y Ventas dice que eso lo arregla una persona",
+                   "un ingreso lleva la cantidad y el producto, y nada más",
+                   "los números de arriba mal puestos se muestran como están escritos"):
         assert f"✓ {prueba}" in salida, prueba
     assert sorted(p.name for p in tmp_path.iterdir()) == antes  # 'probar' no guarda el stock
 
@@ -12108,7 +12114,7 @@ def test_nuevo_equipo_crea_el_programa_la_planilla_y_los_casos_listos_para_usar(
     assert (codigo, err) == (0, "")
     creados = ["mi_negocio.mate", "mi_negocio_casos.txt", "mi_negocio_precios.csv"]
     assert sorted(p.name for p in tmp_path.iterdir()) == creados
-    orden = f"python3 {RAIZ / 'mate.py'}" if mate.os.name != "nt" else f"python {RAIZ / 'mate.py'}"
+    orden = f"python3 {MATE_PY()}" if mate.os.name != "nt" else f"python {MATE_PY()}"
     for comando in (f"{orden} probar mi_negocio.mate",
                     f"{orden} correr mi_negocio.mate --ia-simulada --traza",
                     f"{orden} correr mi_negocio.mate --ia-simulada\n",
@@ -12140,7 +12146,7 @@ def test_nuevo_equipo_crea_el_programa_la_planilla_y_los_casos_listos_para_usar(
     assert mate.main(["verificar", "mi_negocio.mate"]) == 0
     assert mate.main(["probar", "mi_negocio.mate"]) == 0
     salida = capsys.readouterr().out
-    assert "mi_negocio.mate: sin errores" in salida and "13 de 13 pruebas pasaron" in salida
+    assert "mi_negocio.mate: sin errores" in salida and "15 de 15 pruebas pasaron" in salida
     assert "✓ tu planilla está bien cargada" in salida
     assert "✓ al bajar del mínimo sale UN pedido de reposición, no uno por cada venta" in salida
     assert sorted(p.name for p in tmp_path.iterdir()) == creados
@@ -12314,7 +12320,7 @@ def test_el_equipo_creado_sigue_andando_con_otros_productos_otro_envio_y_otro_mi
                                      f"sea unidades_para_envio = {envio}"), encoding="utf-8-sig")
         assert mate.main(["verificar", "ferreteria.mate"]) == 0, (minimo, envio)
         assert mate.main(["probar", "ferreteria.mate"]) == 0, (minimo, envio)
-        assert "13 de 13 pruebas pasaron" in capsys.readouterr().out, (minimo, envio)
+        assert "15 de 15 pruebas pasaron" in capsys.readouterr().out, (minimo, envio)
     # con el mínimo en 3: de 5 martillos, al vender 3 quedan 2 y se avisa una vez
     programa.write_text(original.replace("sea stock_minimo = 10", "sea stock_minimo = 3"),
                         encoding="utf-8-sig")
@@ -12353,7 +12359,7 @@ def test_el_equipo_creado_se_puede_abrir_con_el_bloc_de_notas_y_se_ensaya_sin_to
                if r.startswith("#") and "mate.py" not in r) <= 100  # el encabezado entra en el Bloc
     assert mate.main(["verificar", "tienda.mate"]) == 0
     assert mate.main(["probar", "tienda.mate"]) == 0
-    assert "13 de 13 pruebas pasaron" in capsys.readouterr().out
+    assert "15 de 15 pruebas pasaron" in capsys.readouterr().out
     # los casos: con la marca del Bloc de notas, el comando de ESTE equipo arriba, y de
     # 'Cómo se escribe' para abajo, los de muestra tal cual
     casos = archivos["tienda_casos.txt"]
@@ -12392,10 +12398,10 @@ def test_nuevo_equipo_sugiere_los_comandos_con_la_orden_de_esa_computadora(tmp_p
     monkeypatch.setattr(mate.os, "name", "nt")
     monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
     codigo, salida, err = crear_equipo(tmp_path, capsys, monkeypatch, "dos")
-    assert codigo == 0 and f"\n       py {RAIZ / 'mate.py'} probar dos.mate\n" in salida
+    assert codigo == 0 and f"\n       py {MATE_PY()} probar dos.mate\n" in salida
     assert "python" not in salida
     assert mate.main(["nuevo", "equipo"]) == 2
-    assert f"Por ejemplo:  py {RAIZ / 'mate.py'} nuevo equipo mi_negocio" in capsys.readouterr().err
+    assert f"Por ejemplo:  py {MATE_PY()} nuevo equipo mi_negocio" in capsys.readouterr().err
 
 
 def frases_que_no_son_un_pedido():
@@ -12525,7 +12531,7 @@ def test_nuevo_equipo_da_lo_mismo_con_el_repositorio_en_una_carpeta_de_nombre_la
     assert max(len(r) for r in salida.replace(orden, "mate").splitlines()
                if not r.startswith("Listo. Creé tres archivos en")) <= 86
     assert mate.main(["probar", "mi_negocio.mate"]) == 0
-    assert "13 de 13 pruebas pasaron" in capsys.readouterr().out
+    assert "15 de 15 pruebas pasaron" in capsys.readouterr().out
 
 
 def test_el_equipo_avisa_que_el_stock_se_guarda_al_terminar_con_chau(tmp_path, capsys,
@@ -12561,7 +12567,17 @@ def test_el_equipo_avisa_que_el_stock_se_guarda_al_terminar_con_chau(tmp_path, c
     (("sea stock_minimo = 10", "sea stock_minimo = -5"),
      "stock_minimo tiene que ser un número entero, 0 o más, sin comillas. Ahora dice: -5"),
     (("sea stock_minimo = 10", 'sea stock_minimo = "diez"'),
-     "stock_minimo tiene que ser un número entero, 0 o más, sin comillas. Ahora dice: diez"),
+     'stock_minimo tiene que ser un número entero, 0 o más, sin comillas. Ahora dice: "diez" '
+     "(con comillas: hay que sacarlas)"),
+    # (P98) con comillas se muestra con comillas; (P97) ingreso_maximo también se revisa
+    (("sea unidades_para_envio = 10", 'sea unidades_para_envio = "10"'),
+     'unidades_para_envio tiene que ser un número entero, 1 o más, sin comillas. Ahora dice: "10" '
+     "(con comillas: hay que sacarlas)"),
+    (("sea ingreso_maximo = 100000", 'sea ingreso_maximo = "x"'),
+     'ingreso_maximo tiene que ser un número entero, 1 o más, sin comillas. Ahora dice: "x" '
+     "(con comillas: hay que sacarlas)"),
+    (("sea ingreso_maximo = 100000", "sea ingreso_maximo = 0"),
+     "ingreso_maximo tiene que ser un número entero, 1 o más, sin comillas. Ahora dice: 0"),
     (("sea stock_minimo = 10", "sea stock_minimo = 2.5"),
      "stock_minimo tiene que ser un número entero, 0 o más, sin comillas. Ahora dice: 2.5"),
     (("sea unidades_para_envio = 10", "sea unidades_para_envio = 0"),
@@ -12585,6 +12601,178 @@ def test_el_equipo_creado_avisa_en_castellano_un_numero_mal_puesto(cambio, frase
     assert mate.main(["probar", "mi_negocio.mate"]) == 1
     salida = capsys.readouterr().out
     assert "✗ tu planilla está bien cargada" in salida and frase in salida
+    # (P100) con un número de arriba mal puesto fallan TODAS las pruebas, y todas con el
+    # mismo aviso en castellano: ninguna muestra el error técnico del contrato
+    if ";" not in cambio[0]:
+        assert "0 de 15 pruebas pasaron" in salida and salida.count(frase) >= 15
+        assert "Inventario" not in salida and "no se puede" not in salida
+
+
+# ── Vuelta 3 del cambio 1 de la 0.7 ──────────────────────────────────────────────────────
+
+def MATE_PY():
+    """La ruta de mate.py como la escribe el programa en un comando para copiar: entre
+    comillas si trae espacios (P99: con el repositorio en una carpeta con espacios, las
+    pruebas armaban el comando sin comillas y fallaban)."""
+    return mate.para_pegar(str(RAIZ / "mate.py"))
+
+
+def equipo_para_probar(creado, tmp_path, capsys, monkeypatch):
+    """El ejemplo 13 (en una copia) o un equipo recién creado: (ruta, archivo de memoria)."""
+    if creado:
+        assert crear_equipo(tmp_path, capsys, monkeypatch)[0] == 0
+        return "mi_negocio.mate", tmp_path / "mi_negocio.memoria.json"
+    return copia_del_equipo(tmp_path), tmp_path / "13_equipo_del_negocio.memoria.json"
+
+
+STOCK_DE_LA_PLANILLA = {"Yerba mate": 40, "Azúcar": 25, "Harina 000": 12,
+                        "Aceite de girasol": 8, "Fideos secos": 0, "Arroz largo fino": 15}
+
+
+def stock_guardado(memoria):
+    import json
+    return json.loads(memoria.read_text(encoding="utf-8-sig"))["agentes"]["Deposito"]["estado"]["stock"]
+
+
+def frases_de_un_pedido_ya_hecho():
+    """(P81, vuelta 2) Lo que encontraron el revisor y el agente de pruebas: frases con
+    cantidad y producto, armadas con palabras que la lista dejaba pasar, que hablan de un
+    pedido que YA existe o no piden nada. Ventas las anotaba y Depósito descontaba."""
+    return ["retiro el pedido de 5 azucar", "gracias por las 5 azucar",
+            "ya llevo el pedido de 5 azucar", "hola, por mi pedido de 5 azucar",
+            "te llevo 10 yerbas", "me mandan 10 azucar", "otro dia quiero 20 azucar",
+            "gracias por las 10 yerbas", "gracias por el pedido de 20 azucar",
+            "gracias por los 10 arroz del otro dia", "retiro el pedido de 5 yerbas",
+            "gracias, ya retiro mi pedido de 5 yerbas", "hola, el pedido de 10 yerbas ya lo retiro",
+            "buenas, ya mandan mi pedido de 12 arroz", "ya me mandan los 10 arroz",
+            "mi pedido de 20 azucar", "che, y el pedido de 5 yerbas",
+            # (P95) el menos con espacio o con raya larga, y el signo de pregunta ancho
+            "quiero - 3 azucar", "quiero –3 azucar", "quiero — 3 azucar", "quiero 20 azucar？",
+            # de la misma familia: lo que ya pasó, o lo que hace otro
+            "los 10 arroz", "retiro 5 yerbas", "un pedido de 5 yerbas", "pedi 5 yerbas",
+            "compre 5 yerbas ayer", "le llevo 5 yerbas", "me llevo las 5 yerbas",
+            "quiero retirar un pedido de 5 yerbas", "vengo por las 5 yerbas",
+            "ya pague las 10 yerbas", "me llegaron 10 yerbas", "5 yerbas del pedido de ayer"]
+
+
+@pytest.mark.parametrize("creado", [False, True])
+def test_el_equipo_no_anota_de_nuevo_un_pedido_que_ya_esta_hecho(creado, tmp_path, capsys,
+                                                               monkeypatch):
+    # el cliente que agradece o viene a retirar lo que ya pidió no lo compra otra vez
+    ruta, memoria = equipo_para_probar(creado, tmp_path, capsys, monkeypatch)
+    frases = frases_de_un_pedido_ya_hecho()
+    dicho, salida = charla_del_equipo(ruta, capsys, monkeypatch, *frases, opciones=["--traza"])
+    assert len(dicho) == len(frases)
+    for frase, respuesta in zip(frases, dicho):
+        assert "Anotado" not in respuesta, frase
+        assert 'Todavía no anoté nada: para pedirlo, escribí "quiero ' in respuesta, frase
+    assert "Deposito: Reservar" not in salida and "Compras: Reponer" not in salida
+    assert stock_guardado(memoria) == STOCK_DE_LA_PLANILLA
+    # cada una sola, en una corrida limpia (como las probó el agente de pruebas)
+    for frase in frases[:17]:
+        memoria.unlink()
+        dicho, _ = charla_del_equipo(ruta, capsys, monkeypatch, frase)
+        assert len(dicho) == 1 and "Anotado" not in dicho[0], frase
+        assert stock_guardado(memoria) == STOCK_DE_LA_PLANILLA, frase
+
+
+@pytest.mark.parametrize("creado", [False, True])
+def test_el_equipo_anota_las_maneras_corrientes_de_pedir(creado, tmp_path, capsys, monkeypatch):
+    # (P96) el filtro no puede dejar afuera los pedidos de todos los días
+    ruta, memoria = equipo_para_probar(creado, tmp_path, capsys, monkeypatch)
+    claros = ["quiero 2 yerbas", "2 yerbas", "quiero comprar 2 yerbas", "quiero pedir 2 yerbas",
+              "me das 2 yerbas", "pasame 2 yerbas", "hago un pedido de 2 yerbas",
+              "buen día, quiero hacer un pedido de 2 yerbas", "te pido 2 yerbas, gracias",
+              "me llevo 2 yerbas", "buenas tardes, 2 yerbas por favor", "2 yerbas, las retiro yo",
+              "dame otras 2 yerbas", "Hola, quería 2 bolsones de yerba por favor",
+              "anotame 2 yerbas sin envio"]
+    dicho, _ = charla_del_equipo(ruta, capsys, monkeypatch, *claros,
+                                 "12 azucar con envio a mi casa, muchas gracias")
+    for frase, respuesta in zip(claros, dicho):
+        assert respuesta.startswith("Ventas: Anotado: 2 x Yerba mate"), (frase, respuesta)
+    assert dicho[-1].startswith("Ventas: Anotado: 12 x Azúcar") and dicho[-1].endswith(
+        "Con envío: sí, va con envío.")
+    assert stock_guardado(memoria) == {**STOCK_DE_LA_PLANILLA, "Yerba mate": 40 - 2 * len(claros),
+                                       "Azúcar": 13}
+
+
+@pytest.mark.parametrize("creado", [False, True])
+def test_el_equipo_no_anula_ni_devuelve_y_lo_dice(creado, tmp_path, capsys, monkeypatch):
+    # (P96) antes contestaba solo el renglón de la lista, sin decir que no se anotó nada
+    ruta, memoria = equipo_para_probar(creado, tmp_path, capsys, monkeypatch)
+    frases = ["devuelvo 5 yerbas", "cancelame 5 yerbas", "anulame el pedido de 5 yerbas",
+              "ya no quiero 5 yerbas"]
+    dicho, salida = charla_del_equipo(ruta, capsys, monkeypatch, *frases, opciones=["--traza"])
+    assert dicho == ["Ventas: No anoté nada. Y si es por un pedido que ya está anotado: desde "
+                     "esta charla no se anula ni se devuelve, eso lo arregla una persona del "
+                     "negocio."] * len(frases)
+    assert "pregunta a Deposito" not in salida
+    assert stock_guardado(memoria) == STOCK_DE_LA_PLANILLA
+
+
+@pytest.mark.parametrize("creado", [False, True])
+def test_un_ingreso_lleva_la_cantidad_y_el_producto_y_nada_mas(creado, tmp_path, capsys,
+                                                             monkeypatch):
+    # (P83, resto) "ingreso 5 yerbas no", "ingreso 5 yerbas?" e "ingreso 5 de yerba" sumaban;
+    # "ingresó 30 azucar" iba a Ventas como si fuera un cliente, sin explicar cómo se escribe
+    ruta, memoria = equipo_para_probar(creado, tmp_path, capsys, monkeypatch)
+    mal = ["ingreso 5 yerbas no", "ingreso 5 yerbas?", "ingreso 5 de yerba", "ingreso 30 azucar?",
+           "ingreso 30 azucar gracias", "ingresó 30 azucar", "ingreso: 30 azucar",
+           "ingresos 30 azucar", "ingreso - 5 azucar", "ingreso –5 azucar", "ingreso 30 azucar."]
+    dicho, salida = charla_del_equipo(ruta, capsys, monkeypatch, *mal)
+    assert len(dicho) == len(mal)
+    for frase, respuesta in zip(mal, dicho):
+        assert respuesta.startswith("Depósito: No entendí el ingreso. No sumé nada."), frase
+        assert respuesta.endswith("y nada más. Por ejemplo: ingreso 30 azucar"), frase
+    assert "En esta charla atendí 0 consulta(s)." in salida
+    assert stock_guardado(memoria) == STOCK_DE_LA_PLANILLA
+    # bien escrito sí suma: con una palabra del nombre o con todas, en mayúsculas o no
+    dicho, _ = charla_del_equipo(ruta, capsys, monkeypatch, "ingreso 30 azucar",
+                                 "  Ingreso 5 Yerba Mate", "ingreso 1.000 fideos secos")
+    assert dicho == ["Depósito: Entraron 30 de Azúcar: ahora hay 55.",
+                     "Depósito: Entraron 5 de Yerba mate: ahora hay 45.",
+                     "Depósito: Entraron 1000 de Fideos secos: ahora hay 1000."]
+    assert stock_guardado(memoria) == {**STOCK_DE_LA_PLANILLA, "Azúcar": 55, "Yerba mate": 45,
+                                       "Fideos secos": 1000}
+
+
+def test_las_pruebas_del_equipo_creado_pasan_con_un_minimo_muy_grande(tmp_path, capsys,
+                                                                     monkeypatch):
+    # (P97) con stock_minimo = 1000000 fallaban 2 de 13, contra lo que dice el encabezado
+    assert crear_equipo(tmp_path, capsys, monkeypatch)[0] == 0
+    programa = tmp_path / "mi_negocio.mate"
+    original = programa.read_text(encoding="utf-8-sig")
+    for cambio in (("sea stock_minimo = 10", "sea stock_minimo = 1000000"),
+                   ("sea stock_minimo = 10", "sea stock_minimo = 37"),
+                   ("sea ingreso_maximo = 100000", "sea ingreso_maximo = 1")):
+        assert original.count(cambio[0]) == 1
+        programa.write_text(original.replace(*cambio), encoding="utf-8-sig")
+        assert mate.main(["probar", "mi_negocio.mate"]) == 0, cambio
+        assert "15 de 15 pruebas pasaron" in capsys.readouterr().out, cambio
+
+
+def test_el_encabezado_del_equipo_creado_no_se_pasa_del_ancho_por_el_nombre(tmp_path, capsys,
+                                                                           monkeypatch):
+    # (P101) el nombre del archivo de memoria iba metido en un renglón de texto: ahora va
+    # solo en su renglón, como la planilla. Los renglones de texto no dependen del nombre.
+    monkeypatch.setenv("MATE_ORDEN", "mate")
+    largo = "un_negocio_con_un_nombre_bien_pero_bien_largo"
+    assert crear_equipo(tmp_path, capsys, monkeypatch, largo)[0] == 0
+    encabezado = (tmp_path / f"{largo}.mate").read_text(encoding="utf-8-sig").split(
+        "\nsea unidades_para_envio")[0].splitlines()
+    assert f"#          {largo}.memoria.json" in encabezado
+    assert encabezado[0] == f"# {largo}.mate: el equipo de tu negocio."
+    for renglon in encabezado[1:]:
+        # (el archivo de casos sigue nombrado dentro de dos renglones: ya estaba así, igual
+        # que en 'nuevo mostrador')
+        if f"{largo}_casos.txt" in renglon:
+            continue
+        assert len(renglon) <= 92 or renglon.startswith("#          "), renglon
+    # y el encabezado cuenta lo nuevo de la vuelta 3
+    texto = " ".join(" ".join(encabezado).replace("#", " ").split())
+    for frase in ("un pedido que YA está hecho", "no se anula desde la charla",
+                  "palabras_de_pedir()", "la palabra ingreso, sin tilde", "ingreso_maximo"):
+        assert frase in texto, frase
 
 
 def test_el_ejemplo_12_sigue_contestando_igual_con_la_logica_partida_para_el_equipo():

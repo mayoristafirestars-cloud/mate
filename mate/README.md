@@ -806,23 +806,44 @@ Lo que hay que saber:
   cada tanto. Y no abras el mismo equipo en **dos ventanas** a la vez: la que cierra última
   pisa lo que anotó la otra.
 - **Un pedido claro se anota y descuenta stock; lo demás, no.** "quiero 20 azucar", "20
-  azucar" a secas, "dame 12 yerbas con envío" o "5 yerbas, las retiro yo" son pedidos:
-  Depósito descuenta y Ventas contesta `Anotado: 20 x Azúcar ...`. Para anotar, Ventas mira
-  la frase palabra por palabra: además de la cantidad y el producto solo puede traer palabras
-  de pedir, de saludar o del envío (la lista está en `palabras_de_un_pedido()`, en el
-  programa, y se le pueden agregar). Con una pregunta ("¿cuánto salen 20 azúcar?", "2
-  azúcar?"), un "no" ("no me mandes 2 arroz"), una duda ("quería saber si puedo pedir 2
-  azúcar") o cualquier otra palabra ("recibí 10 yerbas", "haceme un descuento en 20 yerbas",
-  "a las 3 paso a buscar la yerba"), Ventas le consulta a Depósito cuánto hay, contesta la
-  cuenta y agrega `Todavía no
-  anoté nada: para pedirlo, escribí "quiero 20 azucar"`. Tampoco se anota un pedido **con
-  envío que no llega a las unidades de la regla**: primero el cliente decide si lo retira o
-  suma más. Ante la duda no se anota: es el error que no le saca stock a nadie. (Un pedido
-  anotado no se puede anular desde la charla.)
+  azucar" a secas, "me das 20 azucar", "quiero comprar 20 azucar", "hago un pedido de 20
+  azucar", "dame 12 yerbas con envío" o "5 yerbas, las retiro yo" son pedidos: Depósito
+  descuenta y Ventas contesta `Anotado: 20 x Azúcar ...`. Para anotar, Ventas mira la frase
+  palabra por palabra: además de la cantidad y el producto solo puede traer palabras de
+  cuatro listas que están en el programa. Las de **pedir** (`palabras_de_pedir()`: "quiero",
+  "dame", "me das", "pido", "llevo", "comprar"...), las **sueltas** de saludar y contar
+  ("hola", "buen día", "por favor", "de"), las que **acompañan** a una de pedir ("me", "te",
+  "otras") y las de **cómo se lo lleva** (el envío, el retiro y el "gracias" del final), que
+  valen solo **después** de la cantidad. Con cualquier otra cosa, Ventas le consulta a
+  Depósito cuánto hay, contesta la cuenta y agrega `Todavía no
+  anoté nada: para pedirlo, escribí "quiero 20 azucar"`. Eso pasa con:
+  - una pregunta ("¿cuánto salen 20 azúcar?", "2 azúcar?"), un "no" ("no me mandes 2
+    arroz"), una duda ("quería saber si puedo pedir 2 azúcar") o un número con un menos
+    adelante ("quiero - 3 azucar");
+  - una palabra que no está en las listas ("recibí 10 yerbas", "haceme un descuento en 20
+    yerbas", "a las 3 paso a buscar la yerba", "necesito 12 arroz para mañana");
+  - una frase que habla de un pedido que **ya está hecho**: "retiro el pedido de 5 azucar",
+    "gracias por las 10 yerbas", "mi pedido de 20 azucar", "ya me mandan los 10 arroz", "te
+    llevo 10 yerbas". El cliente que viene a retirar lo que pidió no lo compra dos veces;
+  - un pedido **con envío que no llega a las unidades de la regla**: primero el cliente
+    decide si lo retira o suma más.
+
+  Ante la duda no se anota: es el error que no le saca stock a nadie. El costo es que un
+  pedido bien dicho con una palabra que no está en las listas no se anota, y el cliente lo
+  tiene que escribir de nuevo como le dice Ventas. Si tus clientes usan otra palabra para
+  pedir, agregala en `palabras_de_pedir()` (en minúsculas y sin tildes).
+- **Un pedido anotado no se anula desde la charla.** A "devuelvo 5 yerbas", "cancelame 5
+  yerbas", "anulame el pedido" o "ya no quiero 5 yerbas", Ventas contesta, sin IA y sin tocar
+  el stock: `No anoté nada. Y si es por un pedido que ya está anotado: desde esta charla no
+  se anula ni se devuelve, eso lo arregla una persona del negocio.` (La mercadería que
+  vuelve se suma con un `ingreso`.)
 - **Pedir más de lo que hay no vende nada** (no se vende una parte): `De Yerba mate quedan
   40; no llego a 100.`
 - **El mínimo** es el número de `stock_minimo`, arriba en el programa (un número entero, 0 o
-  más; si queda mal puesto, el equipo no atiende y dice cómo arreglarlo). Cuando por una
+  más). Si ese número, el del envío (`unidades_para_envio`) o el tope de un ingreso
+  (`ingreso_maximo`) quedan mal puestos (con comillas, con decimales, negativos), el equipo
+  no atiende y dice cuál es y cómo va; `probar` falla en todas las pruebas con ese mismo
+  aviso. (`verificar` no lo mira: solo revisa que el programa esté bien escrito.) Cuando por una
   venta de un producto quedan **menos** unidades que esas, Depósito le avisa a Compras, una
   vez. También le avisa si alguien pide un producto que está en cero. Un producto que ya
   arranca por debajo del mínimo en la planilla **no** se anota hasta que alguien lo pide. Si
@@ -837,9 +858,12 @@ Lo que hay que saber:
   el nombre, lo que Depósito y Compras recordaban de él queda guardado: se limpia con
   `--olvidar`.
 - **La mercadería que llega** se anota en la misma charla: `ingreso 30 azucar`. Va la
-  palabra `ingreso` (así, primera y sin tilde), la cantidad y el producto, y nada más: con un
-  signo menos, otra palabra o un número disparatado (más de `ingreso_maximo`, 100000) no suma
-  nada y explica cómo va. Depósito la suma. Si con eso el producto llega al mínimo, Compras lo
+  palabra `ingreso` (así, primera y sin tilde), la cantidad y el nombre del producto, y nada
+  más. Con un signo menos, un signo de pregunta, un punto, cualquier otra palabra ("ingreso 5
+  de yerba", "ingreso 30 azucar gracias") o un número disparatado (más de `ingreso_maximo`,
+  100000) no suma nada y explica cómo va. Lo mismo si está escrito parecido ("ingresó 30
+  azucar", con la tilde que pone el celular; "ingreso: 30 azucar"): no suma y lo explica, en
+  vez de tratarlo como una consulta de un cliente. Depósito la suma. Si con eso el producto llega al mínimo, Compras lo
   tacha de su lista (y si vuelve a bajar, se pide de nuevo); si entró poco y **sigue por
   debajo del mínimo, el pedido de reposición queda anotado**, con el número nuevo. Ojo: lo
   puede escribir cualquiera que tenga el teclado, así que sirve mientras el teclado lo maneja

@@ -8696,7 +8696,8 @@ _DEL_12_PARA_EL_EQUIPO = (
     ("\n# ¿La planilla sirve para atender?", "\n# Lee la planilla y la revisa"))
 
 _ENCABEZADO_DEL_EQUIPO = """\
-# «PROGRAMA»: el equipo de tu negocio. Son tres agentes: Ventas, Depósito y Compras.
+# «PROGRAMA»: el equipo de tu negocio.
+# Son tres agentes: Ventas, Depósito y Compras.
 # Lo creó la orden 'nuevo equipo' de Mate, a partir de los ejemplos
 # 13_equipo_del_negocio.mate y 12_mostrador_con_reglas.mate. Es tuyo: lo podés cambiar
 # todo lo que quieras.
@@ -8705,9 +8706,12 @@ _ENCABEZADO_DEL_EQUIPO = """\
 #   - VENTAS atiende por teclado. Cuando el cliente pide una CANTIDAD de un PRODUCTO de la
 #     planilla ("quiero 12 azucar con envio"), hace la cuenta sin consultar a la IA y le
 #     pide a Depósito que lo reserve. Anota solo los pedidos CLAROS: con una pregunta
-#     ("cuanto salen 12 azucar"), un "no", una duda o una palabra que no conoce ("recibí
-#     10 yerbas") contesta la cuenta y no anota nada. Todo lo demás (saludar, contar qué
-#     hay) lo contesta la IA, con frenos para que no invente precios.
+#     ("cuanto salen 12 azucar"), un "no", una duda, una palabra que no conoce ("recibí
+#     10 yerbas") o una frase que habla de un pedido que YA está hecho ("retiro el pedido
+#     de 5 azucar", "gracias por las 10 yerbas") contesta la cuenta y no anota nada.
+#     Un pedido ya anotado no se anula desde la charla: eso lo arregla una persona.
+#     Todo lo demás (saludar, contar qué hay) lo contesta la IA, con frenos para que no
+#     invente precios.
 #   - DEPÓSITO es el único que sabe cuánto stock hay. Lo descuenta con cada pedido y lo
 #     RECUERDA de una vez a la otra. No vende lo que no hay.
 #   - COMPRAS deja anotado lo que hay que reponer. Depósito le avisa UNA vez, cuando un
@@ -8728,13 +8732,20 @@ _ENCABEZADO_DEL_EQUIPO = """\
 #      entero, sin comillas: 0 o más (con 0 no avisa nunca).
 #   4. Cómo se presenta el negocio: el texto que empieza con "Atendés las ventas".
 #   5. Lo que la IA no puede decir nunca: las palabras de 'prohibido', dentro de 'frenos'.
+#   6. Las palabras con las que tus clientes piden: están en palabras_de_pedir(). Si un
+#      pedido bien dicho no se anota (contesta "Todavía no anoté nada"), agregá ahí la
+#      palabra que usó, entre comillas y con una coma. Van en minúsculas y sin tildes.
 #
 # EL STOCK. El de la planilla es el de ARRANQUE: Depósito lo toma la primera vez que ve
-# cada producto y de ahí en más lo lleva él (queda en «MEMORIA», que se abre con el Bloc
-# de notas). Cambiar el número en la planilla NO cambia lo que Depósito recuerda:
+# cada producto y de ahí en más lo lleva él. Lo que recuerda queda en este archivo, que
+# se abre con el Bloc de notas:
+#          «MEMORIA»
+# Cambiar el número en la planilla NO cambia lo que Depósito recuerda:
 #   - Cuando llega mercadería, escribí en la charla:   ingreso 30 azucar
-#     (la palabra ingreso, la cantidad y el producto, y nada más). Si con lo que entró el
-#     producto sigue por debajo del mínimo, el pedido de reposición queda anotado.
+#     (la palabra ingreso, sin tilde; la cantidad; el nombre del producto; y nada más:
+#     ni signos ni otras palabras). Si está escrito de otra manera no suma nada y te
+#     dice cómo va. Si con lo que entró el producto sigue por debajo del mínimo, el
+#     pedido de reposición queda anotado.
 #   - Para empezar de nuevo con el stock de la planilla, agregá --olvidar al comando de
 #     correr (una sola vez: borra lo que recuerdan Depósito y Compras).
 #   - Depósito le avisa a Compras cuando un producto BAJA del mínimo por una venta (o
@@ -8772,6 +8783,10 @@ _ENCABEZADO_DEL_EQUIPO = """\
 # Las pruebas del final usan una lista fija, no tu planilla ni lo que Depósito recuerda:
 # siguen pasando aunque cambies los productos, los precios, el número del envío o el
 # mínimo. Una sola mira tu planilla, para avisarte si quedó algo mal cargado.
+# Si unidades_para_envio, stock_minimo o ingreso_maximo quedan mal puestos (con comillas,
+# con decimales, negativos), el equipo no atiende y todas las pruebas fallan con el mismo
+# aviso, que dice cuál es y cómo va. (La orden 'verificar' no mira eso: mira que el
+# programa esté bien escrito.)
 # Si en la planilla queda un precio o un stock vacío o con letras, el equipo no atiende:
 # al arrancar dice de qué producto es y cómo arreglarlo.
 """
@@ -8783,10 +8798,17 @@ _PRUEBAS_DEL_EQUIPO = """\
 # arrancan de cero (no se usa lo que recuerdan ni se guarda nada) y la IA nunca es de
 # verdad. mensajes_enviados("Reponer") da los mensajes de ese tipo que viajaron en la prueba.
 
-# La lista de las pruebas. De azúcar hay 5 más que el mínimo, para poder bajar de ahí.
+# La lista de las pruebas. De azúcar hay 5 más que el mínimo, para poder bajar de ahí, y
+# de yerba 100000 más que el mínimo, para que no baje nunca.
 funcion lista_de_prueba() {
-    devolver [{ producto: "Yerba mate", presentacion: "bolsón de 10 paquetes de 1 kg", precio: 35000, stock: 100000 },
-              { producto: "Azúcar", presentacion: "bolsa de 10 kg", precio: 9800.5, stock: stock_minimo + 5 },
+    # (con el mínimo mal puesto no hay cuenta que hacer: la prueba falla enseguida, en
+    # abrir_el_negocio(), con el aviso que dice cómo va)
+    var piso = 0
+    si es_entero_desde(stock_minimo, 0) {
+        piso = stock_minimo
+    }
+    devolver [{ producto: "Yerba mate", presentacion: "bolsón de 10 paquetes de 1 kg", precio: 35000, stock: piso + 100000 },
+              { producto: "Azúcar", presentacion: "bolsa de 10 kg", precio: 9800.5, stock: piso + 5 },
               { producto: "Fideos secos", presentacion: "caja de 20 paquetes de 500 g", precio: 18900, stock: 0 }]
 }
 
@@ -8794,7 +8816,8 @@ prueba "tu planilla está bien cargada" {
     # La única prueba que mira «PLANILLA»: si falla, el texto dice qué arreglar.
     # Es lo mismo que el equipo revisa al arrancar: los títulos, y que cada producto
     # tenga su precio y su stock en números (una celda vacía no es un número).
-    # También mira los dos números de arriba: unidades_para_envio y stock_minimo.
+    # También mira los tres números de arriba: unidades_para_envio, stock_minimo e
+    # ingreso_maximo.
     sea a_corregir = que_arreglar(lista)
     si a_corregir != nada {
         fallar(a_corregir)
@@ -8833,9 +8856,10 @@ prueba "la conversación va de Ventas a Depósito, y de Depósito a Compras" {
 prueba "pedir más de lo que hay no vende" {
     abrir_el_negocio(lista_de_prueba())
     asegurar consultar_a_ventas("a", "quiero 3 fideos") == "De Fideos secos ahora no hay stock."
-    asegurar consultar_a_ventas("b", "quiero 200000 yerbas") == "De Yerba mate quedan 100000; no llego a 200000."
-    # No se descontó nada: las 100000 siguen estando.
-    asegurar empieza_con(consultar_a_ventas("c", "quiero 100000 yerbas"), "Anotado: 100000 x Yerba mate")
+    sea hay = stock_minimo + 100000
+    asegurar consultar_a_ventas("b", "quiero {hay + 1} yerbas") == "De Yerba mate quedan {hay}; no llego a {hay + 1}."
+    # No se descontó nada: siguen estando todas.
+    asegurar empieza_con(consultar_a_ventas("c", "quiero {hay} yerbas"), "Anotado: {hay} x Yerba mate")
 }
 
 prueba "al bajar del mínimo sale UN pedido de reposición, no uno por cada venta" {
@@ -8888,10 +8912,14 @@ prueba "la mercadería que llega se suma, y Compras la tacha de su lista" {
     abrir_el_negocio(lista_de_prueba())
     consultar_a_ventas("a", "quiero 3 fideos")
     # Entran 30 más que el mínimo: alcanza, y Compras no tiene nada que reponer.
+    # (si pusiste un mínimo más grande que ingreso_maximo, eso no entra en un solo
+    # ingreso: esta prueba no tiene qué mirar)
     sea n = stock_minimo + 30
-    asegurar anotar_ingreso(lista_de_prueba(), "ingreso {n} fideos") == "Entraron {n} de Fideos secos: ahora hay {n}."
-    asegurar (preguntar QueFalta {} a Compras).pedidos == []
-    asegurar empieza_con(consultar_a_ventas("b", "quiero 30 fideos"), "Anotado: 30 x Fideos secos")
+    si n <= ingreso_maximo {
+        asegurar anotar_ingreso(lista_de_prueba(), "ingreso {n} fideos") == "Entraron {n} de Fideos secos: ahora hay {n}."
+        asegurar (preguntar QueFalta {} a Compras).pedidos == []
+        asegurar empieza_con(consultar_a_ventas("b", "quiero 30 fideos"), "Anotado: 30 x Fideos secos")
+    }
 }
 
 prueba "si entra poca mercadería y sigue bajo el mínimo, el pedido de reposición queda" {
@@ -8905,20 +8933,32 @@ prueba "si entra poca mercadería y sigue bajo el mínimo, el pedido de reposici
         consultar_a_ventas("a", "quiero 1 fideos")
         asegurar largo(mensajes_enviados("Reponer")) == 0
         # Entra lo que falta para llegar al mínimo: recién ahí Compras lo tacha.
-        anotar_ingreso(lista_de_prueba(), "ingreso {stock_minimo} fideos")
-        asegurar (preguntar QueFalta {} a Compras).pedidos == []
+        # (salvo que el mínimo sea más grande que lo que entra en un solo ingreso)
+        si stock_minimo <= ingreso_maximo {
+            anotar_ingreso(lista_de_prueba(), "ingreso {stock_minimo} fideos")
+            asegurar (preguntar QueFalta {} a Compras).pedidos == []
+        }
     }
 }
 
-prueba "un ingreso mal escrito no suma nada" {
+prueba "un ingreso lleva la cantidad y el producto, y nada más" {
     abrir_el_negocio(lista_de_prueba())
-    para dicho en ["ingreso fideos", "ingreso -5 yerbas", "ingreso yerbas 5", "ingreso 5 cafe",
-                   "ingreso 10 yerbas con envio", "ingreso 99999999999999999999 yerbas"] {
-        asegurar no empieza_con(anotar_ingreso(lista_de_prueba(), dicho), "Entraron"), dicho
+    para dicho en ["ingreso fideos", "ingreso -5 yerbas", "ingreso - 5 yerbas", "ingreso yerbas 5",
+                   "ingreso 5 cafe", "ingreso 10 yerbas con envio", "ingreso 5 yerbas no",
+                   "ingreso 5 yerbas?", "ingreso 5 de yerba", "ingreso 5 yerbas gracias",
+                   "ingresó 5 yerbas", "ingreso: 5 yerbas", "ingresos 5 yerbas"] {
+        asegurar empieza_con(anotar_ingreso(lista_de_prueba(), dicho), "No entendí el ingreso. No sumé nada."), dicho
     }
+    # Un número más grande que el tope (un cero de más) tampoco entra.
+    asegurar empieza_con(anotar_ingreso(lista_de_prueba(), "ingreso {ingreso_maximo + 1} yerbas"), "No lo anoté:")
     asegurar largo(mensajes_enviados("Ingreso")) == 0
-    # Solo es un ingreso si la primera palabra es "ingreso": lo demás es del cliente.
+    # Solo es un ingreso si la primera palabra es "ingreso". Si está escrito parecido
+    # ("ingresó 5 yerbas"), en la charla se explica cómo va y no cuenta como consulta.
     asegurar es_un_ingreso("ingreso 30 yerbas") y no es_un_ingreso("Ingresó mi pedido de 20 yerbas?")
+    asegurar parece_un_ingreso("ingresó 5 yerbas") y no parece_un_ingreso("Ingresó mi pedido de 20 yerbas?")
+    simular_teclado(["ingresó 5 yerbas", "ingreso 5 yerbas?", "chau"])
+    asegurar charlar_con_el_equipo(lista_de_prueba()) == 0
+    asegurar largo(mensajes_enviados("Ingreso")) == 0
 }
 
 prueba "lo que no es un pedido claro no se anota: negaciones, dudas, preguntas y avisos" {
@@ -8926,17 +8966,49 @@ prueba "lo que no es un pedido claro no se anota: negaciones, dudas, preguntas y
     para dicho en ["no me mandes 2 yerbas", "no anotes 2 yerbas", "se puede pedir 2 yerbas?",
                    "2 yerbas?", "queria saber si puedo pedir 2 yerbas", "no se si quiero 20 yerbas",
                    "haceme un descuento en 20 yerbas", "a las 3 paso a buscar la yerba",
-                   "te debo 2 yerbas", "quiero -3 yerbas", "recibi 10 yerbas",
+                   "te debo 2 yerbas", "quiero -3 yerbas", "quiero - 3 yerbas", "quiero –3 yerbas",
+                   "quiero 20 yerbas？", "recibi 10 yerbas",
                    "llegaron 10 yerbas", "me mandaron 10 yerbas", "ingresaron 5 yerbas"] {
         asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada"), dicho
     }
     asegurar largo(mensajes_enviados("Reservar")) == 0
     # Y un pedido claro sí se anota, se diga como se diga.
     para dicho en ["quiero 2 yerbas", "2 yerbas", "Hola, quería 2 bolsones de yerba por favor",
-                   "dame 2 yerbas, las retiro yo", "anotame 2 yerbas sin envio"] {
+                   "dame 2 yerbas, las retiro yo", "anotame 2 yerbas sin envio",
+                   "quiero comprar 2 yerbas", "quiero pedir 2 yerbas", "me das 2 yerbas",
+                   "hago un pedido de 2 yerbas", "2 yerbas, gracias"] {
         asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
     }
     asegurar largo(consultas_ia()) == 0
+}
+
+prueba "hablar de un pedido que YA está hecho no lo anota otra vez" {
+    abrir_el_negocio(lista_de_prueba())
+    # El cliente agradece, viene a retirar o pregunta por lo que ya pidió: si se anotara,
+    # se le vendería dos veces.
+    para dicho en ["retiro el pedido de 5 yerbas", "gracias por las 5 yerbas",
+                   "ya llevo el pedido de 5 yerbas", "hola, por mi pedido de 5 yerbas",
+                   "te llevo 10 yerbas", "me mandan 10 yerbas", "otro dia quiero 20 yerbas",
+                   "gracias por el pedido de 20 yerbas", "gracias por las 10 yerbas del otro dia",
+                   "gracias, ya retiro mi pedido de 5 yerbas",
+                   "hola, el pedido de 10 yerbas ya lo retiro",
+                   "buenas, ya mandan mi pedido de 12 yerbas", "ya me mandan las 10 yerbas",
+                   "mi pedido de 20 yerbas", "che, y el pedido de 5 yerbas", "retiro 5 yerbas"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada"), dicho
+    }
+    # Nadie reservó nada: la yerba está entera.
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+}
+
+prueba "devolver o anular no anota nada, y Ventas dice que eso lo arregla una persona" {
+    abrir_el_negocio(lista_de_prueba())
+    simular_ia("Listo, te lo anulé.")
+    para dicho en ["devuelvo 5 yerbas", "cancelame 5 yerbas", "anulame el pedido de 5 yerbas",
+                   "ya no quiero 5 yerbas"] {
+        asegurar consultar_a_ventas(dicho, dicho) == respuesta_de_anular(), dicho
+    }
+    asegurar largo(consultas_ia()) == 0 y largo(mensajes_enviados("Reservar")) == 0
 }
 
 prueba "el contrato no deja saltearse a Ventas ni hablarle a Compras por afuera" {
