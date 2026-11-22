@@ -2375,7 +2375,401 @@ Para el dueño, en Windows:
 0.7; dejar registrado el diseño del buzón; la prueba del dueño en Windows (P149); y para el
 cierre, P133 (`VERSION`, curso y README de la raíz). Primero A, después B; nada de B todavía.
 
+### Cambio 1, vuelta de cierre — NO cerrado (queda un problema medio: P162)
+
+Es la vuelta 4 del equipo del negocio (ejemplo 13 y `nuevo equipo`). El revisor aprobó; el
+agente de pruebas no. Todo lo que la vuelta tenía que arreglar quedó resuelto y verificado por
+los dos: P102 (obligatorio), P103 y P159. Lo que frena es un problema medio de la misma familia
+que P102, encontrado en esta vuelta y que ya estaba: P162 (repetir la presentación con "x N",
+"quiero un pack x 6 de cerveza", anota N bultos). Por eso el cambio 1 sigue sin cerrar,
+`VERSION` sigue en `"0.6"` y no se tocó nada del cierre de verdad.
+
+**Qué se hizo** (implementador, dos commits locales, `88e353c` y `ea475e7`; sin push, sin tocar
+`main`, `VERSION` ni este archivo). Tocó el ejemplo 13, `mate.py` (`_ENCABEZADO_DEL_EQUIPO`,
+`_PRUEBAS_DEL_EQUIPO` y el candado del buzón), `test_mate.py`, `casos_del_equipo.txt`, README
+y MEJORAS.
+- P102: un pedido dicho en la unidad de ADENTRO del bulto ya no se anota ni descuenta. "quiero
+  10 paquetes de yerba" y "quiero 6 botellas de aceite" contestan 'Todavía no anoté nada, para
+  no equivocarme: dijiste "paquetes", y Yerba mate se vende por bolsón de 10 paquetes de 1 kg,
+  a $ 35.000,00 cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: "quiero 1
+  yerba".' Con `--traza` no viaja `Reservar` ni `ConsultarStock`.
+- Lo de adentro del bulto se define por el número: función nueva `unidades_de_adentro(fila)`,
+  que devuelve las palabras de la presentación que llevan un número adelante ("10 paquetes",
+  "1 kg", "30 huevos"). Si la presentación no trae ningún número ("caja de botellas") queda la
+  regla anterior (todo lo que no es la primera palabra), salteando además las palabras de
+  `palabras_de_como_se_lleva()` y `palabras_que_acompanan()`.
+- Resto de P102, presentación que arranca con un número ("6 botellas de 2 litros", "12
+  unidades", "x 6 latas"): `unidad_de_venta()` devuelve "" y Ventas pregunta con un texto
+  propio, 'se vende así: 6 botellas de 2 litros, a $ 5.400,00 cada bulto. ¿Cuántos bultos
+  querés? Por ejemplo... "quiero 1 bulto de agua"'. "quiero 2 aguas" y "quiero 2 bultos de
+  vino" anotan.
+- Producto que se llama como lo de adentro ("Huevos; maple de 30 huevos"): "quiero 30 huevos" y
+  "quiero 2 huevos" preguntan, y el ejemplo de la respuesta va con la unidad ("quiero 1 maple
+  de huevos", que anota). Con "Paquete regalo; caja de 6 paquetes", "quiero 6 paquetes regalo"
+  pregunta y "quiero 2 cajas de paquete regalo" anota.
+- Las palabras que describen no frenan: "quiero 3 galletitas sin sal" (presentación "paquete de
+  3 unidades sin sal") y "quiero 12 bizcochos para llevar" anotan; "quiero 24 paquetes de
+  bizcochos" pregunta.
+- P103: un pasado en tercera persona con tilde ("compró/llevó/encargó 10 yerbas") no anota;
+  "hago", "hacer", "hacerte" y "haceme" piden "un pedido" atrás; "llevo 10 yerbas de mas" no
+  anota. El "de" adelante de la cantidad frena solo si va PEGADO a ella, salteando
+  "un/unas/otras" ("encargo de 5 yerbas", "de 5 yerbas", "encargo de unas 5 yerbas"). La primera
+  versión (`88e353c`) frenaba cualquier "de" adelante y dejó de anotar siete pedidos legítimos
+  que el revisor encontró ("aceite de girasol 3 cajas", "quiero aceite de girasol 3", "quiero
+  aceite de girasol, 3 cajas", "quiero hacer un pedido de aceite de girasol: 2 cajas", "de
+  yerba quiero 2", "quiero de azucar 12", "buenas tardes, de azucar 12 bolsas"); `ea475e7` lo
+  corrigió y las siete anotan otra vez.
+- P159: el archivo `candado` del buzón se crea con `os.open(..., 0o666)`, sin permiso de
+  ejecución.
+- Pruebas agregadas: dos en el ejemplo 13 (una planilla propia con 10 presentaciones raras; el
+  "de" del nombre del producto), las mismas dos en `_PRUEBAS_DEL_EQUIPO`, las de pytest (las
+  ocho frases del "de" cada una en corrida limpia, en el ejemplo y en el equipo creado; la
+  planilla del revisor con el stock intacto; las palabras que describen) y dos casos nuevos en
+  `casos_del_equipo.txt` ("quiero 10 paquetes de yerba" y "quiero 6 botellas de aceite", con
+  "no tiene que viajar: Reservar | ConsultarStock"). El ejemplo 13 pasa de 26 a 30 pruebas, el
+  equipo creado de 15 a 18 y los casos de ensayo de 10 a 12.
+- README, MEJORAS y el encabezado del equipo creado cuentan la regla del "de" pegado, que lo de
+  adentro es lo que lleva un número adelante, y los límites (presentación que arranca con
+  número, producto que se llama como lo de adentro, presentación sin números, abreviaturas y
+  diminutivos). No se tocó el lenguaje.
+
+**No se hizo** (declarado por el implementador): retomar el pedido con "1" o "uno solo" después
+de la pregunta de Ventas (pediría guardar la charla entre consultas; es P165); "compro 10
+yerbas" sin tilde sigue anotando (sin la tilde no se distingue de un pedido); "quiero 2
+unidades de yerba" y "quiero 2 bultos de yerba" siguen anotando 2 bolsones (P163); las
+abreviaturas y diminutivos ("10 paq", "6 botellitas") reciben la cuenta por bultos y no la
+pregunta nueva (P167); una pregunta de precio en la unidad de adentro ("cuanto salen 10
+paquetes de yerba?") sigue contestando la pregunta de la unidad y no la cuenta (lo afirma una
+prueba de la primera mitad de la vuelta); el ejemplo 12 sigue cotizando 10 bolsones para
+"quiero 10 paquetes de yerba" (no anota ni descuenta; no se tocó); una medida escrita con
+letras más allá de doce no cuenta como número; y P170. No tocó P104 a P111, P80 de fondo ni
+`VERSION`. Borró su carpeta temporal propia.
+
+**Quién revisó y quién probó**: revisor (R) y agente de pruebas (P), cada uno sobre una copia
+del repositorio en una carpeta propia de `mktemp -d`, ya borrada, los dos sobre `ea475e7`.
+Integrador de cierre (I): las tres corridas, un recorrido corto en una carpeta propia (ya
+borrada) y este registro; no tocó código, pruebas ni `VERSION`.
+
+**Veredictos**: R **aprueba** (cinco apuntes, todos bajos; uno es un límite de su propia
+verificación). P **no aprueba** (un medio: P162; seis bajos). Altos: ninguno. Cambio 1 **NO
+cerrado**. P aclara que todo lo pedido en la tarea (P102, P103, P159) está cumplido y que el
+NO es por P162, que queda fuera de la letra de P102 (no nombra una unidad de adentro) pero
+hace el mismo daño.
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `ea475e7`, Python 3.13.18)
+- `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider`: 1110 pasan, 0 fallan
+  (161 s; antes 1100). P dio el mismo número. El implementador y R informan 1092, que es solo
+  `mate/pruebas/test_mate.py`; R declara que no corrió `mate/modelo`.
+- `probar mate/ejemplos`: 104 de 104, en 22 archivos (antes 100). `probar mate/curso`: 37 de
+  37, en 26 archivos.
+- Después de las tres corridas, `git status --short` vacío, y en `mate/ejemplos` ninguna
+  memoria ni carpeta `.buzon`.
+- Recorrido de I sobre un equipo recién creado con `nuevo equipo mi_negocio`: `verificar` "sin
+  errores", `probar` 18 de 18, `ensayar --ia-simulada` 12 de 12. Cada frase en corrida limpia,
+  mirando la memoria guardada: "quiero 10 paquetes de yerba" y "quiero 6 botellas de aceite"
+  preguntan y dejan Yerba mate 40 y Aceite 8 (**P102 resuelto**); "compró 10 yerbas" no anota
+  (P103); "aceite de girasol 3 cajas" anota 3 cajas (8 a 5) y sale el `Reponer`. **P162
+  reproducido**: "quiero un bolson x 10 de yerba" contesta "Anotado: 10 x Yerba mate (bolsón
+  de 10 paquetes de 1 kg)... total $ 350.000,00" y la memoria queda con Yerba mate 30.
+  También P163 ("quiero 10 unidades de yerba" anota 10, quedan 30) y P104 ("hola, 5 yerbas
+  para retirar" anota 5, quedan 35). Buzón: después de `buzon_ventas` / `buzon_deposito` /
+  `buzon_ventas` los dos archivos `candado` quedan `-rw-r--r--` (**P159 resuelto**) y llega
+  "Pedido A-17: reservado. Quedan 8."
+- R: `probar mate/ejemplos` 104 de 104 y curso 37 de 37; comparó unas 200 frases, una por una,
+  contra el código anterior a la vuelta: todos los cambios de conducta van de anotar a
+  preguntar, salvo las siete frases del "de" que `ea475e7` repone. Planillas con presentaciones
+  raras ("12", "x 12", "caja de", "bolsa 5kg", "tira 100u", vacía) no cortan el programa:
+  `verificar` sin errores y 18 de 18.
+- P: unas 230 frases por tubería con `--ia-simulada`, cada una en corrida limpia, 115 con la
+  planilla de muestra y 121 con una propia de 10 productos; unas 60 en la unidad de adentro
+  (con mayúsculas, signos, pegado al número, otros verbos, saludo y envío) no anotan ni
+  descuentan. Charla de 6 consultas con `--traza`: Ventas → Depósito → Compras, UN solo
+  `Reponer` para azúcar (20 y después 5), la memoria queda Yerba 39 y Azúcar 0, la corrida
+  siguiente arranca con "Compras: hay que reponer Azúcar (quedan 0)"; `probar` y `ensayar` no
+  cambian la memoria (mismo md5).
+- Pruebas viejas tocadas (R y P, y I miró el diff de `e3d228e` a `ea475e7` en `mate/pruebas`,
+  `mate/modelo` y `casos_del_equipo.txt`): los 13 renglones quitados son solo conteos que
+  subieron ("26 de 26" a "30 de 30", "15 de 15" a "18 de 18", "0 de 15" a "0 de 18", 10 casos a
+  12, "9 de 10" a "11 de 12"). Ninguna prueba se quitó ni afirma menos.
+
+**Criterios de aceptación del cambio 1**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| `nuevo equipo mi_negocio` crea los archivos, pasa `verificar` y `probar` | cumple | 3 archivos, "sin errores", 18 de 18, `ensayar --ia-simulada` 12 de 12 (R, P, I) |
+| Con `--traza` se ve Ventas → Depósito → Compras | cumple | `Reservar`, `Reponer`, `Anotado`, `Reserva` (P) |
+| Un pedido descuenta stock y el stock sobrevive entre corridas | cumple, con reservas | 40 a 39 y sobrevive a la corrida siguiente (R, P). Ya no descuenta de más con la unidad de adentro (P102 resuelto). Sigue descontando de más si el cliente repite la presentación con "x N" (**P162**) o dice "N unidades" (P163). Con la X o un corte se pierde lo anotado (P80 de fondo, avisado) |
+| Pedir más de lo que hay no vende | cumple | "quiero 100 harina" y "quiero 500 aguas" no venden (P) |
+| Al bajar del mínimo sale UN pedido de reposición | cumple | un solo `Reponer` para azúcar con dos ventas (P) |
+| Ningún agente toca el estado de otro | cumple | sin cambios en esta vuelta; lo nuevo son funciones del programa |
+| Para todo: pruebas que ya había, sin aflojar | cumple | 1110 / 104 de 104 / 37 de 37; solo subieron conteos |
+| Para todo: topes, red, claves, README/`ayuda`/MEJORAS | cumple, con pendientes bajos | no se tocó el lenguaje; README leído contra la conducta (R). Falta avisar la forma "caja x 6" (P164) y "quiero 2 bultos de huevos" pregunta aunque el README dice que con "bultos" se pide (P166). El matiz del retiro (P104) sigue sin escribir |
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|---|
+| P162 | Si el cliente repite la presentación con "x N", el número de ADENTRO del bulto se toma como cantidad de bultos, se anota y descuenta stock: con la planilla de muestra y en el ejemplo 13, "quiero un bolson x 10 de yerba" anota 10 bolsones ($ 350.000,00; stock 40 a 30) y "quiero bolsa x 10 azucar" anota 10 bolsas. Con una planilla propia, "quiero un pack x 6 de cerveza" (presentación "pack x 6") anota 6 packs ($ 43.200,00 en vez de $ 7.200,00; 50 a 44); "quiero una caja x 6 de vino" y "quiero caja x 6 botellas de vino" anotan 6 cajas y disparan `Reponer`; "quiero un bulto x 6 de atun" ("x 6 latas") anota 6. Causa: "x" está en `palabras_sueltas()` y en `palabras_de_union()`, "un/una" no cuentan como número, y `unidad_de_adentro()` devuelve nada apenas ve la unidad de venta. La misma frase con "de" ("quiero un pack de 6 de cerveza") NO anota. Es el mismo daño que P102 (cobra 6 o 10 veces lo pedido, sin forma de anular), "pack x 6" es una presentación corriente y el README no lo avisa | P; reproducido por I | media | sí (con el `mate.py` de `e3d228e` da lo mismo) | **pendiente (vuelta 5, obligatorio)**. Arreglo sugerido por P: no anotar si adelante de la cantidad va la unidad de venta o "un/una", o si la cantidad va pegada detrás de "x" y coincide con un número de la presentación; con estas frases como prueba en el ejemplo 13 y en `_PRUEBAS_DEL_EQUIPO` |
+| P163 | "quiero N unidades de X" se anota como N bultos aunque el bulto traiga varias unidades: con la muestra "quiero 10 unidades de yerba" anota 10 bolsones ($ 350.000,00); "quiero 12 unidades de agua" con "caja de 12 botellas" anota 12 cajas; "quiero 6 unidades de cerveza" con "pack x 6" anota 6 packs. "unidades" y "bultos" están en `palabras_sueltas()`. Si la presentación dice "unidades" ("caja de 12 unidades") sí pregunta. El programa usa "unidades" para decir bultos ("envíos desde 10 unidades") | P, implementador; reproducido por I | baja | sí | pendiente: lo decide el dueño (¿preguntar cuando la presentación trae un número?). Va con P162 |
+| P164 | Presentación que trae la cuenta sin un sustantivo detrás ("caja x 6", "paquete x 100", "x 12", "12", "tira 100u"): lo de adentro es el propio producto y el pedido se anota como bultos enteros ("quiero 6 vinos" anota 6 cajas, "quiero 100 servilletas" anota 100 paquetes, $ 120.000,00). También "cerveza x 6", "quiero 6 x cerveza", "cerveza pack x 6", "yerba x 10" anotan N bultos. Ambiguo de por sí: tiene la misma forma que "quiero 12 azucar". El README avisa de la presentación que arranca con número, no de esta forma | R, P | baja | sí | pendiente: como mínimo avisarlo en el README; va con P162 |
+| P165 | Después de la pregunta de Ventas, contestar solo "1" o "uno solo" no retoma el pedido (va a la IA: "Decime el nombre del producto y cuántas unidades querés"). Hay que escribir el ejemplo que da la respuesta ("quiero 1 yerba"), que sí anota. No descuenta nada de más | R, implementador | baja | sí | aceptado como límite: Ventas no guarda la charla entre consultas |
+| P166 | Pedidos bien dichos que no se anotan (lado seguro, no tocan stock): "quiero 2 cajas de 12 botellas de agua" y "quiero 1 caja de agua, 12 botellas" ("Veo más de un número"); "quiero 5 yerbas de 1 kg", "quiero 2 arroz de 30 kg", "quiero 2 aceites de 900 ml" (preguntan por la medida: antes de `88e353c` anotaban; con la unidad adelante, "quiero 2 bolsas de arroz de 30 kg", anotan); "quiero 2 bultos de huevos" con "maple de 30 huevos" pregunta, aunque el README dice que con "bultos" se pide; "quiero 3 bolsitas de papas"; "quiero 1 maple" sin el producto | P, R, implementador | baja | no (es de esta vuelta) | aceptado como decisión (ver abajo), salvo el renglón del README sobre "bultos" con un producto que se llama como lo de adentro: pendiente |
+| P167 | Abreviaturas y diminutivos de la unidad de adentro ("10 paq de yerba", "6 botellitas de aceite", "10 kilitos de azucar", "6 latas de cerveza" con "pack x 6") no reciben la pregunta nueva sino la cuenta por bultos enteros: "10 x Yerba mate ... total $ 350.000,00. Todavía no anoté nada: para pedirlo, escribí "quiero 10 yerba"". No anotan ni descuentan, pero la respuesta empuja a pedir 10 bolsones. Avisado en el README | P, R, implementador | baja | sí | pendiente (si entra) |
+| P168 | "encargo de yerba 5" anota ("encargo" es palabra de pedir y el "de" no va pegado a la cantidad); "el encargo de yerba 5" y "encargo de 5 yerbas" no. Consecuencia de la regla del "de" pegado | R | baja | sí | aceptado como límite |
+| P169 | Con una presentación vacía la respuesta muestra paréntesis vacíos: "Anotado: 10 x Servilletas () a $ 800,00 cada uno". Anota y descuenta bien | P | baja | sí | pendiente (prolijidad) |
+| P170 | En una planilla con dos productos que comparten una palabra ("Paquete regalo" y unas galletitas por "paquete"), "quiero 24 paquetes de galletitas" contesta "Vamos de a un producto por vez" en vez de la pregunta de la unidad. Viene de `leer_pedido()` del ejemplo 12; no anota | implementador | baja | sí | pendiente (si entra) |
+| P102 | Un pedido dicho en la unidad de adentro de la presentación se anotaba como bultos enteros | P (vuelta 3) | media | sí | **resuelto** en sus frases y unas 60 más, en el ejemplo 13 y en el equipo creado (R, P, I). De la misma familia quedan P162 (medio), P163, P164 y P167 |
+| P103 | Pasados en tercera persona, "de" suelto adelante y "hago/hacer" sin "un pedido" anotaban | R, P (vuelta 3) | baja | no | **resuelto** (R, P). Resto: "compro 10 yerbas" sin tilde anota (aceptado: es también la forma de pedir en primera persona) y P168 |
+| P159 | El `candado` del buzón se creaba con permiso de ejecución | seguridad | baja | no | **resuelto**: 0644 con umask 0022 (P, I, mirando el archivo; R solo por el código y las pruebas: en su corrida no encontró el archivo) |
+| P104 | "hola, 5 yerbas para retirar" anota 5 y descuenta (40 a 35) | R, P (vuelta 3) | baja | sí | sigue igual, reproducido por P e I; no era tarea de esta vuelta. El matiz del README sigue pendiente |
+| P105 a P111, P80 de fondo, P85 a P88, P91, P94 | ver la vuelta 3 | — | baja | — | sin cambio; nadie los volvió a mirar en esta vuelta |
+
+No verificado por nadie en esta vuelta: Windows, otra versión de Python que la 3.13, la IA de
+verdad, cerrar la ventana con la X. R no corrió `pytest` de `mate/modelo`.
+
+**Decisiones técnicas nuevas**
+- Lo de adentro del bulto es lo que lleva un NÚMERO adelante en la presentación. Se descartó
+  "todo lo que no es la primera palabra" como regla general (la propuesta de la vuelta 3)
+  porque frenaba las palabras que describen ("sin sal", "para kiosco"); queda solo para la
+  presentación sin ningún número.
+- Si la presentación arranca con un número no hay unidad de venta: la palabra para pedir es
+  "bulto" y la respuesta lo dice con un ejemplo.
+- Ante la unidad de adentro, Ventas pregunta con un texto propio del programa y un ejemplo que
+  anota; no viaja nada a Depósito y no se consulta a la IA.
+- **Nombrar una medida sin la unidad de venta pregunta en vez de anotar** ("quiero 2 azucar de
+  10 kg", "quiero 2 lavandinas de 5 litros", "quiero 2 yerbas de 1 kg", "quiero 5 yerbas en
+  paquetes"). Antes de `88e353c` anotaba. Es un cambio de conducta hacia el lado seguro,
+  afirmado en las pruebas y avisado en el README; con la unidad adelante ("quiero 2 bolsas de
+  arroz de 30 kg") anota. Queda como decisión, salvo que el dueño diga otra cosa.
+- El "de" adelante de la cantidad frena solo pegado a ella (salteando "un/unas/otras"). No se
+  mira si el "de" es del nombre del producto, porque "de yerba quiero 2" no lo es y también es
+  un pedido. Se descartó frenar cualquier "de" adelante: rompía siete pedidos legítimos.
+- "bultos" y "unidades" siguen siendo palabras sueltas que anotan: "bultos" es ahora la forma
+  de pedir que da la respuesta cuando la presentación arranca con un número (por eso P163 no
+  se tocó sin decisión del dueño).
+- Una pregunta de precio en la unidad de adentro contesta la pregunta de la unidad y no la
+  cuenta: no se cambió porque lo afirma una prueba.
+- Integrador: no arregló nada. P162 cambia qué se anota y pide prueba y revisión
+  independiente. Aunque ya estaba y R aprobó, frena el cierre por el mismo motivo que P102 en
+  la vuelta 3: saca stock y cobra de más sin forma de anular, contra "ante la duda no se
+  anota", y la tabla de arriba se armó con P102 como vara. Si el dueño decide que P162 no
+  frena (es la objeción de un solo agente y está fuera de la letra de P102), lo que queda para
+  cerrar es solo el cierre de verdad (`VERSION`, README, P133).
+
+**Para la vuelta 5**: P162 (obligatorio), con las frases de P como prueba. Si entran, porque
+tocan el mismo tramo: P163 (con la decisión del dueño), el aviso de P164 en el README, el
+renglón de "bultos" de P166 y el matiz del README de P104. Después: P167, P169, P170 y los
+bajos de la vuelta 3 (P106 a P110). El orden del dueño sigue igual: primero A, después B; nada
+de B todavía.
+
+## Diseño del buzón (resumen)
+
+El alcance pedía una etapa de diseño revisada antes de programar el cambio 3, y esa etapa no
+quedó registrada. **Esto no es ese registro**: es un resumen armado después, por el integrador
+de cierre, leyendo el README ("Dos programas que se hablan: el buzón") y `mate/mate.py` (el
+tramo "Buzón entre programas (0.7)") sobre `ea475e7`. Dice qué decisiones tiene hoy el buzón;
+no dice quién las revisó antes de programar ni qué alternativas se discutieron, porque eso no
+está escrito en ningún lado. Lo que se probó de cada una está en las vueltas del cambio 3.
+
+- **Sin red y sin nada que instalar.** Un mensaje para otro programa es un archivo; se entrega
+  cuando ese otro programa corre. Solo entre programas de la **misma carpeta** (sin
+  subcarpetas ni rutas). Es la base de B, pero B (entre máquinas) no está empezado.
+- **Sin gastar cupo del lenguaje.** Se escribe `usar buzon "deposito.mate"`. `buzon` no es una
+  palabra reservada: solo significa algo después de `usar` (como `python`). No hay funciones
+  incluidas nuevas (siguen 36 palabras y 48 funciones). Se manda con el `enviar` de siempre.
+- **El otro programa se lee, nunca se ejecuta.** De él se toman sus agentes, lo que cada uno
+  sabe recibir y los mensajes que cruzan; no se carga su Python ni se miran sus funciones,
+  variables, estado ni pruebas. Dos programas pueden nombrarse mutuamente; uno no se manda a sí
+  mismo. Si un mensaje que cruza está declarado distinto en cada programa, el error sale antes
+  de correr.
+- **Solo `enviar`, no `preguntar`.** El otro programa puede no estar corriendo; la contestación
+  se recibe con un `al recibir`. Tampoco se puede `crear` una copia de un agente ajeno, usar
+  `aprender`, `lecciones` o `a_json` con él, mirarle el estado ni ponerlo adentro de un mensaje.
+  `responder` le contesta al remitente por su buzón sin necesidad de `usar buzon`.
+- **Dónde queda.** El buzón de `deposito.mate` es la carpeta `deposito.buzon`, al lado del
+  programa: un archivo `.json` por mensaje (el "sobre"), la carpeta `rechazados` y un archivo
+  `candado`. El sobre lleva `mate_buzon` (versión del formato, hoy 1), `id`, `clase`
+  ("mensaje" o "falla"), `de` y `para` (programa y agente), `conversacion`, `en_respuesta_a` y
+  el mensaje como `{"tipo", "campos"}`. Lo que el sobre trae de más se deja pasar (puede ser de
+  una versión siguiente); uno con una versión más nueva no se entrega.
+- **Cuándo sale y cuándo se atiende.** Lo que sale se anota primero en la memoria del que envía
+  (parte `"buzon"`, "por salir") junto con el estado de sus agentes, **en una sola
+  escritura**; recién después se reparte. Así un corte no deja un mensaje enviado con el estado
+  sin guardar, ni al revés. Lo que llegó se atiende cuando el programa termina sus renglones.
+  Con un error o Ctrl+C sale igual lo ya dejado, y lo que llegó queda esperando con un aviso;
+  con la X no sale ni se guarda nada.
+- **Una sola vez.** Lo que identifica a un mensaje es (programa que lo manda, id). El que
+  recibe anota los que ya atendió (hasta 2000, más los que sigan en la carpeta) y no los
+  atiende dos veces aunque el archivo siga ahí después de un corte.
+- **Se escribe sin dejar archivos a medias**: primero un provisorio `.tmp` y después se le pone
+  el nombre. Un provisorio de más de un día quedó de un corte y se borra.
+- **Una ventana por vez.** El `candado` lo toma una sola ventana, sin esperar (`flock` en
+  Linux, `msvcrt.locking` en Windows), y el sistema lo suelta si el programa muere. Si lo tiene
+  otra ventana, esta avisa y deja los mensajes para la próxima corrida.
+- **Nunca se confía en lo que hay en el buzón.** El contrato se controla dos veces: al enviar y
+  al llegar, con el contrato del que recibe. Lo que no se puede entregar (no cumple el
+  contrato, el agente no existe, no es un sobre) **no corta el programa**: se avisa, se sigue
+  con los demás y el archivo va intacto a `rechazados` con un `.motivo.txt`. Si el agente falla
+  atendiendo un mensaje válido, también va a `rechazados`: no se reintenta para siempre.
+- **El que envió se entera.** Un rechazo vuelve como un sobre de clase "falla" y llega al
+  `al fallar` del agente que lo mandó (o sale como `aviso:`). Una falla nunca se contesta con
+  otra. El motivo se corta en 400 letras.
+- **Topes y forma de lo que llega**: un sobre de más de 2 MB no se abre; un mensaje que sale no
+  pasa de 1 MB; hasta 1000 sobres por corrida (el resto espera); hasta 100 niveles de cosas una
+  adentro de otra; nada de números no finitos ni enormes; un mensaje entre programas no lleva
+  agentes. El id y los nombres de programa y de carpeta no pueden armar una ruta (ni barras, ni
+  dos puntos, ni punto adelante, ni nombres reservados de Windows).
+- **Accesos directos** (del arreglo de seguridad, P158 y P159): Mate no escribe a través de un
+  acceso directo dejado adentro del buzón (ni en los `.tmp` ni en el `candado`): lo saca y crea
+  un archivo de verdad; una carpeta que es un enlace no vale como buzón. El `candado` se crea
+  como archivo de datos, sin permiso de ejecución. `escribir_archivo` y `agregar_a_archivo` no
+  escriben dentro de una carpeta `.buzon` ni en la memoria de un programa nombrado con
+  `usar buzon`.
+- **Solo `correr` usa el buzón.** `probar`, `ensayar`, `verificar` y la `consola` no leen ni
+  escriben ninguno. En una prueba lo enviado se ve con `mensajes_enviados()` y el otro agente
+  se reemplaza con `simular`. `correr --ia-simulada` sí escribe buzones de verdad (P155). La
+  orden `buzon programa.mate` solo mira. `corregir`, `lecciones` y `--olvidar` no tocan la
+  parte `"buzon"` de la memoria.
+- **Lo que el diseño deja abierto** (ya está en las tablas): se entrega cualquier sobre aunque
+  el programa no haya pedido buzón ni conozca al remitente (P161 (1), **antes de B**);
+  caracteres de control de un sobre escrito a mano llegan a la pantalla (P154, P161 (2));
+  `rechazados` no se limpia (P161 (4)); con varias ventanas del mismo programa se puede perder
+  un envío (P156); una "junction" de Windows en Python 3.10 y 3.11 (P160); y nada de esto se
+  corrió en una Windows de verdad (P149).
+
 ## Estado final de la 0.7
+
+**Estado de hoy** (integrador de cierre, sobre `ea475e7`; rama `equipo/mate-0.7`, todo en
+commits locales, sin subir nada y sin tocar `main`). Desde el estado anterior hubo dos commits
+de código del implementador (`88e353c` y `ea475e7`, la vuelta de cierre del cambio 1). El
+integrador no tocó código, pruebas ni `VERSION`: corrió las tres corridas, hizo un recorrido
+corto en una carpeta temporal propia y escribió esto. El estado anterior queda más abajo, como
+historia.
+
+**La 0.7 sigue SIN cerrar.** La vuelta de cierre arregló lo que frenaba (P102), y también P103
+y P159, pero el agente de pruebas no aprobó: encontró un problema medio de la misma familia,
+P162 ("quiero un pack x 6 de cerveza" anota 6 packs; "quiero un bolson x 10 de yerba" anota 10
+bolsones). Ya estaba antes de la vuelta, pero hace el mismo daño que P102. Por eso `VERSION`
+sigue en `"0.6"`, el README sigue diciendo "Qué se está sumando para la 0.7" y "Límites de la
+versión 0.6", y la prueba que afirma el número de versión no se tocó.
+
+| Cambio | Vueltas | Estado | Quién aprobó | Qué lo frena |
+|---|---|---|---|---|
+| 1. Equipo del negocio (ejemplo 13 y `nuevo equipo`) | 4 (tres más la de cierre) | **NO aprobado** | R aprueba; P no | **P162 (medio)**: repetir la presentación con "x N" anota N bultos y descuenta stock. Falta la vuelta 5. P102, P103 y P159 quedaron resueltos. Además, bajos: los de la vuelta 3 que siguen (P104 a P111 y los de fondo) y P163 a P170 |
+| 2. Ensayar la conversación entre agentes | 3 | **aprobado** | R y P | nada; 14 bajos |
+| 3. Buzón entre programas (la base de B) | 2 | **aprobado** | R y P | nada; bajos. El diseño tiene ahora un resumen armado después ("Diseño del buzón (resumen)", arriba); la revisión ANTES de programar que pedía el alcance sigue sin registro |
+| Seguridad del conjunto | 2 pasadas | **aprobado sobre `e3d228e`** | especialista en seguridad | nada. P159 resuelto en la vuelta de cierre; quedan P160 y P161. Los dos commits nuevos no pasaron por el especialista (tocan el ejemplo 13, las pruebas, la documentación y, de `mate.py`, el texto del equipo creado y el modo del `candado`) |
+| Versión | — | **sigue en 0.6** | — | espera a que cierre el cambio 1 (P133) |
+
+Sobre el orden del dueño (primero A, después B): lo hecho es A más la base de B (el buzón, en
+una misma PC y sin red). De B no se hizo nada, y no corresponde empezarlo hasta cerrar A.
+
+**Números de las pruebas** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`, sobre
+`ea475e7`)
+
+| Comando | Hoy (`ea475e7`) | Estado anterior (`e3d228e`) | Punto de partida de la 0.7 (`e78f2e9`) |
+|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1110 pasan, 0 fallan (161 s) | 1100 pasan, 0 fallan | 883 pasan, 0 fallan |
+| `python3 mate/mate.py probar mate/ejemplos` | 104 de 104, en 22 archivos | 100 de 100, en 22 archivos | 66 de 66, en 18 archivos |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37, en 26 archivos | 30 de 30, en 24 archivos |
+
+Después de las tres corridas `git status --short` quedó vacío y en `mate/ejemplos` no quedó
+ninguna memoria ni carpeta `.buzon`. El equipo creado con `nuevo equipo` da `probar` 18 de 18
+(antes 15) y `ensayar --ia-simulada` 12 de 12 (antes 10); el ejemplo 13, 30 de 30 (antes 26).
+Los renglones de prueba quitados entre `e3d228e` y `ea475e7` son 13 y son solo conteos que
+subieron (lo miraron R, P y yo). La batería tarda cerca de 160 s: hay que correrla con un tope
+largo (P148). El "1092" que informan el implementador y R es solo `mate/pruebas/test_mate.py`.
+
+**Recorrido de hoy** (integrador, carpeta propia de `mktemp -d`, ya borrada; cada frase en
+corrida limpia, mirando la memoria guardada)
+
+| Frase, sobre un equipo recién creado | Qué dio |
+|---|---|
+| `quiero 10 paquetes de yerba` | "Todavía no anoté nada, para no equivocarme: dijiste "paquetes", y Yerba mate se vende por bolsón de 10 paquetes de 1 kg...". Yerba mate queda en 40: **P102 resuelto** |
+| `quiero 6 botellas de aceite` | lo mismo con "botellas"; Aceite queda en 8 |
+| `aceite de girasol 3 cajas` | "Anotado: 3 x Aceite de girasol", 8 a 5, y "Compras: hay que reponer Aceite de girasol (quedan 5)" |
+| `compró 10 yerbas` | da la cuenta, "Todavía no anoté nada"; stock intacto (P103) |
+| `quiero un bolson x 10 de yerba` | "Anotado: 10 x Yerba mate (bolsón de 10 paquetes de 1 kg)... total $ 350.000,00"; Yerba mate queda en 30: **P162 reproducido** |
+| `quiero 10 unidades de yerba` | anota 10 bolsones, queda 30 (P163) |
+| `hola, 5 yerbas para retirar` | anota 5, queda 35 (P104, sigue igual) |
+| Buzón: `buzon_ventas`, `buzon_deposito`, `buzon_ventas` | "Pedido A-17: reservado. Quedan 8."; los dos `candado` quedan `-rw-r--r--` (P159 resuelto) |
+
+El recorrido largo del dueño (la charla de 7 consultas, la segunda corrida, `ensayar` con
+memoria vieja, el buzón paso a paso) está en el estado anterior, abajo; hoy los conteos son 18
+de 18 y 12 de 12 donde ahí dice 15 de 15 y 10 de 10, y el paso "P102 reproducido" ya no pasa.
+
+**Pendientes, por gravedad**
+
+Altos: ninguno.
+
+Medios (uno, y frena la 0.7):
+- **P162**, cambio 1: si el cliente repite la presentación con "x N" ("quiero un pack x 6 de
+  cerveza", "quiero una caja x 6 de vino", "quiero un bolson x 10 de yerba", "quiero bolsa x 10
+  azucar"), el número de adentro del bulto se anota como cantidad de bultos y descuenta stock,
+  sin forma de anular. Pasa con la planilla de muestra y en el ejemplo 13. Ya estaba en
+  `e3d228e`. Arreglo sugerido por P: no anotar si adelante de la cantidad va la unidad de venta
+  o "un/una", o si la cantidad va pegada detrás de "x" y coincide con un número de la
+  presentación. Necesita vuelta 5 con R y P, y las frases como prueba en el ejemplo 13 y en el
+  equipo que crea `nuevo equipo`. Un equipo ya creado es una copia fija: después del arreglo
+  hay que crearlo de nuevo (vale también para el arreglo de P102 de hoy).
+
+Para decidir el dueño:
+- Si P162 frena o no. R aprobó, el problema ya estaba y queda fuera de la letra de P102; P no
+  aprobó porque el daño es el mismo. El integrador lo dejó frenando, con la misma vara que se
+  usó para P102.
+- P163: "quiero 10 unidades de yerba" anota 10 bolsones. El programa usa "unidades" para decir
+  bultos; ¿tiene que preguntar cuando la presentación trae un número?
+- La decisión nueva de esta vuelta: nombrar una medida sin la unidad de venta ("quiero 2 azucar
+  de 10 kg", "quiero 2 yerbas de 1 kg") ahora pregunta en vez de anotar.
+
+Bajos que conviene mirar primero:
+- P161 (1): cualquier sobre se entrega; antes de B.
+- P163, P164 y P167, de la familia de P102: "N unidades", la presentación "caja x 6" sin
+  sustantivo ("quiero 6 vinos" anota 6 cajas) y las abreviaturas ("10 paq de yerba" no anota,
+  pero la respuesta empuja a pedir 10 bolsones).
+- P104 y P105: "5 yerbas para retirar" y "llevo 10 yerbas al local" se anotan como venta.
+  (P103 quedó resuelto; resta "compro 10 yerbas" sin tilde, aceptado.)
+- P166: el README dice que con "bultos" se pide y "quiero 2 bultos de huevos" (presentación
+  "maple de 30 huevos") pregunta.
+- P154 y P161 (2): caracteres de control de un sobre escrito a mano llegan a la pantalla.
+- P152 y P156: con Ctrl+C se pierde sin aviso lo que estaba en la cola para otro agente del
+  mismo programa; con varias ventanas del mismo programa se puede perder un envío.
+- P153 y P136: el `.gitignore` tapa una memoria olvidada en `mate/ejemplos`, que rompe una prueba.
+- P133: `VERSION`, `ayuda`, el curso y el README de la raíz no cuentan todavía la 0.7 (queda
+  para el cierre de verdad).
+
+Los demás bajos abiertos (ninguno traba):
+- Cambio 1: P106 a P111, P165, P168, P169, P170, P80 de fondo, P85, P86, P87, P88, P91, P92, P94.
+- Cambio 2: P115, P120, P125, P127, P128 a P132.
+- Cambio 3: P137, P140, P142 y P147 a medias; P148, P150, P151, P155, P157.
+- Seguridad: P160 y el resto de P161.
+- De todos: P11 y P149 (Windows y una IA de verdad).
+- Sin registro: la revisión del diseño del buzón antes de programar. El resumen de arriba
+  cuenta las decisiones que hoy tiene el buzón, armado después desde el README y el código.
+
+Resueltos desde el estado anterior: P102 (medio), P103 y P159.
+
+**Lo que no se pudo probar**
+- **Windows de verdad**: nada de la 0.7 se corrió ahí. En particular el candado
+  (`msvcrt.locking`), el paso a `rechazados`, los comandos con `py`, Ctrl+C (esas pruebas se
+  saltean en Windows) y P160.
+- **Ollama y Claude de verdad**: todo fue con `--ia-simulada`. No se sabe cómo contesta una IA
+  real a lo que Ventas le deriva, ni cuánto gasta.
+- `pytest` completo en otra versión de Python que la 3.13. En esta vuelta nadie corrió nada
+  fuera de 3.13.
+- Cerrar la ventana con la X.
+
+**Para el dueño, en Windows**: valen los mismos comandos del estado anterior, abajo. Cambia que
+`probar mi_negocio.mate` da 18 de 18 y `ensayar` 12 de 12 sobre un equipo recién creado. En la
+charla, `quiero 10 paquetes de yerba` ahora tiene que preguntar y no anotar; para ver P162,
+`quiero un bolson x 10 de yerba`. `ayuda` va a decir "Mate 0.6": es lo esperado hoy.
+
+**Lo que sigue**: la vuelta 5 del cambio 1 (P162, con P163, P164, P166 y P104 si entran y con
+lo que el dueño decida); después, el cierre de verdad: `VERSION` a 0.7, "Qué cambió en la
+0.7", "Límites de la versión 0.7", la prueba del número de versión y P133. Recién ahí, y con
+P161 (1) resuelto, B.
+
+### Estado anterior, sobre `e3d228e` (historia: antes de la vuelta de cierre del cambio 1)
 
 **Estado de hoy** (integrador de cierre, sobre `e3d228e`; rama `equipo/mate-0.7`, 16 commits
 locales más este registro, sin subir nada y sin tocar `main`). El integrador no tocó código ni
