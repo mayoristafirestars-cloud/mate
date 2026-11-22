@@ -1709,7 +1709,8 @@ Cómo entiende el programa lo que escribe el cliente, y qué hace cuando no est�
   "azúcar"), con o sin tilde, en singular o en plural, y siempre la palabra entera ("pan" no
   es "panceta"). Si dos productos empiezan igual ("Harina 000" y "Harina 0000", o "Pan" y
   "Pan rallado") vale el que se nombró completo: "2 pan" es el Pan y "2 pan rallado" es el
-  otro. Si no se sabe cuál, el programa pregunta.
+  otro. Si no se sabe cuál, el programa pregunta. La respuesta siempre nombra el producto
+  que cotizó.
 - **La cantidad** es un número entero: `12`, `x12`, `1.000` (mil) o con letras hasta `doce`.
   Un número con una medida atrás no es una cantidad ("1 kg de yerba" habla del paquete): ahí
   el programa dice cómo se vende el producto y pregunta cuántos. Lo mismo con "2 docenas", con
@@ -1717,10 +1718,14 @@ Cómo entiende el programa lo que escribe el cliente, y qué hace cuando no est�
 - **Si hay dos productos o dos cantidades en la misma frase** ("2 yerbas y 3 azúcar", "2 o 3
   yerbas", un teléfono al lado del pedido), no elige por el cliente: pide que lo diga de a uno.
 - **El envío** se detecta por palabras como "envío", "mandás", "me lo alcanzan", "que me lo
-  traigan", "a domicilio". Si el cliente dice que **no** lo quiere ("sin envío", "no me lo
-  mandes", "no hace falta que lo manden"), el programa da solo el total y no habla de envío:
-  ante la duda no confirma un envío que capaz no pidieron. "¿Me lo mandás o lo retiro?" y "no
-  sé si mandan" son preguntas, y se contestan con la regla. Si preguntan por el envío sin
+  traigan", "a domicilio". Si al lado de esas palabras hay un **no**, el programa da solo el
+  total y no habla de envío: ante la duda no confirma un envío que capaz no pidieron. El "no"
+  puede estar antes, en la misma parte de la frase (hasta la coma o el punto: "no me lo
+  mandes", "no hace falta que me lo vengan a traer"), o en las tres palabras que siguen ("el
+  envío no hace falta", "¿envío? no, gracias"). También valen "sin", "ni", "tampoco",
+  "nunca", "jamás", "nada de", "nadie", "olvidate" y "dejalo". "¿Me lo mandás o lo retiro?",
+  "no sé si mandan" y "no tengo auto, ¿me lo mandás?" son preguntas, y se contestan con la
+  regla. Si preguntan por el envío sin
   hacer un pedido ("¿hacen envíos?", "mandame una docena de yerbas"), el programa contesta
   la regla y pide la cantidad con números.
 - **Una devolución, una cancelación o un "no quiero 3 yerbas"** no se cotizan: van a la IA.
@@ -1733,9 +1738,13 @@ entiende lo que está escrito de esas formas (un "quiero una docena de yerbas" o
 yerbas" van a la IA, que le pide al cliente el número). Lo que da es una cotización: no anota
 ni reserva nada. Algunos casos que conviene conocer:
 
-- Un "no" pegado a la palabra de envío siempre se toma como que no lo quiere. Por eso a
-  "¿no me mandás 12 yerbas?" le contesta el total sin hablar de envío; con "¿me mandás 12
-  yerbas?" sí contesta la regla.
+- Un "no" cerca de la palabra de envío siempre se toma como que no lo quiere, aunque sea de
+  otra cosa. Por eso a "¿no me mandás 12 yerbas?", a "si no es molestia me mandan 12 yerbas"
+  y a "¿me mandás 12 yerbas o no?" les contesta el total sin hablar de envío; con "¿me mandás
+  12 yerbas?" sí contesta la regla. Una coma ayuda: en "no, mandame 12 yerbas" y en "no puedo
+  ir, mandame 12 yerbas" el "no" queda del otro lado de la coma y el envío se contesta. Y hay
+  formas de decir que no que el programa no conoce ("el envío lo vemos después"): ahí
+  contesta la regla. Lo que el programa dice es una cotización, no una confirmación.
 - Un guion delante del número se pierde: "-3 yerbas" se cotiza como 3 (mucha gente escribe
   las listas con guiones).
 - Si piden un producto con un número que no está en la planilla ("3 harina 0000" cuando solo

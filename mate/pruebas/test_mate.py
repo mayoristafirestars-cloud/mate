@@ -10255,7 +10255,7 @@ def test_el_ejemplo_12_resuelve_los_pedidos_sin_consultar_a_la_ia(tmp_path, caps
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["probar", ruta]) == 0
     salida = capsys.readouterr().out
-    assert "18 de 18 pruebas pasaron" in salida
+    assert "20 de 20 pruebas pasaron" in salida
     assert "✓ los dos pedidos que una IA contestó mal: total exacto, envío bien y sin IA" in salida
     assert sorted(p.name for p in tmp_path.iterdir()) == [nombre, "precios.csv"]  # probar no deja nada
     # corrido de verdad, con el teclado: el pedido lo contesta el programa aunque la IA
@@ -10296,13 +10296,33 @@ def test_el_ejemplo_12_no_confirma_un_envio_negado_y_revisa_la_planilla(tmp_path
     # envío, pero el cliente dijo que no; va solo el total
     negadas = ["12 yerbas, no me lo mandes", "12 yerbas, no necesito envio",
                "12 yerbas no hace falta que lo manden", "no quiero envio, 12 azucar",
-               "12 azucar, no hace falta envio", "10 arroz no me lo mandes"]
+               "12 azucar, no hace falta envio", "10 arroz no me lo mandes",
+               # tercera vuelta: el 'no' después de la palabra de envío, o lejos, o dicho
+               # de otra forma
+               "12 azucar, el envio no hace falta", "12 yerbas, envio no",
+               "12 yerbas, el envio no lo necesito", "12 yerbas, mandarlo no hace falta",
+               "12 yerbas, con envio no, gracias", "12 yerbas, nada de envio",
+               "12 yerbas jamas me las mandes", "12 yerbas ni se te ocurra mandarlas",
+               "12 yerbas, no hace falta que me las vengan a traer hasta casa",
+               "12 yerbas envio no gracias", "12 yerbas, mandarlas no hace falta",
+               "12 yerbas. envio? no, gracias", "12 yerbas, olvidate del envio",
+               "12 yerbas, el envio dejalo", "12 yerbas, que nadie me las mande",
+               "12 yerbas, jamas pedi envio"]
     respuestas = charla(*negadas)
     assert len(respuestas) == len(negadas)
     for dicho, respuesta in zip(negadas, respuestas):
         assert re.search(r"total \$ [\d.]+,00\.$", respuesta), (dicho, respuesta)
         assert "nvío" not in respuesta, (dicho, respuesta)
     # ...y nada de eso pasó por la IA
+    assert "Consulta" not in (tmp_path / "traza.txt").read_text(encoding="utf-8-sig")
+    # un 'no' que quedó del otro lado de una coma es de otra cosa: el envío se pidió
+    pedidas = ["no, 12 yerbas con envio", "no voy a poder ir, mandame 12 yerbas",
+               "12 yerbas, no las retiro, mandamelas", "12 yerbas con envio, nada mas",
+               "12 azucar me la mandas o tengo que retirar?"]
+    respuestas = charla(*pedidas)
+    assert len(respuestas) == len(pedidas)
+    for dicho, respuesta in zip(pedidas, respuestas):
+        assert respuesta.endswith(",00. Con envío: sí, va con envío."), (dicho, respuesta)
     assert "Consulta" not in (tmp_path / "traza.txt").read_text(encoding="utf-8-sig")
     # lo demás que cambió en la segunda vuelta
     respuestas = charla("1,000 yerbas", "2 docenas de yerba", "necesito 3 arroz y que me lo traigan",
@@ -10320,6 +10340,13 @@ def test_el_ejemplo_12_no_confirma_un_envio_negado_y_revisa_la_planilla(tmp_path
         "2 x Pan (bolsa) a $ 500,00 cada uno: total $ 1.000,00.",
         "2 x Pan (bolsa) a $ 500,00 cada uno: total $ 1.000,00.",
         "2 x Pan rallado (bolsa) a $ 700,00 cada uno: total $ 1.400,00."]
+    # el plural de una palabra terminada en 'ce', y un producto que empieza como 'mandar'
+    planilla.write_text("producto;presentacion;precio;stock\nPan;bolsa;500;30\n"
+                        "Pan dulce;caja;800;30\nMandioca;bolsa;500;30\n", encoding="utf-8")
+    assert charla("2 panes dulces", "12 mandiocas", "12 mandiocas con envio") == [
+        "2 x Pan dulce (caja) a $ 800,00 cada uno: total $ 1.600,00.",
+        "12 x Mandioca (bolsa) a $ 500,00 cada uno: total $ 6.000,00.",
+        "12 x Mandioca (bolsa) a $ 500,00 cada uno: total $ 6.000,00. Con envío: sí, va con envío."]
     # una planilla sin la columna stock: lo dice al arrancar, en castellano, y no atiende
     planilla.write_text("producto;presentacion;precio\nPan;bolsa;500\n", encoding="utf-8")
     monkeypatch.setattr("sys.stdin", io.StringIO("2 pan\nchau\n"))

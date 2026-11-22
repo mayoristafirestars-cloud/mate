@@ -105,6 +105,12 @@ funcion lista_en_texto(tabla) {
 # "azucar" son lo mismo. El punto y la coma se quedan solo adentro de un número ("1.000",
 # "2,5"), y un número pegado a letras se separa ("10kg" queda "10" y "kg").
 funcion palabras_de(dicho) {
+    devolver quitar(palabras_y_cortes(dicho), "|")
+}
+
+# Lo mismo, pero donde había una coma, un punto o un signo de pregunta deja la marca "|":
+# sirve para saber dónde termina cada parte de la frase ("no, mandame 12" son dos partes).
+funcion palabras_y_cortes(dicho) {
     var t = minusculas(dicho)
     # Fuera las tildes.
     para con, sin en { "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u" } {
@@ -134,6 +140,9 @@ funcion palabras_de(dicho) {
         # El signo de pesos queda como una palabra suelta: avisa que lo que sigue es plata.
         } sino si letra == "$" {
             limpio += " $ "
+        # Un signo de puntuación corta la frase: queda la marca.
+        } sino si tiene(",.;:?!()", letra) {
+            limpio += " | "
         # Todo lo demás (signos, guiones, comillas) separa palabras.
         } sino {
             limpio += " "
@@ -152,10 +161,30 @@ funcion es_cifra(letra) {
 # ¿Es la misma palabra, en singular o en plural? ("yerbas" y "yerba", "fideo" y "fideos",
 # "arroces" y "arroz"). Se comparan palabras ENTERAS: "pan" no es "panceta".
 funcion misma_palabra(a, b) {
+    # Tal cual están escritas: "dulces" es "dulce" más "s".
+    si una_es_plural(a, b) {
+        devolver verdadero
+    }
     # ("arroces" se compara como "arrozes": así es "arroz" más "es")
     sea p = recortar(reemplazar(a + " ", "ces ", "zes "))
     sea q = recortar(reemplazar(b + " ", "ces ", "zes "))
+    devolver una_es_plural(p, q)
+}
+
+# ¿Son iguales, o una es la otra con "s" o "es" al final?
+funcion una_es_plural(p, q) {
     devolver p == q o p + "s" == q o p + "es" == q o q + "s" == p o q + "es" == p
+}
+
+# ¿La palabra es alguna de las del nombre del producto, en singular o en plural?
+funcion es_del_nombre(del_nombre, palabra) {
+    para parte en del_nombre {
+        # ("yerbas" es del nombre "Yerba mate")
+        si misma_palabra(palabra, parte) {
+            devolver verdadero
+        }
+    }
+    devolver falso
 }
 
 # El número que hay en una palabra, o nada si no es un número. "1.000" es mil (y no uno
@@ -242,17 +271,15 @@ funcion entender(tabla, dicho) {
     var otros_numeros = falso
     # (un número con coma, como "2,5" o "1,000", no sirve para contar unidades)
     var con_coma = falso
-    # (las palabras que no son números ni parte del nombre: ahí se busca si pide envío)
-    var sin_nombre = []
     para i en rango(largo(palabras)) {
         sea palabra = palabras[i]
         sea n = numero_de(palabra)
         si n == nada {
-            si no tiene(del_nombre, palabra) y palabra != "$" {
-                sin_nombre = agregar(sin_nombre, palabra)
-            }
+            # (no es un número: no hay nada que clasificar)
+            continuar
+        }
         # Con el signo de pesos adelante es plata.
-        } sino si i > 0 y palabras[i - 1] == "$" {
+        si i > 0 y palabras[i - 1] == "$" {
             otros_numeros = verdadero
         # Con una medida atrás es un peso, un volumen o una hora.
         } sino si i + 1 < largo(palabras) y tiene(medidas, palabras[i + 1]) {
@@ -263,6 +290,15 @@ funcion entender(tabla, dicho) {
             si tiene(palabra, ",") {
                 con_coma = verdadero
             }
+        }
+    }
+    # 3. Lo que queda sacando los números y el nombre del producto (también en plural: en
+    #    "12 mandiocas" no hay ningún "mand..." de mandar). Ahí se busca si pide envío. Las
+    #    marcas "|" se dejan: dicen dónde corta la frase.
+    var sin_nombre = []
+    para palabra en palabras_y_cortes(dicho) {
+        si palabra == "|" o (numero_de(palabra) == nada y palabra != "$" y no es_del_nombre(del_nombre, palabra)) {
+            sin_nombre = agregar(sin_nombre, palabra)
         }
     }
     devolver { nombrados: nombrados, cantidades: cantidades, otros_numeros: otros_numeros,
@@ -297,30 +333,77 @@ funcion es_de_envio(palabras, i) {
     devolver falso
 }
 
-# ¿En la posición i hay un "no" que niega lo que sigue? ("sin", "ni", "tampoco" y "nunca"
-# también valen.) "No sé si mandan", "no tengo auto" y "no puedo ir" no niegan el envío:
-# ahí el cliente está preguntando.
+# ¿La palabra número i es un "no"? Valen "no", "sin", "ni", "tampoco", "nunca", "jamás",
+# "nada", "nadie", "ningún", y también "olvidate" y "dejalo" ("el envío dejalo"). En cambio
+# "no sé si mandan", "no tengo auto" y "no puedo ir" no niegan el envío: ahí el cliente
+# está preguntando. Y "nada más" es una despedida.
 funcion niega(palabras, i) {
-    si no tiene(["no", "sin", "ni", "tampoco", "nunca"], palabras[i]) {
-        devolver falso
+    sea palabra = palabras[i]
+    # (la palabra que sigue, y la otra; "|" si ahí se corta o se termina la frase)
+    var sigue = "|"
+    var despues = "|"
+    si i + 1 < largo(palabras) {
+        sigue = palabras[i + 1]
+        si i + 2 < largo(palabras) {
+            despues = palabras[i + 2]
+        }
     }
-    # (se mira la palabra que sigue al "no", si hay)
-    devolver i + 1 >= largo(palabras) o no tiene(["se", "sabia", "tengo", "puedo", "llego"], palabras[i + 1])
+    # "Olvidate del envío", "olvidá el flete".
+    si empieza_con(palabra, "olvid") {
+        devolver verdadero
+    }
+    # "Nada de envío" es un no; "nada más" no.
+    si palabra == "nada" {
+        devolver sigue != "mas"
+    }
+    si palabra == "no" {
+        # "No tengo auto", "no puedo ir", "no llego": por eso pide que se lo manden.
+        si tiene(["sabia", "tengo", "puedo", "llego"], sigue) {
+            devolver falso
+        }
+        # "No sé", "no sé si mandan", "no sé cómo hacen": pregunta. Pero "no se molesten"
+        # y "no se te ocurra" sí son un no.
+        si sigue == "se" {
+            devolver no tiene(["|", "si", "como", "cuando", "donde", "que", "cuanto", "cual", "bien"], despues)
+        }
+        devolver verdadero
+    }
+    # Las demás valen siempre.
+    devolver tiene(["sin", "ni", "tampoco", "nunca", "jamas", "nadie", "ningun", "ninguna",
+                    "deja", "dejalo", "dejala", "dejalos", "dejalas"], palabra)
 }
 
 # ¿Qué dice del envío? "si" si pide que se lo manden, "no" si dice que NO lo quiere ("sin
-# envío", "no me lo mandes", "no hace falta que lo manden") y "" si no habla de eso. Recibe
-# las palabras de la frase sin los números y sin el nombre del producto.
+# envío", "no me lo mandes", "el envío no hace falta") y "" si no habla de eso. Recibe las
+# palabras de la frase sin los números y sin el nombre del producto, con las marcas "|".
+# Ante la duda gana el NO: el programa no confirma un envío que capaz no pidieron.
 funcion sobre_el_envio(palabras) {
     var dicho = ""
     para i en rango(largo(palabras)) {
         si es_de_envio(palabras, i) {
-            # Una negación hasta cinco palabras antes le da vuelta el sentido. Ante la
-            # duda gana el NO: el programa no confirma un envío que capaz no pidieron.
-            para antes en rango(1, 6) {
-                si i - antes >= 0 y niega(palabras, i - antes) {
+            # Un "no" ANTES, en la misma parte de la frase, le da vuelta el sentido ("no
+            # hace falta que me lo vengan a traer"). Se mira para atrás hasta la coma, el
+            # punto o un "pero": en "no, mandame 12" el "no" es de otra cosa.
+            var j = i - 1
+            mientras j >= 0 y palabras[j] != "|" y palabras[j] != "pero" {
+                si niega(palabras, j) {
                     devolver "no"
                 }
+                j = j - 1
+            }
+            # Y un "no" en las tres palabras de DESPUÉS, también ("el envío no hace
+            # falta", "¿envío? no, gracias"). Acá la coma no corta. "Sin" no cuenta para
+            # este lado: "mandame 12 sin falta" es un pedido.
+            var vistas = 0
+            var k = i + 1
+            mientras k < largo(palabras) y vistas < 3 {
+                si palabras[k] != "|" {
+                    si palabras[k] != "sin" y niega(palabras, k) {
+                        devolver "no"
+                    }
+                    vistas += 1
+                }
+                k += 1
             }
             dicho = "si"
         }
@@ -599,6 +682,20 @@ prueba "si dice que NO quiere envío, no se le confirma un envío" {
                    "12 azucar sin flete", "12 azucar, y tampoco me las traigan"] {
         asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
     }
+    # El "no" también puede venir DESPUÉS de la palabra de envío, o lejos de ella.
+    para dicho en ["12 azucar, el envio no hace falta", "12 azucar, envio no",
+                   "12 azucar, el envio no lo necesito", "12 azucar, mandarlo no hace falta",
+                   "12 azucar, con envio no, gracias", "12 azucar. envio? no, gracias",
+                   "12 azucar, no hace falta que me las vengan a traer hasta casa"] {
+        asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
+    }
+    # Y hay otras formas de decir que no.
+    para dicho en ["12 azucar, nada de envio", "12 azucar jamas me las mandes",
+                   "12 azucar ni se te ocurra mandarlas", "12 azucar, no se molesten en mandarlas",
+                   "12 azucar, olvidate del envio", "12 azucar, el envio dejalo",
+                   "12 azucar, que nadie me las mande"] {
+        asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
+    }
     # "No sé si mandan" y "no tengo auto" no son un no: ahí está preguntando.
     asegurar termina_con(atender(precios, "no se si hacen envios, quiero 12 azucar"), "Con envío: sí, va con envío.")
     asegurar termina_con(atender(precios, "no tengo auto, me mandas 12 azucar?"), "Con envío: sí, va con envío.")
@@ -606,6 +703,23 @@ prueba "si dice que NO quiere envío, no se le confirma un envío" {
     asegurar termina_con(atender(precios, "12 azucar me la mandas o tengo que retirar?"), "Con envío: sí, va con envío.")
     # "Te mando el pedido" lo dice el que compra: no pide envío.
     asegurar termina_con(atender(precios, "te mando el pedido: 12 azucar"), "total $ 117.606,00.")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "un 'no' que es de otra cosa no apaga el envío, si hay una coma en el medio" {
+    # El "no" quedó en otra parte de la frase: el envío se pidió.
+    para dicho en ["no, 12 azucar con envio", "no voy a poder ir, mandame 12 azucar",
+                   "12 azucar, no las retiro, mandamelas", "no hay drama, mandame 12 azucar",
+                   "no quiero molestar pero mandame 12 azucar", "12 azucar con envio, nada mas",
+                   "mandame 12 azucar sin falta"] {
+        asegurar termina_con(atender(precios, dicho), "Con envío: sí, va con envío.")
+    }
+    # Sin la coma no se sabe de qué es el "no": ante la duda, solo el total.
+    para dicho en ["12 azucar si no es molestia me las mandan?", "me mandas 12 azucar o no?"] {
+        asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
+    }
+    # "No, quiero 12" es un pedido (el "no" contesta otra cosa); "no quiero 12", no.
+    asegurar termina_con(atender(precios, "no, quiero 12 azucar"), "total $ 117.606,00.")
     asegurar largo(consultas_ia()) == 0
 }
 
@@ -702,6 +816,19 @@ prueba "un producto que es la primera palabra de otro también se puede pedir" {
     asegurar empieza_con(responder_pedido(panes, "2 pan rallado"), "2 x Pan rallado (bolsa) a $ 700,00")
     # (y en plural también)
     asegurar empieza_con(responder_pedido(panes, "2 panes rallados"), "2 x Pan rallado (bolsa)")
+    # "Dulces" es el plural de "dulce" (no se confunde con el de "arroz", que es "arroces").
+    sea dulces = [{ producto: "Pan", presentacion: "bolsa", precio: 500, stock: 9 },
+                  { producto: "Pan dulce", presentacion: "caja", precio: 800, stock: 9 }]
+    asegurar empieza_con(responder_pedido(dulces, "2 panes dulces"), "2 x Pan dulce (caja) a $ 800,00")
+    asegurar misma_palabra("dulces", "dulce") y misma_palabra("arroz", "arroces") y no misma_palabra("pan", "panceta")
+}
+
+prueba "el nombre del producto, aunque esté en plural, no se toma por un pedido de envío" {
+    # "Mandiocas" empieza como "mandar", pero es el producto.
+    sea verduleria = [{ producto: "Mandioca", presentacion: "bolsa", precio: 500, stock: 30 }]
+    asegurar responder_pedido(verduleria, "12 mandiocas") == "12 x Mandioca (bolsa) a $ 500,00 cada uno: total $ 6.000,00."
+    asegurar responder_pedido(verduleria, "12 mandioca") == "12 x Mandioca (bolsa) a $ 500,00 cada uno: total $ 6.000,00."
+    asegurar termina_con(responder_pedido(verduleria, "12 mandiocas con envio"), "Con envío: sí, va con envío.")
 }
 
 prueba "la regla del envío la dice el programa, también sin pedido" {
