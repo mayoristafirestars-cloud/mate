@@ -759,7 +759,210 @@ Para el coordinador: (1) `VERSION` (P49); (2) siguen abiertos P22 (cambio 1) y P
 Windows, con `py mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` y su Ollama
 prendido y apagado; (5) una carpeta temporal por agente (P60).
 
+### Vuelta de cierre — cerrada (R y P aprobaron; quedan solo problemas bajos)
+
+Una vuelta corta sobre lo que el "Estado final" dejaba abierto: los dos medios (P22 y P29) y
+dos bajos (P68 y P49). Toca los cambios 1 y 2 a la vez, porque los dos arreglos van al
+ejemplo 12 y a la copia que hace `nuevo mostrador`.
+
+**Qué se arregló** (commit `e78f2e9`, implementador; toca el ejemplo 12, `mate.py`,
+`test_mate.py`, README, MEJORAS 121 y 123 y `docs/index.html`)
+- **P22** (ejemplo 12 y mostradores creados): con un producto que tiene "sin", "no", "ni" o
+  "nada" en el nombre, "12 yerbas sin envio" o "no me lo mandes" ya no contestan "Con envío:
+  sí". Una palabra de negación cuenta como parte del nombre solo si atrás viene la palabra
+  que le sigue en el nombre ("sin palo"); si no, es del cliente y niega el envío. Funciones
+  nuevas: `las_que_niegan()`, `puede_negar()`, `dicha_del_nombre()`; `es_del_nombre()` cambió
+  de parámetros.
+- P22, cambio de comportamiento: la misma regla se usa para contar cuántas palabras del
+  nombre dijo el cliente. Con "Yerba mate" y "Yerba sin palo" en la planilla, "12 yerbas sin
+  envio" ahora pregunta "Tengo más de uno..." (antes cotizaba la "sin palo" y confirmaba el
+  envío). Con una sola yerba cotiza esa, sin envío.
+- **P29** (ejemplo 12 y mostradores creados): `revisar_planilla()` revisa todos los renglones
+  con la función nueva `celdas_mal_cargadas()`. Con un precio o stock vacío o con texto el
+  mostrador no atiende y dice al arrancar: "Mostrador: así no puedo atender. En precios.csv,
+  el precio de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista)..."
+  y cómo arreglarlo. Muestra hasta 5 avisos y dice cuántos más hay. Se eligió frenar el
+  arranque, no saltear el renglón. Dice "producto número N" y el nombre, no el renglón del
+  archivo, porque `leer_tabla` saltea los renglones en blanco.
+- **P68** (`mate.py`): el encabezado de `<nombre>_casos.txt`, el paso 5 de `nuevo mostrador`
+  y el encabezado del programa creado avisan que los casos son para la planilla de muestra y
+  que hay que cambiarlos si se cambia la planilla. El archivo de casos tiene 3 renglones más:
+  "tenes cafe?" pasó del renglón 40 al **43**.
+- **P49**: `VERSION = "0.6"`. El README dice "Versión 0.6.", tiene "Qué cambió en la 0.6"
+  (antes de la de la 0.5, que queda como historia) y "Límites de la versión 0.6";
+  `docs/index.html` dice "Mate 0.6".
+- De paso, **P35**: la prueba "tu planilla está bien cargada" del mostrador creado usa la
+  misma `revisar_planilla()` del arranque y muestra el aviso una sola vez.
+- Pruebas: 2 nuevas en el ejemplo 12 (de 20 a 22) y 5 en `test_mate.py`. Pruebas viejas
+  tocadas: la de versión (0.5 pasa a 0.6 y afirma más), "20 de 20" pasa a "22 de 22", y
+  "renglón 40" pasa a "renglón 43". Ninguna se sacó ni afirma menos (R y P miraron los
+  renglones borrados).
+
+**Quién revisó y quién probó**
+
+| Quién | Veredicto | Cómo trabajó |
+|---|---|---|
+| Revisor independiente (R) | **aprueba**: ningún problema alto ni medio; 5 bajos (uno era "falta anotar la vuelta acá") | leyó `git diff f181ff2..e78f2e9`; corrió todo en una copia temporal propia, que borró; repositorio sin tocar |
+| Agente de pruebas (P) | **aprueba**: ningún problema alto ni medio; 8 bajos (2 nuevos, 6 ya estaban) | copia propia del repositorio en `e78f2e9`; usó el mostrador creado como el dueño; repositorio sin tocar |
+| Integrador (I) | no aprueba ni desaprueba: corrió todo junto y anotó | sin tocar código ni pruebas; en este commit solo cambia este archivo |
+
+**Evidencia**
+- P22 (R): ejemplo 12 viejo contra nuevo, planilla de 13 productos (Yerba sin palo,
+  Galletitas sin sal, Arroz no se pasa, Fideos sin TACC, Pan sin sal, Cerveza sin alcohol,
+  Agua sin gas, Jugo nada...) y 39 frases. El viejo decía "Con envío: sí" a "12 yerbas sin
+  envio", "12 yerba mate sin envio", "12 yerba sin palo sin flete", "12 arroz no me lo
+  mandes" y otras cuatro; el nuevo da solo el total o pregunta cuál. Con la planilla de
+  muestra, 147 frases de las pruebas dan respuestas idénticas con el código viejo y el nuevo.
+- P22 (P): más de 170 frases en planillas difíciles; ninguna frase negada contestó "Con
+  envío: sí", salvo "s/envio" (P77, ya pasaba con cualquier planilla). Sobre 66 frases
+  comparadas con la versión anterior cambiaron 17: 16 eran "sí" falsos y 1 es P71. Con la
+  planilla de muestra, 40 frases dan exactamente lo mismo que antes ($ 117.606,00 con envío
+  sí; $ 175.000,00 sin envío).
+- P22: el "sin" del nombre no apaga un envío pedido: "12 yerba sin palo con envio",
+  "mandame 12 yerba sin palo", "12 cerveza sin alcohol con envio", "12 pan no blanco con
+  envio" dan "Con envío: sí" (R, P). Las tres frases pedidas en "Para la vuelta 4" están en
+  la prueba del ejemplo y en `test_mate.py` (R).
+- P29 (R, P): precio vacío, con texto ("consultar", "si", "x", "N/A", "#¡REF!", "14500
+  pesos"), stock vacío o con texto: el mostrador no entra a la charla y da el aviso con el
+  nombre del producto; no sale ningún error de `pesos()`, con y sin `--ia-simulada`. Siguen
+  valiendo "$35.000.-", "35.000$", "$ 1.234.567,89" y stock "1.000". Con renglones en blanco
+  en el medio el número de producto sale bien.
+- Mostrador recién creado (R, P): tres archivos, `verificar` "sin errores", `probar` 7 de 7,
+  `ensayar` 5 de 5. Hereda P22 y P29; con un precio vacío `probar` da 6 de 7 con el aviso
+  una sola vez. Su lógica es la del ejemplo 12: solo cambia el nombre de la planilla (P).
+- P68 (R, P): los tres avisos están; con la planilla cambiada `ensayar` da 3 de 5, que es lo
+  que ahora se avisa. P49 (R, P): `--version` dice "Mate 0.6"; README y `docs/index.html`
+  coinciden. El README coincide con lo que hace el programa, salvo la promesa algo amplia
+  del "sin" en el nombre (P70).
+
+**Pruebas** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`, sobre `e78f2e9`)
+- `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider`: 883 pasan, 0 fallan
+  (antes 879).
+- `probar mate/ejemplos`: 66 de 66, en 18 archivos (antes 64). `probar mate/curso`: 30 de 30,
+  en 24 archivos. Ejemplo 12 solo: 22 de 22.
+- Los mismos números dieron el implementador, R y P, cada uno en su copia. Después de las
+  tres corridas `git status --short` quedó vacío.
+
+**Comprobado de nuevo por el integrador** (carpeta temporal propia, `--ia-simulada`)
+- `nuevo mostrador mi_negocio`: tres archivos, `verificar` "sin errores", `probar` 7 de 7,
+  `ensayar` 5 de 5; el paso 5 trae el "Ojo: esos casos son de muestra..."; "tenes cafe?"
+  está en el renglón 43 del archivo creado (y sigue en el 42 de `mate/ejemplos/casos.txt`).
+- Planilla con Yerba mate, Yerba sin palo y Azúcar: "12 yerbas sin envio" pregunta cuál;
+  "12 yerba mate sin envio" da $ 420.000,00 sin frase de envío; "12 yerba sin palo sin
+  flete" da $ 42.000,00 sin frase de envío; "12 yerba sin palo con envio" da envío sí; "12
+  azucar no me lo mandes" da $ 117.606,00 sin frase de envío.
+- Planilla con el precio del azúcar vacío: el aviso "así no puedo atender..." nombra
+  `mi_negocio_precios.csv` y 'Azúcar', no atiende, `probar` da 6 de 7, y `ensayar` muestra
+  el aviso y después "no pude ensayar: ..." (P72). La carpeta sigue con 3 archivos.
+- No se repitieron en esta vuelta los flujos con un modelo de mentira ni la revisión de
+  seguridad: valen los del cierre anterior, sobre `5ef3e8f`. El commit `e78f2e9` no pasó
+  por el especialista en seguridad (en `mate.py` cambia `VERSION` y los textos que escribe
+  `nuevo mostrador`).
+
+**Estado de los problemas que entraron en la vuelta**
+
+| # | Estado | Evidencia |
+|---|---|---|
+| P22 | resuelto (quedan P70 y P71, bajos) | R: 39 frases en 13 productos; P: más de 170 frases; I: las tres frases de "Para la vuelta 4" |
+| P29 | resuelto (quedan P72, P73 y P78, bajos) | R, P, I: aviso al arrancar con el nombre del producto, sin error de `pesos()` |
+| P68 | resuelto | R, P, I: encabezado de los casos, paso 5 y encabezado del programa |
+| P49 | resuelto | R, P, I: "Mate 0.6" en `--version`, README y `docs/index.html` |
+| P35 | resuelto de paso | R, P, I: el aviso sale una sola vez; 6 de 7 |
+
+**Problemas que quedan de esta vuelta** (todos bajos; R = revisor, P = agente de pruebas,
+Impl. = lo avisó el implementador)
+
+| # | Problema | Quién | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|---|
+| P70 | Resto de P22: si el nombre trae un "no" seguido de una palabra que el cliente también usa para negar, se confirma el envío. Con "Arroz no se pasa", "12 arroz no se molesten en mandarlo" contesta "Con envío: sí". Con "sin palo", "sin sal", "sin TACC", "sin alcohol" o "sin gas" no pasa. El README ("Vale igual si el producto tiene una de esas palabras en el nombre") promete un poco de más | R | baja | sí | pendiente: **dice algo falso**, aunque con un nombre raro. Como mínimo, anotarlo en el README |
+| P71 | Pedidos CON envío que quedan sin la frase del envío (solo el total): cuando el nombre termina en una palabra de negación ("Jugo nada", "Dulce de nada") o el cliente saltea o mete una palabra ("12 yerba sin el palo con envio", "12 quesos sin lactosa con envio" con "Queso sin TACC ni lactosa"). Antes daban "sí" | R, P, Impl. | baja | no | aceptado como decisión (ante la duda gana el no: calla, no dice nada falso). Pendiente: decirlo en el README y afirmarlo en una prueba |
+| P72 | Con la planilla mal cargada, `ensayar` muestra el aviso claro y después un texto técnico ("no pude ensayar: ... terminó sin pedir nada por teclado ... leer() ..."), código 2; una prueba lo afirma. `correr` termina con código 0 cuando el mostrador se niega a atender. En el ejemplo 12 (no en un mostrador creado) `probar` con la planilla rota muestra el aviso y después 11 pruebas falladas, una con el viejo "pesos() espera numero..." | R, P, Impl.; visto por I | baja | no | pendiente. Lo ve el dueño, nunca el cliente. Es un cambio en `ensayar` |
+| P73 | La revisión de la planilla solo mira que precio y stock sean números: un precio negativo se cotiza ("total -$ 105.000,00"), un precio 0 cotiza "$ 0,00", un stock "2,5" pasa, y un producto sin nombre se carga igual (o da el aviso "el precio de '' no es un número") | R, P, Impl. | baja | sí | pendiente. El total negativo sí llega al cliente |
+| P74 | Con "Agua sin gas" y "Agua con gas" en la planilla, "12 agua sin gas con envio" contesta "Tengo más de uno... Decime cuál, con el nombre completo" aunque ya lo dijo (el "con" de "con envio" se toma del otro producto). Anda con "mandame 12 agua sin gas" | P | baja | sí | pendiente, no exigido: no dice nada falso |
+| P75 | Si un producto EMPIEZA con "Sin" o "No" ("Sin TACC premezcla", "No me olvides"), casi cualquier pedido con "sin envio" o "no me lo mandes" contesta "Vamos de a un producto por vez". Para "No ..." el mostrador avisa al arrancar; para "Sin ..." no | P | baja | sí | pendiente, no exigido: deja de cotizar, no dice nada falso |
+| P76 | Si el nombre de un producto incluye el de otro ("Gaseosa sin azúcar" y "Azúcar"), "12 gaseosas sin azucar con envio" contesta "Vamos de a un producto por vez". Anda con "12 gaseosas con envio" | P | baja | sí | pendiente, no exigido |
+| P77 | "12 yerbas s/envio" contesta "Con envío: sí". Pasa con cualquier planilla, también la de muestra | P | baja | sí | pendiente: **dice algo falso**. Sumar "s/" a las negaciones o anotarlo en el manual |
+| P78 | Un renglón con columnas de menos o de más ("Azúcar;bolsa"): el programa no arranca y sale el error de `leer_tabla`, que dice bien qué renglón es, pero con forma de error técnico y código 1; no es el aviso "así no puedo atender" | P; R lo vio y no lo contó | baja | sí | pendiente, no exigido: lo ve el dueño al arrancar |
+| — | Este registro no tenía anotada la vuelta | R | baja | no | resuelto en este commit |
+
+**Lo que el implementador dejó afuera a propósito**: los bajos P23, P24, P27, el resto de
+P20 y los de seguridad P61 a P67; un mostrador creado antes de `e78f2e9` es una copia fija y
+no recibe los arreglos (el dueño tiene que crearlo de nuevo); en el README quedan párrafos
+que nombran la 0.5 como historia; nada probado en Windows real ni con Claude u Ollama de
+verdad.
+
 ## Estado final
+
+**Estado de hoy** (integrador, después de la vuelta de cierre, sobre `e78f2e9`; rama
+`equipo/mate-0.6`, sin subir nada). Más abajo queda, como historia, el cierre anterior sobre
+`5ef3e8f`: donde no coincidan, vale lo de acá arriba.
+
+| Cambio | Vueltas | Estado | Quién aprobó | Qué queda |
+|---|---|---|---|---|
+| 1. Mostrador con reglas y comandos con `py` | 3 + cierre | **aprobado** | R y P, en la vuelta de cierre | solo bajos. P22 resuelto. Dos casos todavía dicen "Con envío: sí" a un pedido negado: P70 (nombre raro) y P77 ("s/envio") |
+| 2. Orden `nuevo mostrador` | 1 + cierre | **aprobado** (ya sin reserva) | R y P, en la vuelta de cierre | solo bajos. P29 y P68 resueltos; los mostradores nuevos heredan los arreglos |
+| 3. Orden `ensayar` | 2 | **aprobado** | R y P | solo bajos |
+| Seguridad del conjunto | 1 | **aprobado sobre `5ef3e8f`** | especialista en seguridad | 7 bajos. No se repitió sobre `e78f2e9` |
+| Versión | cierre | **0.6** | R y P | P49 resuelto |
+
+No queda ningún problema alto ni medio abierto. Con eso se cumple la regla de este registro
+para los tres cambios. La decisión de integrar la rama sigue siendo del coordinador.
+
+**Números de las pruebas de hoy** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`,
+sobre `e78f2e9`)
+
+| Comando | Resultado | Cierre anterior (`5ef3e8f`) | Punto de partida (`7a4cf4f`) |
+|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 883 pasan, 0 fallan | 879 pasan, 0 fallan | 789 pasan, 1 falla (conocida) |
+| `python3 mate/mate.py probar mate/ejemplos` | 66 de 66, en 18 archivos | 64 de 64, en 18 archivos | — |
+| `python3 mate/mate.py probar mate/curso` | 30 de 30, en 24 archivos | 30 de 30, en 24 archivos | — |
+
+Después de las tres corridas `git status --short` quedó vacío. Sin correr: Windows real,
+Python 3.10, 3.11, 3.12 y 3.14 con pytest, Claude y Ollama de verdad.
+
+**Pendientes de hoy**
+
+Medios: ninguno.
+
+Bajos que conviene mirar primero, porque el cliente ve algo que no es cierto:
+- **P77**: "12 yerbas s/envio" contesta "Con envío: sí", con cualquier planilla.
+- **P70**: con un producto como "Arroz no se pasa", "12 arroz no se molesten en mandarlo"
+  contesta "Con envío: sí".
+- **P73**: un precio negativo en la planilla se cotiza con total negativo.
+
+Bajos que siguen abiertos (ninguno traba):
+- Cambio 1: P23, P24, P27; P70, P71, P74, P75, P76, P77; P11 (nada probado en una Windows
+  real).
+- Cambio 2: P30, P32, P33, P34; P72, P73, P78; P31 aceptado. (P35 resuelto.)
+- Cambio 3: P53, P54, P55, P57, P58, P59; P56 aceptado.
+- Los tres: P20 (el aviso del freno, `lecciones`, `corregir` y `bitacora` sugieren
+  `mate/mate.py` relativo).
+- Seguridad: P61 a P67.
+
+Para el coordinador y el dueño:
+1. Decidir la integración de la rama: ya no hay medios abiertos.
+2. Si el dueño ya creó su mostrador antes de `e78f2e9`, tiene que crearlo de nuevo: es una
+   copia fija y no recibe los arreglos de P22 y P29.
+3. La corrida del dueño en Windows sigue sin hacerse: `py mate\mate.py curso 99` (tiene que
+   sugerir `py mate\mate.py curso`), `py -m pytest mate\pruebas mate\modelo -q -p
+   no:cacheprovider`, `py mate\mate.py nuevo mostrador mi_negocio` con sus pasos, y `ensayar`
+   con su Ollama prendido y apagado.
+4. Decisiones del dueño que faltan: si está bien `<nombre>_precios.csv`; si devoluciones y
+   cancelaciones van a la IA con frenos o a una respuesta fija; la regla de envío para un
+   pedido con varios productos.
+5. Anotar o resolver la excepción de P65 (`probar` y el adaptador de `mate/modelo`).
+6. Si se quiere, una pasada del especialista en seguridad sobre `e78f2e9`.
+
+Aclaraciones a lo escrito más abajo y en las vueltas:
+- "tenes cafe?" está hoy en el renglón **43** del archivo que crea `nuevo mostrador` (era el
+  40 hasta `e78f2e9`) y en el 42 de `mate/ejemplos/casos.txt`.
+- El ejemplo 12 tiene hoy 22 pruebas (eran 20).
+- `VERSION` es `"0.6"` y el README dice "Versión 0.6.".
+- En "El flujo completo del dueño" de más abajo, "12 yerbas sin envio" con "Yerba sin palo"
+  en la planilla ya no contesta "Con envío: sí"; y con un precio vacío el mostrador ya no se
+  corta en "hola": avisa al arrancar.
+
+### Cierre anterior, sobre `5ef3e8f` (historia: antes de la vuelta de cierre)
 
 Cierre del integrador sobre `5ef3e8f` (rama `equipo/mate-0.6`, sin subir nada). En este commit
 solo cambia este archivo: el integrador no tocó código ni pruebas en el cierre.
