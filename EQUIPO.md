@@ -2374,3 +2374,157 @@ Para el dueño, en Windows:
 **Lo que sigue**: la vuelta 4 del cambio 1 (P102, medio), que es lo único que impide cerrar la
 0.7; dejar registrado el diseño del buzón; la prueba del dueño en Windows (P149); y para el
 cierre, P133 (`VERSION`, curso y README de la raíz). Primero A, después B; nada de B todavía.
+
+## Estado final de la 0.7
+
+**Estado de hoy** (integrador de cierre, sobre `e3d228e`; rama `equipo/mate-0.7`, 16 commits
+locales más este registro, sin subir nada y sin tocar `main`). El integrador no tocó código ni
+pruebas en este cierre: corrió las tres corridas, hizo el recorrido del dueño en una carpeta
+temporal propia y escribió esto.
+
+**La 0.7 NO queda cerrada.** Dos de los tres cambios y la seguridad están aprobados, pero el
+cambio 1 tiene un problema medio abierto (P102). Por eso `VERSION` sigue en `"0.6"`, el README
+sigue diciendo "Qué se está sumando para la 0.7" y "Límites de la versión 0.6", y la prueba
+que afirma el número de versión no se tocó. La regla era pasar a 0.7 solo con todo aprobado.
+
+| Cambio | Vueltas | Estado | Quién aprobó | Qué lo frena |
+|---|---|---|---|---|
+| 1. Equipo del negocio (ejemplo 13 y `nuevo equipo`) | 3 | **NO aprobado** | R aprueba; P no | **P102 (medio)**: un pedido dicho en la unidad de adentro de la presentación se anota como bultos enteros. Falta la vuelta 4. Además 15 bajos |
+| 2. Ensayar la conversación entre agentes | 3 | **aprobado** | R y P | nada; 14 bajos |
+| 3. Buzón entre programas (la base de B) | 2 | **aprobado** | R y P | nada; 11 bajos. El diseño revisado antes de programar sigue sin registro acá |
+| Seguridad del conjunto | 2 pasadas | **aprobado sobre `e3d228e`** | especialista en seguridad | nada; quedan bajos (P159 a P161) |
+| Versión | — | **sigue en 0.6** | — | espera a que cierre el cambio 1 (P133) |
+
+Sobre el orden del dueño (primero A, después B): lo hecho es A más la base de B (el buzón, en
+una misma PC y sin red). De B no se hizo nada, y no corresponde empezarlo hasta cerrar A.
+
+**Números de las pruebas** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`, sobre
+`e3d228e`)
+
+| Comando | Hoy | Punto de partida de la 0.7 (`e78f2e9`) |
+|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1100 pasan, 0 fallan (109 s) | 883 pasan, 0 fallan |
+| `python3 mate/mate.py probar mate/ejemplos` | 100 de 100, en 22 archivos | 66 de 66, en 18 archivos |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 30 de 30, en 24 archivos |
+
+Por el camino: 938 después del cambio 1, 1014 después del 2, 1096 después del 3 y 1100 con las
+cuatro pruebas del arreglo de seguridad. Después de las tres corridas `git status --short`
+quedó vacío y en `mate/ejemplos` no quedó ninguna memoria ni carpeta `.buzon` (mirado con `ls`,
+porque el `.gitignore` las tapa: P153). Las vueltas registran que ningún renglón de prueba se
+sacó ni se aflojó; yo no repetí ese diff completo en este cierre. La batería tarda cerca de
+110 s: hay que correrla con un tope largo (P148).
+
+**El recorrido del dueño** (integrador, en una carpeta propia creada con `mktemp -d` y borrada
+al terminar; siempre con `MATE_SIN_REGISTRO=1`)
+
+| Paso | Qué dio |
+|---|---|
+| `nuevo equipo mi_negocio` | creó `mi_negocio.mate`, `mi_negocio_precios.csv` y `mi_negocio_casos.txt` y mostró los seis pasos que siguen. Repetido con el mismo nombre: "no creé nada... no piso archivos" |
+| `verificar mi_negocio.mate` | "sin errores" |
+| `probar mi_negocio.mate` | 15 de 15 |
+| `correr mi_negocio.mate --ia-simulada --traza`, 7 consultas y `chau` | "quiero 20 azucar": Ventas → Depósito → Compras (`Reservar`, `Reponer`, `Anotado`, `Reserva`), quedan 5. "quiero 3 yerbas": anotado, $ 105.000,00, sin `Reponer`. "quiero 5 azucar": anotado, quedan 0 y NO sale otro `Reponer`. "quiero 100 harina": "De Harina 000 quedan 12; no llego a 100", no vende. "cuanto salen 3 yerbas?": da la cuenta, "Todavía no anoté nada", solo `ConsultarStock`. "tenes cafe?": va a la IA simulada, sin tocar Depósito. Al cerrar: "Compras: hay que reponer Azúcar (quedan 0)" |
+| La misma corrida, **P102 reproducido** | "quiero 10 paquetes de yerba" contestó "Anotado: 10 x Yerba mate (bolsón de 10 paquetes de 1 kg)... total $ 350.000,00" y descontó 10 bolsones (el cliente pedía 1) |
+| `correr mi_negocio.mate --ia-simulada` de nuevo | arranca con "Compras: hay que reponer Azúcar (quedan 0)"; "quiero 1 azucar": "De Azúcar ahora no hay stock"; "quiero 2 yerbas": anotado; "ingreso 30 azucar": "Entraron 30 de Azúcar: ahora hay 30". La memoria quedó con yerba 25, azúcar 30 y la lista de Compras vacía: el stock se acuerda |
+| `ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada` | 9 de 10. Falla "quiero 20 azucar" porque con 30 en stock ya no baja del mínimo y no viaja `Reponer`; el informe muestra la conversación y explica que es por lo que Depósito recuerda, y que se arregla con el caso o con `--olvidar`. La memoria no cambió (mismo md5 antes y después) |
+| `ensayar` sobre un equipo recién creado (`nuevo equipo recien`) | 10 de 10 |
+| Buzón: copié `buzon_ventas.mate`, `buzon_deposito.mate` y `buzon_mensajes.mate` a una subcarpeta; `correr buzon_ventas.mate` | "Buzón: dejé 1 mensaje para buzon_deposito.mate; le llega la próxima vez que corra." |
+| `correr buzon_deposito.mate` | "Buzón: atendí 1 mensaje (1 de buzon_ventas.mate)." y dejó 1 para Ventas |
+| `correr buzon_ventas.mate` | "Pedido A-17: reservado. Quedan 8." y "Buzón: atendí 1 mensaje" |
+| Los dos de nuevo | no mandan ni atienden nada: el mensaje llegó una sola vez |
+| `buzon buzon_deposito.mate` | "Esperan: ninguno. Por salir: ninguno. Rechazados: ninguno." |
+| `probar` en esa subcarpeta | 8 de 8 en 3 archivos |
+
+No repetí en este recorrido: el sobre que no cumple el contrato, los cortes con Ctrl+C ni las
+recetas de seguridad. Eso lo probaron R, P y el especialista en sus vueltas.
+
+**Seguridad** (especialista, dos pasadas; **aprueba**)
+- P158 (medio, **resuelto** en `e3d228e`): el buzón escribía a través de un acceso directo
+  plantado adentro (los provisorios `.tmp` del motivo y del aviso de falla), y podía pisar un
+  archivo de afuera. El especialista repitió las dos recetas: el archivo de afuera quedó
+  intacto. Lo mismo para un `candado` que es un enlace roto (en Linux). Las cuatro pruebas
+  nuevas fallan con el `mate.py` anterior y pasan con el nuevo. El commit toca `mate.py` (27
+  renglones), README (4) y agrega 106 renglones de prueba sin sacar ninguno.
+- P159 (bajo, nuevo): el archivo `candado` ahora se crea con permiso de ejecución (0755 en vez
+  de 0644) porque `os.open` no recibe el modo. Lo vi en mi recorrido (`-rwxr-xr-x`). Está
+  vacío y en Windows no cambia nada; se arregla pasando `0o666`.
+- P160 (bajo, ya estaba, **no verificado**, solo leído): en Windows con Python 3.10 y 3.11,
+  `es_carpeta_de_verdad()` no reconoce una "junction". Si `<programa>.buzon\rechazados` lo
+  fuera, los sobres rechazados se crearían en otra carpeta (no pisa nada). La oración nueva
+  del README sobre accesos directos queda un poco más amplia que lo probado.
+- P161 (bajos, ya estaban, sin tocar ni volver a reproducir): (1) se entrega cualquier sobre
+  aunque el programa no haya pedido buzón ni conozca al remitente — **hay que resolverlo antes
+  de empezar B**; (2) caracteres de control en `tipo` y `motivo` salen crudos en la terminal y
+  en el `.motivo.txt` (va con P154); (3) nombres reservados de Windows en el id de un sobre y
+  en `nuevo equipo`; (4) `rechazados` no se limpia y el aviso de falla copia el mensaje entero;
+  (5) falta decir en el README que `correr --ia-simulada` sí escribe buzones de verdad (P155).
+- Una diferencia que no pude aclarar: el especialista informa "1082 passed" para la batería
+  completa y a mí me da 1100 sobre el mismo commit. No dice sobre qué carpetas corrió.
+
+**Pendientes, por gravedad**
+
+Altos: ninguno.
+
+Medios (uno, y frena la 0.7):
+- **P102**, cambio 1: "quiero 10 paquetes de yerba" anota 10 bolsones de 10 paquetes y
+  descuenta stock, sin forma de anular; "quiero 6 botellas de aceite" anota 6 cajas de 12.
+  Arreglo propuesto en la vuelta 3: de la presentación aceptar solo la unidad de venta, o no
+  anotar ante la duda. Necesita vuelta 4 con R y P, y las frases como prueba en el ejemplo 13
+  y en el equipo que crea `nuevo equipo`. Un equipo ya creado es una copia fija: después del
+  arreglo hay que crearlo de nuevo.
+
+Bajos que conviene mirar primero:
+- P161 (1): cualquier sobre se entrega; antes de B.
+- P103, P104 y P105: frases que se anotan como venta sin serlo ("compró 10 yerbas", "5 yerbas
+  para retirar", "llevo 10 yerbas al local"). Van con P102, porque también descuentan stock.
+- P154 y P161 (2): caracteres de control de un sobre escrito a mano llegan a la pantalla.
+- P152 y P156: con Ctrl+C se pierde sin aviso lo que estaba en la cola para otro agente del
+  mismo programa; con varias ventanas del mismo programa se puede perder un envío.
+- P153 y P136: el `.gitignore` tapa una memoria olvidada en `mate/ejemplos`, que rompe una prueba.
+- P133: `VERSION`, `ayuda`, el curso y el README de la raíz no cuentan todavía la 0.7 (queda
+  para el cierre de verdad).
+
+Los demás bajos abiertos (ninguno traba):
+- Cambio 1: P106 a P111, P80 de fondo, P85, P86, P87, P88, P91, P92, P94.
+- Cambio 2: P115, P120, P125, P127, P128 a P132.
+- Cambio 3: P137, P140, P142 y P147 a medias; P148, P150, P151, P155, P157.
+- Seguridad: P159, P160 y el resto de P161.
+- De todos: P11 y P149 (Windows y una IA de verdad).
+- Sin registro: el diseño del buzón y su revisión, que el alcance pedía antes de programar.
+
+**Lo que no se pudo probar**
+- **Windows de verdad**: nada de la 0.7 se corrió ahí. En particular el candado
+  (`msvcrt.locking`), el paso a `rechazados`, los comandos con `py`, Ctrl+C (esas pruebas se
+  saltean en Windows) y P160.
+- **Ollama y Claude de verdad**: todo fue con `--ia-simulada`. No se sabe cómo contesta una IA
+  real a lo que Ventas le deriva, ni cuánto gasta.
+- `pytest` completo en Python 3.10, 3.11, 3.12 y 3.14: solo se corrió en 3.13 (P corrió
+  `probar` y sus casos en las otras).
+
+**Para el dueño, en Windows** (parado en la carpeta que tiene adentro a `mate`; para los
+pasos del equipo conviene una carpeta de trabajo aparte y poner la ruta completa de `mate.py`)
+
+```
+py mate\mate.py ayuda
+py -m pytest mate\pruebas mate\modelo -q -p no:cacheprovider
+py mate\mate.py probar mate\ejemplos
+py mate\mate.py probar mate\curso
+py mate\mate.py nuevo equipo mi_negocio
+py mate\mate.py verificar mi_negocio.mate
+py mate\mate.py probar mi_negocio.mate
+py mate\mate.py correr mi_negocio.mate --ia-simulada --traza
+py mate\mate.py correr mi_negocio.mate --ia-simulada
+py mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada
+py mate\mate.py correr buzon_ventas.mate
+py mate\mate.py correr buzon_deposito.mate
+py mate\mate.py correr buzon_ventas.mate
+py mate\mate.py buzon buzon_deposito.mate
+```
+
+En la charla: `quiero 20 azucar`, `quiero 3 yerbas`, `quiero 100 harina`, `chau`; y en la
+segunda corrida `ingreso 30 azucar`. Para ver P102: `quiero 10 paquetes de yerba`. Para el
+buzón, copiar antes `buzon_ventas.mate`, `buzon_deposito.mate` y `buzon_mensajes.mate` de
+`mate\ejemplos` a la carpeta de trabajo. `ayuda` va a decir "Mate 0.6": es lo esperado hoy.
+
+**Lo que sigue**: la vuelta 4 del cambio 1 (P102, con P103 a P105 si entran); después, el
+cierre de verdad: `VERSION` a 0.7, "Qué cambió en la 0.7", "Límites de la versión 0.7", la
+prueba del número de versión y P133. Recién ahí, y con P161 (1) resuelto, B.
