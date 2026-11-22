@@ -2019,11 +2019,12 @@ GRADUALES = sorted(p.name for p in (RAIZ / "ejemplos").glob("[0-9][0-9]_*.mate")
 
 def test_estan_los_seis_ejemplos_graduales():  # (y el 7.º, la IA; el 8.º, aprende; el 9.º, Python...)
     assert [n[:2] for n in GRADUALES] == ["01", "02", "03", "04", "05", "06", "07", "08", "09",
-                                          "10", "11"]
-    assert GRADUALES[0] == "01_hola.mate" and GRADUALES[-3] == "09_con_python.mate"
-    assert GRADUALES[-4] == "08_agente_que_aprende.mate"
-    assert GRADUALES[-2] == "10_mostrador_mayorista.mate"
-    assert GRADUALES[-1] == "11_mostrador_con_frenos.mate"
+                                          "10", "11", "12"]
+    assert GRADUALES[0] == "01_hola.mate" and GRADUALES[-4] == "09_con_python.mate"
+    assert GRADUALES[-5] == "08_agente_que_aprende.mate"
+    assert GRADUALES[-3] == "10_mostrador_mayorista.mate"
+    assert GRADUALES[-2] == "11_mostrador_con_frenos.mate"
+    assert GRADUALES[-1] == "12_mostrador_con_reglas.mate"
     for nombre in GRADUALES:  # están comentados: al menos un comentario cada cuatro renglones
         renglones = [r.strip() for r in (RAIZ / "ejemplos" / nombre).read_text(
             encoding="utf-8").splitlines() if r.strip()]
@@ -10235,3 +10236,165 @@ def test_contrato_distingue_pasos_con_falso_y_cero():
         mostrar(a.clase, b.clase)
     """)
     assert salida == ["logico numero"]
+
+
+# ───────── 0.6: el mostrador con reglas en el programa, y los comandos con 'py' ─────────
+
+def test_el_ejemplo_12_resuelve_los_pedidos_sin_consultar_a_la_ia(tmp_path, capsys, monkeypatch):
+    import io
+    import shutil
+    nombre = "12_mostrador_con_reglas.mate"
+    ruta = str(shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre))
+    shutil.copy(RAIZ / "ejemplos" / "precios.csv", tmp_path)
+    assert mate.main(["verificar", ruta]) == 0
+    assert mate.main(["probar", ruta]) == 0
+    salida = capsys.readouterr().out
+    assert "14 de 14 pruebas pasaron" in salida
+    assert "✓ los dos pedidos que una IA contestó mal: total exacto, envío bien y sin IA" in salida
+    assert sorted(p.name for p in tmp_path.iterdir()) == [nombre, "precios.csv"]  # probar no deja nada
+    # corrido de verdad, con el teclado: el pedido lo contesta el programa aunque la IA
+    # simulada "diga" otra cosa, y solo la consulta que no es un pedido llega a la IA
+    (tmp_path / "ia.txt").write_text("* => El total es $ 10,80 y no hacemos envíos.\n",
+                                     encoding="utf-8")
+    monkeypatch.setattr("sys.stdin", io.StringIO(
+        "quiero 12 azucar con envio\nme mandas 5 yerbas?\nhola\nchau\n"))
+    assert mate.main(["correr", ruta, f"--ia-simulada={tmp_path / 'ia.txt'}",
+                      f"--traza={tmp_path / 'traza.txt'}"]) == 0
+    salida = capsys.readouterr().out
+    assert "total $ 117.606,00. Con envío: sí, va con envío." in salida
+    assert "total $ 175.000,00. Sin envío: hacemos envíos desde 10 unidades y pedís 5." in salida
+    assert "En esta charla atendí 3 consulta(s)." in salida
+    # el total inventado no le llega al cliente: lo para el freno de precios
+    assert "10,80" not in salida
+    assert "Eso te lo confirma una persona. Ya te paso con alguien." in salida
+    traza = (tmp_path / "traza.txt").read_text(encoding="utf-8-sig")
+    assert traza.count("Consulta") >= 1 and "12 azucar" not in traza and "5 yerbas" not in traza
+
+
+def test_orden_segun_como_se_llamo_a_mate():
+    # la orden instalada gana siempre; fuera de Windows no cambia nada
+    assert mate.orden_segun("mate", "py", True) == "mate"
+    assert mate.orden_segun(" MATE ", "", False) == "mate"
+    for avisada in ("", "py", "python", "cualquier cosa"):
+        for lanzador in ("", "py"):
+            assert mate.orden_segun(avisada, lanzador, False) == "python3 mate/mate.py"
+    # en Windows: 'py' si se sabe que lo lanzó py.exe; si no se sabe, como hasta ahora
+    assert mate.orden_segun("", "py", True) == "py mate\\mate.py"
+    assert mate.orden_segun("", "", True) == "python mate\\mate.py"
+    assert mate.orden_segun(None, "", True) == "python mate\\mate.py"
+    assert mate.orden_segun("cualquier cosa", "", True) == "python mate\\mate.py"
+    # ...y se puede fijar a mano con MATE_ORDEN
+    assert mate.orden_segun("py", "", True) == "py mate\\mate.py"
+    assert mate.orden_segun("Python", "py", True) == "python mate\\mate.py"
+
+
+def test_lanzador_entre_los_programas_que_estan_andando():
+    powershell, py, python, venv = 100, 200, 300, 400
+    # py mate\mate.py: powershell -> py.exe -> python.exe (este)
+    assert mate.lanzador_entre({powershell: (1, "powershell.exe"), py: (powershell, "py.exe"),
+                                python: (py, "python.exe")}, python) == "py"
+    # con un entorno virtual hay un python.exe en el medio
+    assert mate.lanzador_entre({py: (powershell, "py.exe"), venv: (py, "python.exe"),
+                                python: (venv, "python3.12.exe")}, python) == "py"
+    # python mate\mate.py: no hay py.exe
+    assert mate.lanzador_entre({powershell: (1, "powershell.exe"),
+                                python: (powershell, "python.exe")}, python) == ""
+    # un py.exe más arriba, del otro lado de otro programa, no cuenta
+    assert mate.lanzador_entre({py: (1, "py.exe"), powershell: (py, "powershell.exe"),
+                                python: (powershell, "python.exe")}, python) == ""
+    # un programa que se llama parecido no es el lanzador
+    assert mate.lanzador_entre({py: (1, "happy.exe"), python: (py, "python.exe")}, python) == ""
+    # listas incompletas o con vueltas: no se sabe, y no se cuelga
+    assert mate.lanzador_entre({}, python) == ""
+    assert mate.lanzador_entre({python: (py, "python.exe")}, python) == ""
+    assert mate.lanzador_entre({python: (python, "python.exe")}, python) == ""
+    assert mate.lanzador_entre({python: (venv, "python.exe"), venv: (python, "python.exe")},
+                               python) == ""
+
+
+def test_fuera_de_windows_no_se_averigua_quien_lanzo_a_mate(monkeypatch):
+    def no_tiene_que_llamarse():
+        raise AssertionError("fuera de Windows no se mira la lista de programas")
+
+    monkeypatch.setattr(mate, "_lanzador_en_windows", no_tiene_que_llamarse)
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", None)
+    monkeypatch.delenv("MATE_ORDEN", raising=False)
+    if mate.os.name != "nt":
+        assert mate.quien_me_lanzo() == ""
+        assert mate.como_se_llama() == "python3 mate/mate.py"
+    # en Windows, si averiguarlo falla por lo que sea, queda como hasta ahora
+    monkeypatch.setattr(mate.os, "name", "nt")
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", None)
+    assert mate.quien_me_lanzo() == ""
+    assert mate.como_se_llama() == "python mate\\mate.py"
+    # con la orden instalada ni se averigua
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", None)
+    monkeypatch.setenv("MATE_ORDEN", "mate")
+    assert mate.como_se_llama() == "mate" and mate._QUIEN_ME_LANZO is None
+
+
+def test_lanzado_con_py_los_comandos_sugeridos_dicen_py(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(RAIZ.parent)
+    monkeypatch.delenv("MATE_ORDEN", raising=False)
+    de_siempre = {"guia": mate.texto_de_guia(), "ayuda": mate.texto_de_ayuda()}
+    monkeypatch.setattr(mate.os, "name", "nt")  # (como en la computadora del dueño)
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
+    assert mate.como_se_llama() == "py mate\\mate.py"
+    # un error que sugiere un comando
+    assert mate.main(["curso", "99"]) == 2
+    assert "Para ver la lista:  py mate\\mate.py curso" in capsys.readouterr().err
+    # la lista del curso y una clase, parado al lado de la carpeta mate
+    assert mate.main(["curso"]) == 0
+    salida = capsys.readouterr().out
+    assert "\n  py mate\\mate.py curso 1\n" in salida and "\n  py mate\\mate.py correr " in salida
+    assert "python" not in salida
+    assert mate.main(["curso", "1"]) == 0
+    salida = capsys.readouterr().out
+    assert "    py mate\\mate.py correr mate\\curso\\clase_01_hola.mate\n" in salida
+    assert "python mate" not in salida
+    # la guía y el ejemplo de la ayuda
+    guia = mate.texto_de_guia()
+    assert "  py mate\\mate.py correr archivo.mate" in guia and "python mate\\mate.py" not in guia
+    assert "  py mate\\mate.py correr mate\\ejemplos\\hola.mate" in mate.texto_de_ayuda()
+    # desde otra carpeta, la clase lleva 'py' y la ruta completa de mate.py
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["curso", "1"]) == 0
+    salida = capsys.readouterr().out
+    assert f"    py {RAIZ / 'mate.py'} correr {CURSO / 'clase_01_hola.mate'}\n" in salida
+    assert "python " not in salida
+    # MATE_ORDEN=py lo fija a mano, aunque no se sepa quién lo lanzó
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "")
+    assert mate.como_se_llama() == "python mate\\mate.py"
+    monkeypatch.setenv("MATE_ORDEN", "py")
+    assert mate.como_se_llama() == "py mate\\mate.py"
+    # con la orden instalada sigue siendo 'mate'
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
+    monkeypatch.setenv("MATE_ORDEN", "mate")
+    assert mate.como_se_llama() == "mate"
+    # y si no se sabe, los textos quedan como estaban
+    monkeypatch.undo()
+    monkeypatch.delenv("MATE_ORDEN", raising=False)
+    assert mate.texto_de_guia() == de_siempre["guia"]
+    assert mate.texto_de_ayuda() == de_siempre["ayuda"]
+
+
+def test_los_textos_fijos_aclaran_lo_de_py_y_que_va_en_cada_lugar():
+    manual = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "**Si en tu computadora Python se llama con `py`**" in manual
+    assert "escribí `py` en lugar de `python` en todos los comandos" in manual
+    assert "### Qué va en una lección, qué en un freno y qué en el programa" in manual
+    for frase in ["**En el programa**", "**En un freno**", "**En una lección**",
+                  "12_mostrador_con_reglas.mate"]:
+        assert frase in manual.split("### Qué va en una lección")[1], frase
+    curso = (CURSO / "README.md").read_text(encoding="utf-8")
+    assert '**Si dice que `python` "no se reconoce", probá con `py`**' in curso
+    assert "12_mostrador_con_reglas.mate" in (CURSO / "clase_12_mostrador.md").read_text(
+        encoding="utf-8")
+    pagina = (RAIZ.parent / "docs" / "index.html").read_text(encoding="utf-8")
+    assert 'probá con <code>py</code></strong>' in pagina
+    assert "py mate\\mate.py correr archivo.mate" in mate.texto_de_guia()
+    ayuda = mate.texto_de_ayuda()
+    assert "va py en lugar de python" in ayuda and "van EN EL PROGRAMA" in ayuda
+    assert max(len(r) for r in ayuda.splitlines()) <= 100
+    assert "**121. " in (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+

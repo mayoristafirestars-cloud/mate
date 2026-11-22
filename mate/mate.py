@@ -4065,14 +4065,109 @@ def para_pegar(a):
     return f'"{a}"' if not a or re.search(r"\s", a) else a
 
 
-def como_se_llama():
-    """Cómo se escribe la orden para correr Mate en esta computadora. Si Mate se instaló
-    con instalar.bat, la orden corta 'mate' anda desde cualquier carpeta: el lanzador que
-    deja el instalador lo avisa con la variable MATE_ORDEN, y los comandos que Mate
-    sugiere se escriben con esa orden."""
-    if os.environ.get("MATE_ORDEN", "").strip().lower() == "mate":
+_QUIEN_ME_LANZO = None  # (se averigua una sola vez, la primera que hace falta)
+
+
+def quien_me_lanzo():
+    """En Windows, 'py' si este Python lo arrancó el lanzador py.exe (la persona escribió
+    'py mate\\mate.py ...'); si no, o si no se puede saber, ''. Se fija en el nombre del
+    programa que arrancó a este (y, si ese también es un python.exe, como pasa con un
+    entorno virtual, en el de más arriba). Solo mira nombres de programas: no lee ni guarda
+    nada más, y cualquier tropiezo se toma como 'no se sabe'."""
+    global _QUIEN_ME_LANZO
+    if _QUIEN_ME_LANZO is None:
+        try:
+            _QUIEN_ME_LANZO = _lanzador_en_windows() if os.name == "nt" else ""
+        except Exception:  # (una función de Windows que no está, un permiso...)
+            _QUIEN_ME_LANZO = ""
+    return _QUIEN_ME_LANZO
+
+
+def _lanzador_en_windows():
+    import ctypes
+    from ctypes import wintypes
+
+    class Proceso(ctypes.Structure):  # (PROCESSENTRY32W, de la API de Windows)
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260)]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    for funcion in (kernel.Process32FirstW, kernel.Process32NextW):
+        funcion.restype = wintypes.BOOL
+        funcion.argtypes = [wintypes.HANDLE, ctypes.POINTER(Proceso)]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    foto = kernel.CreateToolhelp32Snapshot(2, 0)  # (2: la lista de programas andando)
+    if foto in (None, wintypes.HANDLE(-1).value):
+        return ""
+    procesos = {}  # número de proceso -> (el del que lo arrancó, nombre del programa)
+    try:
+        uno = Proceso()
+        uno.dwSize = ctypes.sizeof(Proceso)
+        sigue = kernel.Process32FirstW(foto, ctypes.byref(uno))
+        while sigue:
+            procesos[uno.th32ProcessID] = (uno.th32ParentProcessID, uno.szExeFile.lower())
+            sigue = kernel.Process32NextW(foto, ctypes.byref(uno))
+    finally:
+        kernel.CloseHandle(foto)
+    return lanzador_entre(procesos, os.getpid())
+
+
+def lanzador_entre(procesos, yo):
+    """De una lista de programas andando {número: (número del que lo arrancó, nombre)},
+    'py' si al programa 'yo' lo arrancó py.exe, pasando por arriba de los python.exe
+    intermedios (los pone un entorno virtual); si no, ''."""
+    vistos = {yo}
+    padre = procesos.get(yo, (None, ""))[0]
+    while padre in procesos and padre not in vistos and len(vistos) <= 4:
+        vistos.add(padre)
+        padre, nombre = procesos[padre]
+        if nombre in ("py.exe", "pyw.exe"):
+            return "py"
+        if not re.fullmatch(r"python[\d.]*w?(_d)?\.exe", nombre):
+            break
+    return ""
+
+
+def orden_segun(avisada, lanzador, en_windows):
+    """La orden para correr Mate, según lo que se sabe de cómo lo llamó la persona:
+    'avisada' es la variable MATE_ORDEN ('mate' la pone el lanzador de instalar.bat; 'py' o
+    'python' la puede poner a mano quien quiera fijar la forma), 'lanzador' es lo que da
+    quien_me_lanzo(). Si no se sabe nada, la de siempre."""
+    avisada = (avisada or "").strip().lower()
+    if avisada == "mate":
         return "mate"
-    return "python mate\\mate.py" if os.name == "nt" else "python3 mate/mate.py"
+    if not en_windows:
+        return "python3 mate/mate.py"
+    if avisada in ("py", "python"):
+        return f"{avisada} mate\\mate.py"
+    return "py mate\\mate.py" if lanzador == "py" else "python mate\\mate.py"
+
+
+def como_se_llama():
+    """Cómo se escribe la orden para correr Mate en esta computadora, con la forma que usó
+    la persona. Si Mate se instaló con instalar.bat, la orden corta 'mate' anda desde
+    cualquier carpeta: el lanzador que deja el instalador lo avisa con la variable
+    MATE_ORDEN, y los comandos que Mate sugiere se escriben con esa orden. En Windows, si
+    lo llamaron con 'py mate\\mate.py' (hay computadoras donde 'python' no existe), los
+    comandos sugeridos dicen 'py'. Si no se puede saber, 'python mate\\mate.py'."""
+    avisada = os.environ.get("MATE_ORDEN", "")
+    en_windows = os.name == "nt"
+    lanzador = quien_me_lanzo() if en_windows and avisada.strip().lower() not in (
+        "mate", "py", "python") else ""
+    return orden_segun(avisada, lanzador, en_windows)
+
+
+def con_la_orden_de_esta_computadora(texto):
+    """Un texto fijo que dice 'python mate\\mate.py ...' (la guía, una clase del curso), con
+    'py' en lugar de 'python' cuando Mate sabe que la persona lo llama así. Si no, igual."""
+    if como_se_llama() == "py mate\\mate.py":
+        return texto.replace("python mate\\mate.py", "py mate\\mate.py")
+    return texto
 
 
 def incluidas():
@@ -7744,12 +7839,15 @@ CÓMO SE CORRE (Windows)
   computadora, sin datos de la persona; con --para-mejorar arma un texto para pedir mejoras)
   En PowerShell el comando se escribe una sola vez por renglón, y los comandos no van
   adentro del archivo .mate: si se pegan ahí, Mate lo avisa.
+  Hay computadoras donde Python se llama con py: ahí va py en lugar de python
+  (py mate\mate.py correr archivo.mate). Con la orden instalada, va mate (mate correr ...).
 """
 
 
 def texto_de_guia():
-    return GUIA.format(version=VERSION, funciones=lista_de_funciones(), tres=TRES_COMILLAS,
-                       max_lecciones=MAX_LECCIONES)
+    return con_la_orden_de_esta_computadora(GUIA.format(
+        version=VERSION, funciones=lista_de_funciones(), tres=TRES_COMILLAS,
+        max_lecciones=MAX_LECCIONES))
 
 
 _EJ_AGENTE = """mensaje Sumar { a: numero, b: numero }
@@ -8268,9 +8366,10 @@ def clase_para_esta_carpeta(texto, carpeta):
         os.path.dirname(de_mate))
     if al_lado and orden != "mate" and os.path.basename(de_mate) == "mate" \
             and os.path.basename(os.path.abspath(carpeta)) == CARPETA_DEL_CURSO:
-        return texto
+        return con_la_orden_de_esta_computadora(texto)
     if orden != "mate":
-        orden = "python " + ruta_para_escribir(os.path.join(de_mate, "mate.py"))
+        orden = ("py " if orden.startswith("py ") else "python ") + ruta_para_escribir(
+            os.path.join(de_mate, "mate.py"))
 
     def ruta(m):
         partes = [p for p in m.group(1).split("\\") if p]
@@ -8345,7 +8444,8 @@ def orden_curso(args, avisar, carpeta=None, mostrar=print):
 
 def texto_de_ayuda():
     if os.name == "nt":
-        ejemplo = "python mate\\mate.py correr mate\\ejemplos\\hola.mate"
+        ejemplo = con_la_orden_de_esta_computadora(
+            "python mate\\mate.py correr mate\\ejemplos\\hola.mate")
     else:
         ejemplo = "python3 mate/mate.py correr mate/ejemplos/hola.mate"
     return "\n".join([
@@ -8379,6 +8479,11 @@ def texto_de_ayuda():
         "  propuestas archivo.mate aprobar 1     la aprueba (o: descartar 1)",
         '  proponer  archivo.mate Mostrador "qué estuvo mal"   Mate redacta la lección y la',
         "                           deja propuesta (con clave la redacta la IA, y se paga)",
+        "  Qué va en cada lugar: las cuentas y las reglas que tienen que dar siempre igual",
+        "  (un total, el stock, desde cuántas unidades hay envío) van EN EL PROGRAMA, que",
+        "  contesta sin consultar a la IA; lo que la IA no puede decir nunca, en un FRENO; el",
+        "  tono y las costumbres, en una LECCIÓN. El ejemplo 12_mostrador_con_reglas.mate lo",
+        "  muestra armado.",
         "",
         "Para trabajar con tus datos y charlar con el programa (son funciones: van adentro",
         "del programa, y cada una tiene su ayuda, por ejemplo 'ayuda leer_tabla'):",
@@ -8417,6 +8522,8 @@ def texto_de_ayuda():
         "",
         "Un ejemplo listo para copiar:",
         f"  {ejemplo}",
+        "(En Windows, si en tu computadora Python se llama con py, va py en lugar de python.",
+        " Mate te sugiere los comandos con la forma que usaste: py, python o la orden mate.)",
     ])
 
 

@@ -67,6 +67,12 @@ Lo que hay que saber del instalador:
   (carpetas con espacios, con paréntesis, usuarios con tildes), pero desde una computadora
   con Linux. Si hace algo raro, Mate anda igual sin instalar, con la orden larga de abajo.
 
+> **Si en tu computadora Python se llama con `py`** (escribís `python --version` y dice que
+> "no se reconoce", pero `py --version` contesta): en todos los comandos de este manual escribí
+> `py` donde dice `python`. Por ejemplo, `py mate\mate.py correr mate\ejemplos\01_hola.mate`.
+> Mate se da cuenta de cómo lo llamaste: los comandos que te sugiere en pantalla ya salen con
+> `py`, con `python` o con `mate`, listos para copiar.
+
 **Sin instalar** (y en Linux o Mac) se usa con la orden larga, parado en la carpeta que
 contiene a la carpeta `mate`. Todo este README está escrito con esa forma, que anda siempre:
 
@@ -192,8 +198,11 @@ que Python quedó bien instalado:
 python --version
 ```
 
-Tiene que contestar algo como `Python 3.12.4`. Si dice que `python` "no se reconoce", cerrá
-PowerShell, volvé a correr el instalador marcando la casilla del paso 1 y abrí PowerShell de nuevo.
+Tiene que contestar algo como `Python 3.12.4`. Si dice que `python` "no se reconoce", probá
+con `py --version`. Si `py` contesta, Python está bien instalado y en tu computadora se llama
+así: **escribí `py` en lugar de `python` en todos los comandos de acá abajo** (por ejemplo,
+`py mate\mate.py correr hola.mate`). Si no contesta ninguno de los dos, cerrá PowerShell,
+volvé a correr el instalador marcando la casilla del paso 1 y abrí PowerShell de nuevo.
 
 **3. Escribir el programa en el Bloc de notas.** En esa misma ventana escribí:
 
@@ -256,6 +265,7 @@ renglón, para leer y correr en orden:
 | `09_con_python.mate` | sumar lo que Mate no trae con funciones escritas en Python (usa `ayudas.py`, que está al lado) |
 | `10_mostrador_mayorista.mate` | un mostrador que lee tu lista de precios de Excel (usa `precios.csv`, que está al lado), charla por teclado y contesta con la IA (se prueba sin clave) |
 | `11_mostrador_con_frenos.mate` | un mostrador con frenos: Mate revisa cada respuesta de la IA (precios, palabras prohibidas, largo), le pone tope al gasto del día y propone lecciones (se prueba sin clave) |
+| `12_mostrador_con_reglas.mate` | un mostrador donde la plata y las reglas las resuelve el programa: si piden una cantidad de un producto, Mate hace la cuenta, mira el stock y aplica la regla del envío sin consultar a la IA; la IA queda para el resto, con frenos (se prueba sin clave; se explica en "Qué va en una lección, qué en un freno y qué en el programa") |
 
 ```
 python mate\mate.py correr mate\ejemplos\01_hola.mate
@@ -1189,6 +1199,9 @@ python mate\mate.py corregir mi_mostrador.mate Mostrador "Si piden menos de 10 u
 ```
 
 Va todo en un renglón: la orden, el programa, el nombre del agente y la lección entre comillas.
+(Ojo: una lección es un consejo para la IA, no una garantía. Una regla como esa del envío, si
+tiene que cumplirse siempre, va en el programa: mirá "Qué va en una lección, qué en un freno y
+qué en el programa", más abajo.)
 Queda guardada con su fecha, y desde la próxima corrida el agente la tiene en cuenta. La
 lección puede empezar con un guion (`"-10% a los jubilados"`): con `corregir`, lo que viene
 después del agente es la lección.
@@ -1656,6 +1669,61 @@ python mate\mate.py probar mate\ejemplos\11_mostrador_con_frenos.mate
   cuenta de consultas de verdad ya quedó guardada, pero los frenos que saltaron en esa
   corrida no llegan a la bitácora ni quedan como propuestas. Para terminar una charla, mejor
   `chau` o Ctrl+C.
+
+### Qué va en una lección, qué en un freno y qué en el programa
+
+Una IA redacta bien y hace mal las cuentas. A un cliente que pidió "12 fideos con envío", un
+modelo le contestó que el total era $ 10,80 y que no había envíos. Eso no se arregla con una
+lección ni con un freno: se arregla poniendo cada cosa en su lugar.
+
+| Qué | Dónde va | Por qué |
+|---|---|---|
+| Lo que tiene que dar **siempre igual**: un total, el stock, una regla del negocio ("envíos desde 10 unidades") | **En el programa**: una función que arma la respuesta sin consultar a la IA | Mate hace la cuenta con todos los centavos, siempre igual, y no gasta |
+| Lo que la IA **no puede decir nunca**: un precio que no está en la lista, un descuento, una respuesta larguísima | **En un freno** (`frenos { ... }`) | Mate revisa cada respuesta antes de que le llegue al cliente; si está mal, llega la `reserva` |
+| El **tono y las costumbres**: "tratá de usted", "ofrecé también el azúcar", "si preguntan el horario, es de 8 a 17" | **En una lección** (orden `corregir`) | Es un consejo: la IA casi siempre lo sigue, pero nadie lo controla. Si una equivocación ahí cuesta plata, no va acá |
+
+El ejemplo `12_mostrador_con_reglas.mate` está armado así. Cuando el cliente pide una
+**cantidad** de un **producto** de la planilla, contesta el programa:
+
+```
+Cliente: quiero 12 azucar con envio
+Mostrador: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00. Con envío: sí, va con envío.
+Cliente: me mandas 5 yerbas?
+Mostrador: 5 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 175.000,00. Sin envío: hacemos envíos desde 10 unidades y pedís 5. Podés retirarlo en el local o sumar 5 más.
+```
+
+Ninguna de las dos respuestas pasó por la IA: no hay consulta, no hay gasto y no hay forma de
+que el total salga mal. Lo demás ("hola, ¿qué tienen?") sí va a la IA, con sus frenos. Para
+probarlo sin clave:
+
+```
+python mate\mate.py correr mate\ejemplos\12_mostrador_con_reglas.mate --ia-simulada
+python mate\mate.py probar mate\ejemplos\12_mostrador_con_reglas.mate
+```
+
+Cómo entiende el programa lo que escribe el cliente, y qué hace cuando no está seguro:
+
+- **El producto** se reconoce por la primera palabra de su nombre en la planilla ("yerba",
+  "azúcar"), con o sin tilde, en singular o en plural, y siempre la palabra entera ("pan" no
+  es "panceta"). Si dos productos empiezan igual ("Harina 000" y "Harina 0000") vale el que
+  se nombró completo; si no se sabe cuál, el programa pregunta.
+- **La cantidad** es un número entero: `12`, `x12`, `1.000` (mil) o con letras hasta `doce`.
+  Un número con una medida atrás no es una cantidad ("1 kg de yerba" habla del paquete): ahí
+  el programa dice cómo se vende el producto y pregunta cuántos. Lo mismo con `2,5`, con `0` y
+  con plata ("$ 50.000").
+- **Si hay dos productos o dos cantidades en la misma frase** ("2 yerbas y 3 azúcar", "2 o 3
+  yerbas", un teléfono al lado del pedido), no elige por el cliente: pide que lo diga de a uno.
+- **El envío** se detecta por palabras como "envío", "mandás", "me lo alcanzan", "a
+  domicilio"; "sin envío" y "lo retiro" es que no. Si preguntan por el envío sin hacer un
+  pedido, el programa contesta la regla.
+- **Si no es nada de eso**, el programa no contesta y la consulta va a la IA. A la IA se le
+  pide que no haga cuentas ni hable de envíos, y el freno de precios no la deja nombrar un
+  importe que no esté en la lista (así tampoco puede inventar un total).
+
+Lo que no hace: no arma un pedido de varios productos ni suma totales entre consultas, y solo
+entiende lo que está escrito de esas formas (un "mandame una docena" va a la IA, que le pide
+al cliente el número). Para adaptarlo, cambiá `precios.csv` (con las columnas `producto`,
+`presentacion`, `precio` y `stock`) y el número de `unidades_para_envio`, arriba de todo.
 
 ## Referencia rápida
 

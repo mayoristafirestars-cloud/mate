@@ -900,6 +900,24 @@ Nota de lo decidido, falla por falla:
 Quedó afuera, y por qué: **publicar la página y decidir qué reparte el enlace** (el proyecto tiene otras carpetas que no son de Mate: lo decide el dueño); **evitar la pregunta "¿Desea terminar el trabajo por lotes?"** (es de Windows con cualquier `.bat`; se avisa y se recomienda terminar con `chau`); **que el archivo de respuestas simuladas compare palabras enteras** (cambiaría ensayos que hoy andan: se documentó); **que el freno vea un segundo precio lejos de "sale"** (frenaría teléfonos y cantidades). **Sigue sin probarse en una Windows de verdad**: el instalador, `mate.bat`, la pregunta de Ctrl+C y `--guardar` abierto con el Bloc de notas.
 *Mirada: el dueño que paga la cuenta y el que llega solo · Esfuerzo: grande · Estado: hecha*
 
+### Octava parte: lo que pasó al usarlo en el negocio (versión 0.6)
+
+El dueño puso el mostrador a atender con un modelo local, en una Windows donde Python se llama
+con `py`. Pasaron dos cosas: la IA dijo que 12 fideos salían $ 10,80 y negó un envío que
+correspondía, y los comandos que Mate sugería empezaban con `python`, que en esa máquina no
+existe. No se agregó ninguna palabra ni ninguna función incluida.
+
+**121. La plata y las reglas, en el programa; y los comandos sugeridos, con `py`**
+Que un total o una regla del negocio no dependan de que la IA acierte, y que un comando copiado de la pantalla ande en la computadora donde se lo copió.
+Nota de lo decidido:
+- **Ejemplo `12_mostrador_con_reglas.mate`.** Cuando el cliente pide una cantidad de un producto de la planilla, la respuesta la arma el programa (total, stock, regla del envío) y la IA no se consulta. Lo demás va a la IA con frenos. Es todo Mate común: no hizo falta tocar el intérprete para esto.
+- **Ante la duda, pregunta.** Dos productos en la misma frase, dos cantidades, un número con medida ("1 kg de yerba"), `2,5`, `0`, o dos productos que empiezan igual: el programa no adivina ni se lo pasa a la IA; dice cómo se vende y pide el dato. `1.000` es mil (para `numero()` sería 1,0: el ejemplo saca el punto de los miles a mano). El producto se busca por palabra entera, en singular o plural, para que con otra planilla "Pan" no sea "panceta".
+- **El manual dice qué va dónde**: lo que tiene que dar siempre igual, en el programa; lo que la IA no puede decir nunca, en un freno; el tono y las costumbres, en una lección. Está en el README ("Qué va en una lección, qué en un freno y qué en el programa"), resumido en `ayuda`, y la última clase del curso manda al ejemplo.
+- **Los comandos sugeridos usan la forma con que se llamó a Mate.** `como_se_llama()` ya distinguía la orden instalada (`MATE_ORDEN=mate`, que pone el lanzador). Ahora, en Windows, mira qué programa arrancó a este Python: si fue el lanzador `py.exe`, sugiere `py mate\mate.py ...`, y también reescribe así la guía, el ejemplo de `ayuda` y las clases que muestra `curso 3`. Si no se puede saber, queda `python mate\mate.py`, como antes. `MATE_ORDEN=py` (o `python`) lo fija a mano.
+- **Los textos fijos** (README, README del curso, la página, `instalar.bat quitar`, la guía) llevan una aclaración corta: si `python` no se reconoce, va `py`.
+Quedó afuera, y por qué: **un pedido de varios productos en una frase** (decidir qué número es de cuál se presta a error justo donde hay plata: se pide de a uno); **cantidades con letras más allá de doce y "una docena"** (van a la IA, que pide el número); **reconocer `py` por otra vía que el programa que lo arrancó** (el lanzador no deja ninguna marca; se eligió no adivinar por lo que haya instalado). **No se probó en una Windows de verdad**: la parte que mira qué programa arrancó a Python se probó con listas de programas armadas a mano.
+*Mirada: el dueño que atiende clientes con un modelo local · Esfuerzo: mediano · Estado: hecha*
+
 ## Lo que se descartó
 
 Para que quede constancia, estas ideas se discutieron y no entraron: funciones sin nombre con

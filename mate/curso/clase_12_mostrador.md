@@ -506,6 +506,10 @@ Terminaste el curso. Para seguir:
 - `python mate\mate.py ayuda` muestra todas las órdenes, y `python mate\mate.py ayuda si`
   (o cualquier otra palabra) explica esa palabra con un ejemplo.
 - En `mate\ejemplos` hay programas más largos, comentados renglón por renglón.
+- El que sigue a este es `mate\ejemplos\12_mostrador_con_reglas.mate`: el mismo mostrador,
+  pero cuando el cliente pide una cantidad ("quiero 12 azucar con envio") el total, el stock
+  y la regla del envío los resuelve el programa, sin consultar a la IA. Es lo que conviene
+  cuando hay plata de por medio: una IA hace mal las cuentas.
 - `mate\README.md` tiene todo Mate, tema por tema.
 - `python mate\mate.py guia` imprime una página con todo el lenguaje para pegarle a un
   asistente de IA (Claude, por ejemplo) antes de pedirle que te escriba un programa.
