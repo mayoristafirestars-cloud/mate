@@ -36,6 +36,7 @@ import operator
 import os
 import re
 import secrets
+import stat
 import time
 import types
 import unicodedata
@@ -3813,10 +3814,31 @@ def abrir_provisorio(provisorio, modo, **como):
     raise FileExistsError(f"no pude crear {provisorio}")
 
 
+def nombre_provisorio(ruta):
+    """El nombre del provisorio de ese archivo: 'memoria.json' -> 'memoria.json.123-ab12cd34.tmp',
+    y el de un sobre del buzón 'id.json' -> 'id.123-ab12cd34.json.tmp' (sigue terminando en
+    '.json.tmp', que es lo que el buzón reconoce como provisorio y limpia si quedó viejo).
+    Lleva el número del proceso y unas letras al azar: dos ventanas que escriben el mismo
+    archivo a la vez no comparten provisorio, así que ninguna le borra el suyo a la otra."""
+    # Hasta la 0.7 el provisorio se llamaba siempre igual (el archivo más ".tmp"). Si quedó
+    # uno de esos (de un corte, o un acceso directo que alguien dejó ahí), se saca: de un
+    # acceso directo se saca el acceso, no el archivo al que apunta.
+    try:
+        if os.path.lexists(ruta + ".tmp"):
+            os.remove(ruta + ".tmp")
+    except OSError:
+        pass
+    marca = f"{os.getpid()}-{secrets.token_hex(4)}"
+    if ruta.lower().endswith(".json") and os.path.basename(
+            os.path.dirname(ruta)).lower().endswith(".buzon"):
+        return f"{ruta[:-len('.json')]}.{marca}.json.tmp"
+    return f"{ruta}.{marca}.tmp"
+
+
 def escribir_entero(ruta, texto):
     """Escribe el archivo de una sola vez: primero en uno provisorio al lado y recién
     después lo pone en su lugar. Así nunca queda a medio escribir."""
-    provisorio = ruta + ".tmp"
+    provisorio = nombre_provisorio(ruta)
     try:
         # con la marca del principio, para que el Bloc de notas muestre bien las tildes
         with abrir_provisorio(provisorio, "x", encoding="utf-8-sig",
@@ -4132,16 +4154,43 @@ def revisar_sobre(datos):
     return datos
 
 
+def abrir_sin_seguir(ruta):
+    """Abre para leer un archivo del buzón UNA sola vez y sin seguir accesos directos, y
+    controla sobre ese mismo archivo abierto (no sobre el nombre) que sea un archivo común.
+    Así no hay un momento entre mirarlo y leerlo en que alguien lo pueda cambiar por un
+    acceso directo a otro lado. Devuelve el archivo abierto ("rb"); OSError si no es un
+    archivo común o no se puede abrir.
+    - Donde el sistema lo tiene (Linux, macOS), O_NOFOLLOW hace que abrir un acceso directo
+      falle. En Windows no existe: ahí, con el archivo ya abierto, se mira que lo que hay
+      con ese nombre no sea un acceso directo (achica ese momento; no lo cierra del todo).
+    - O_NONBLOCK: una tubería con nombre de sobre no deja al programa esperando."""
+    fd = os.open(ruta, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0)
+                 | getattr(os, "O_CLOEXEC", 0))
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"{ruta} no es un archivo común")
+        if not hasattr(os, "O_NOFOLLOW") and os.path.islink(ruta):
+            raise OSError(f"{ruta} es un acceso directo")
+        f = os.fdopen(fd, "rb")
+        fd = None
+        return f
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def leer_sobre(ruta):
     """El sobre que hay en ese archivo del buzón, ya controlado. NoSeEntrega si no sirve;
-    OSError si en este momento no se puede abrir (se prueba de nuevo en otra corrida)."""
+    OSError si en este momento no se puede abrir, o si no es un archivo común (un acceso
+    directo, una carpeta): no se atiende ni se borra, y se prueba de nuevo en otra corrida."""
     def raro(_):
         raise ValueError
 
     def decimal(t):
         return float(t) if math.isfinite(float(t)) else raro(t)
 
-    with open(ruta, "rb") as f:
+    with abrir_sin_seguir(ruta) as f:
         crudo = f.read(MAX_SOBRE + 1)
     if len(crudo) > MAX_SOBRE:
         raise NoSeEntrega("pesa más de 2 MB")
@@ -4195,6 +4244,78 @@ def soltar_candado(f):
         pass
     finally:
         f.close()
+
+
+def tomar_candado_de_memoria(ruta, espera=0.0):
+    """El candado de la memoria de un programa (mi_negocio.memoria.candado, al lado del
+    programa). Lo tiene una sola corrida a la vez y el sistema lo suelta solo si el proceso
+    muere (es el mismo mecanismo que el candado del buzón). Devuelve el archivo abierto con
+    el candado tomado, o None si lo tiene otra corrida y no lo soltó en 'espera' segundos.
+    OSError si el archivo no se puede crear (una carpeta donde no se puede escribir).
+    El archivo se borra al soltar; por eso, después de tomarlo, se controla que el archivo
+    con candado sea el que está en la carpeta (otra corrida pudo borrarlo justo antes). En
+    Windows ese control no hace falta: ahí un archivo que alguien tiene abierto no se borra."""
+    limite = time.monotonic() + espera
+    fallas = 0
+    while True:
+        try:
+            f = tomar_candado(ruta)
+        except OSError:
+            # (en Windows, abrir un archivo que otra corrida está borrando da un error que
+            # se va solo)
+            fallas += 1
+            if fallas >= 5:
+                raise
+            time.sleep(0.02)
+            continue
+        if f is not None:
+            if os.name == "nt" or es_el_de_la_carpeta(f, ruta):
+                return f
+            soltar_candado(f)  # ese archivo ya no es el que está en la carpeta: de nuevo
+            fallas += 1
+            if fallas >= 50:
+                raise OSError(f"no pude tomar {ruta}")
+            continue
+        if time.monotonic() >= limite:
+            return None
+        time.sleep(0.02)
+
+
+def es_el_de_la_carpeta(f, ruta):
+    """¿Ese archivo abierto es el que hoy está en la carpeta con ese nombre?"""
+    try:
+        mio, puesto = os.fstat(f.fileno()), os.lstat(ruta)
+    except OSError:
+        return False
+    return (mio.st_dev, mio.st_ino) == (puesto.st_dev, puesto.st_ino)
+
+
+def soltar_candado_de_memoria(f, ruta):
+    """Suelta el candado de la memoria y saca su archivo, para no dejar nada de más al lado
+    del programa. (Si el proceso muere antes, el archivo queda y no molesta: sin candado.)"""
+    if os.name == "nt":  # en Windows no se borra un archivo abierto: primero se suelta
+        soltar_candado(f)
+        try:
+            os.remove(ruta)
+        except OSError:  # (ya lo abrió otra corrida: es de ella)
+            pass
+        return
+    try:
+        # Con el candado todavía tomado: nadie más lo tiene. (Si alguien borró el archivo a
+        # mano y otra corrida ya creó el suyo, ese no es de esta: no se toca.)
+        if es_el_de_la_carpeta(f, ruta):
+            os.remove(ruta)
+    except OSError:
+        pass
+    soltar_candado(f)
+
+
+def tiene_estado_recordado(programa):
+    """¿Algún agente del programa declara un 'estado recordado'?"""
+    if isinstance(programa, EstadoRecordado):
+        return True
+    return isinstance(programa, (list, tuple)) \
+        and any(tiene_estado_recordado(parte) for parte in programa)
 
 
 def cuantos_mensajes(n):
@@ -4302,6 +4423,7 @@ class Buzon:
             return (f"{carpeta} existe y no es una carpeta: ahí va el buzón de ese programa. "
                     "Borralo o cambiale el nombre")
         final = os.path.join(destino, sobre["id"] + ".json")
+        provisorio = None
         try:
             try:
                 crudo = json.dumps(sobre, ensure_ascii=False, indent=2,
@@ -4309,12 +4431,14 @@ class Buzon:
             except UnicodeError:  # una letra rota: va escrita con su número
                 crudo = json.dumps(sobre, indent=2, allow_nan=False).encode("ascii")
             os.makedirs(destino, exist_ok=True)
-            with abrir_provisorio(final + ".tmp", "xb") as f:
+            provisorio = nombre_provisorio(final)
+            with abrir_provisorio(provisorio, "xb") as f:
                 f.write(crudo)
-            os.replace(final + ".tmp", final)
+            os.replace(provisorio, final)
         except (OSError, ValueError, RecursionError):
             try:
-                os.remove(final + ".tmp")
+                if provisorio is not None:
+                    os.remove(provisorio)
             except OSError:
                 pass
             return (f"no pude escribir en {carpeta} (¿hay permiso para escribir en esa "
@@ -9996,8 +10120,8 @@ _ENCABEZADO_DEL_EQUIPO = """\
 # la luz), se pierde lo anotado en esa charla: el stock queda como estaba al abrirla. Si
 # atendés todo el día, conviene escribir chau y volver a entrar cada tanto.
 # Un pedido o un ingreso que esperaba el "si" no se guarda nunca: sin el "si", no existe.
-# Y no abras este programa en dos ventanas a la vez: la que cierra última pisa lo que
-# anotó la otra.
+# Y no abras este programa en dos ventanas a la vez: la segunda avisa que ya hay otra
+# abierta y no arranca (si las dos anotaran, la que cierra última pisaría a la otra).
 #
 # CÓMO SE USA, en PowerShell, parado en la carpeta donde está este archivo:
 #   Para comprobar que quedó todo bien (hacelo cada vez que cambies algo):
@@ -10079,7 +10203,8 @@ prueba "un pedido lo anota Ventas y lo descuenta Depósito, sin consultar a la I
     # Ventas no anota directo: repite el pedido, con la cuenta y los bultos, y pregunta.
     asegurar consultar_a_ventas("a", "quiero 3 azucar") == "Entendí: 3 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 29.401,50. Son 3 bolsas enteras. ¿Lo anoto? Contestá si o no."
     asegurar largo(mensajes_enviados("Reservar")) == 0
-    # Con el "si", recién ahí, se anota.
+    # Con el "si", recién ahí, se anota. (El "si" es otra consulta, con su propio nombre
+    # de charla; lo que lo une al pedido es que lo dice el MISMO cliente: el del teclado.)
     asegurar consultar_a_ventas("a2", "si") == "Anotado: 3 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 29.401,50."
     asegurar largo(mensajes_enviados("Reservar")) == 1
     # Quedan 3 menos: se ve preguntando por una más de las que hay.
@@ -10408,6 +10533,31 @@ prueba "nada se anota sin un 'si': Ventas repite el pedido, con los bultos, y es
     asegurar largo(mensajes_enviados("Reservar")) == 1 + largo(maneras)
     asegurar es_un_si("  Sí, dale ") y no es_un_si("si?") y no es_un_si("si pero no") y no es_un_si("gracias")
     asegurar es_un_no("No, gracias") y es_un_no("mejor no") y no es_un_no("no se") y no es_un_no("si")
+}
+
+prueba "el 'si' de un cliente no confirma el pedido de otro: cada uno tiene el suyo" {
+    abrir_el_negocio(lista_de_prueba())
+    sea hay = stock_minimo + 100000
+    # Ana pide. Antes de que conteste, Beto (otro cliente) dice "si": no tiene ningún
+    # pedido esperando, así que no se anota nada. El stock sigue igual.
+    asegurar empieza_con(consultar_a_ventas("ana-1", "quiero 2 yerbas", "ana"), "Entendí: 2 x Yerba mate")
+    asegurar consultar_a_ventas("beto-1", "si", "beto") == respuesta_sin_pedido()
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == hay
+    # El pedido de Ana sigue esperando SU "si": lo de Beto no lo borró ni lo anotó.
+    asegurar empieza_con(consultar_a_ventas("ana-2", "si", "ana"), "Anotado: 2 x Yerba mate")
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == hay - 2
+    # Con un pedido esperando de cada uno, cada "si" anota el propio y el "no" de uno no
+    # toca el del otro. El del teclado es un cliente más.
+    asegurar empieza_con(consultar_a_ventas("ana-3", "quiero 1 yerba", "ana"), "Entendí: 1 x Yerba mate")
+    asegurar empieza_con(consultar_a_ventas("beto-2", "quiero 3 yerbas", "beto"), "Entendí: 3 x Yerba mate")
+    asegurar consultar_a_ventas("t-1", "si") == respuesta_sin_pedido()
+    asegurar (preguntar DejarDeEsperar { cliente: "teclado" } a Ventas).aviso == ""
+    asegurar consultar_a_ventas("ana-4", "no", "ana") == "Listo: no anoté nada."
+    asegurar empieza_con(consultar_a_ventas("beto-3", "si", "beto"), "Anotado: 3 x Yerba mate")
+    asegurar largo(mensajes_enviados("Reservar")) == 2
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == hay - 5
 }
 
 prueba "un 'no' dicho de otra manera no se toma como sí: 'ok, dejá' no anota" {
@@ -13410,8 +13560,31 @@ def _main(argv, donde):
         guardadas.append(ruta)
 
     archivo_memoria = archivo_de(ruta, "memoria.json")
+    archivo_candado = archivo_de(ruta, "memoria.candado")
     # leida: lo que decía el archivo al abrirlo. buzon: el buzón entre programas (0.7).
-    aprendido = {"leida": None, "abierta": False, "buzon": None}
+    # candado: el de la memoria, si esta corrida lo tiene (ver tomar_candado_de_memoria).
+    aprendido = {"leida": None, "abierta": False, "buzon": None, "candado": None}
+
+    def con_candado(hacer, espera):
+        """Hace eso con el candado de la memoria tomado: nadie más lee y reescribe la
+        memoria de este programa mientras tanto. Si esta corrida ya lo tiene (un programa
+        con 'estado recordado' lo tiene toda la corrida), lo hace y listo. Devuelve False,
+        sin hacer nada, si lo tiene otra corrida y no lo soltó en 'espera' segundos."""
+        if aprendido["candado"] is not None:
+            hacer()
+            return True
+        try:
+            candado = tomar_candado_de_memoria(archivo_candado, espera)
+        except OSError:  # (una carpeta donde no se puede escribir: se sigue sin candado)
+            hacer()
+            return True
+        if candado is None:
+            return False
+        try:
+            hacer()
+        finally:
+            soltar_candado_de_memoria(candado, archivo_candado)
+        return True
 
     def cerrar_buzon(buzon, nueva):
         """Al terminar 'correr', si en esta corrida hubo buzón. La memoria es el punto de
@@ -13471,7 +13644,11 @@ def _main(argv, donde):
         nueva = interprete.memoria_actual()
         if buzon is not None and buzon.cambio():
             try:
-                cerrar_buzon(buzon, nueva)
+                # Leer la memoria, guardarla y repartir va de un tirón, con el candado de
+                # la memoria: dos corridas del mismo programa que terminan a la vez no se
+                # pisan. (Si la otra no lo suelta en un rato, se sigue como antes.)
+                if not con_candado(lambda: cerrar_buzon(buzon, nueva), 10):
+                    cerrar_buzon(buzon, nueva)
             finally:
                 buzon.soltar()
             for renglon in buzon.resumen():
@@ -13555,6 +13732,25 @@ def _main(argv, donde):
                 avisar(e.mensaje)
                 return 2
         if orden == "correr":
+            # Un programa con 'estado recordado' se corre de a una ventana por vez: al
+            # terminar, cada corrida guarda el estado entero de sus agentes, y con dos
+            # abiertas la última pisaría lo que anotó la otra (dos cajas venderían la misma
+            # última unidad). El candado se tiene toda la corrida y el sistema lo suelta
+            # solo si el proceso muere. 'probar', 'verificar' y 'ensayar' no lo piden.
+            if tiene_estado_recordado(programa):
+                try:
+                    aprendido["candado"] = tomar_candado_de_memoria(archivo_candado)
+                    ocupado = aprendido["candado"] is None
+                except OSError:  # (una carpeta donde no se puede escribir: sin candado)
+                    ocupado = False
+                if ocupado:
+                    nombre = os.path.basename(ruta)
+                    avisar(f"ya hay otra ventana abierta con {nombre}. Este programa "
+                           "recuerda cosas de una corrida a la otra ('estado recordado'), y "
+                           "con dos ventanas a la vez una pisaría lo que anotó la otra. "
+                           "Terminá la charla de la otra ventana (o cerrala) y corré esto de "
+                           "nuevo. Acá no se tocó nada: ni la memoria ni el buzón")
+                    return 2
             # Lo que aprendieron los agentes (0.4): solo 'correr' lee y escribe su memoria.
             try:
                 memoria, avisos = leer_memoria(archivo_memoria)
@@ -13609,13 +13805,33 @@ def _main(argv, donde):
             buzon.leido, avisos = leer_buzon_de_memoria(archivo_memoria)
             for aviso in avisos:
                 avisar(f"aviso: {aviso}")
+            def recuperar_lo_por_salir():
+                """Con el candado de la memoria tomado: se lee de nuevo lo que quedó por
+                salir (otra corrida pudo repartirlo recién), se reparte y se guarda la
+                memoria como está AHORA en el archivo, sin lo repartido: no la que esta
+                corrida leyó al arrancar."""
+                pendientes = leer_buzon_de_memoria(archivo_memoria)[0]["por_salir"]
+                if not pendientes:
+                    return
+                quedan = buzon.repartir(pendientes)
+                if len(quedan) == len(pendientes):
+                    return
+                try:
+                    ahora = leer_memoria(archivo_memoria)[0]
+                except ErrorMate:
+                    return  # (cambió y no se entiende: no se pisa; se avisa al terminar)
+                en_buzon = leer_buzon_de_memoria(archivo_memoria)[0]
+                guardar_memoria(
+                    archivo_memoria, os.path.basename(ruta), ahora,
+                    dict(en_buzon, por_salir=[
+                        p for p in en_buzon["por_salir"]
+                        if (p["carpeta"], p["sobre"]["id"]) not in buzon.repartidos]))
+
             if buzon.leido["por_salir"]:
-                quedan = buzon.repartir(buzon.leido["por_salir"])
-                sin_ellos = dict(buzon.leido, por_salir=quedan)
-                if len(quedan) != len(buzon.leido["por_salir"]) and not guardar_memoria(
-                        archivo_memoria, os.path.basename(ruta), aprendido["leida"] or {},
-                        sin_ellos):
-                    buzon.leido = sin_ellos
+                # (Si otra corrida de este programa tiene el candado, lo está repartiendo
+                # ella: acá no se toca. Lo que quede anotado sale al terminar.)
+                con_candado(recuperar_lo_por_salir, 2)
+                buzon.leido = leer_buzon_de_memoria(archivo_memoria)[0]
 
             def cambio_la_memoria():
                 """¿Otra ventana de este programa guardó un estado distinto del que leyó
@@ -13698,6 +13914,10 @@ def _main(argv, donde):
         avisar_pendientes(donde["interprete"], avisar)
         cerrar_conversacion()
         return 1
+    finally:
+        if aprendido["candado"] is not None:
+            soltar_candado_de_memoria(aprendido["candado"], archivo_candado)
+            aprendido["candado"] = None
 
     cerrar_conversacion()
     if orden == "probar":

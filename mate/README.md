@@ -766,9 +766,9 @@ renglones del cliente: con el primero Ventas contesta sola (repite el pedido y p
 "¿Lo anoto?"), y recién con el `si` le habla a Depósito:
 
 ```
-  ·  6. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-3", dicho: "quiero 20 azucar" }   (conversación 6)
+  ·  6. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-3", cliente: "teclado", dicho: "quiero 20 azucar" }   (conversación 6)
   ·  6. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-3", respuesta: "Entendí: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00. Son 20 bolsas enteras. ¿Lo anoto? Contestá si o no.", aviso: nada }
-  ·  7. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-4", dicho: "si" }   (conversación 7)
+  ·  7. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-4", cliente: "teclado", dicho: "si" }   (conversación 7)
   ·  8.    Ventas pregunta a Deposito: Reservar { charla: "consulta-4", producto: "Azúcar", cantidad: 20 }
   ·  9.       Deposito pregunta a Compras: Reponer { charla: "consulta-4", producto: "Azúcar", quedan: 5 }
   ·  9.       Compras responde a Deposito: Anotado { charla: "consulta-4", producto: "Azúcar" }
@@ -808,8 +808,13 @@ Lo que hay que saber:
   apaga la máquina o se corta la luz, **se pierde lo anotado en esa charla**: al cliente se le
   dijo `Anotado` y en la corrida siguiente el stock está como al abrir. El programa lo recuerda
   cada vez que arranca. Si atendés todo el día, conviene escribir `chau` y volver a entrar
-  cada tanto. Y no abras el mismo equipo en **dos ventanas** a la vez: la que cierra última
-  pisa lo que anotó la otra.
+  cada tanto.
+- **Una ventana por vez.** El mismo equipo no se abre en **dos ventanas** a la vez: la
+  segunda avisa `ya hay otra ventana abierta con mi_negocio.mate`, termina y no toca nada.
+  (Si las dos anotaran, la que cierra última pisaría el stock que guardó la otra, y dos
+  cajas podrían vender la misma última unidad.) Vale para cualquier programa con `estado
+  recordado`: ver [Memoria](#memoria-estado-recordado). `probar`, `verificar` y `ensayar` se
+  pueden usar igual con la charla abierta.
 - **Nada se anota sin un `si`.** Ventas no anota directo. Cuando entiende un pedido lo
   repite con la cuenta completa y con cuántos **bultos** son, usando la unidad en que se
   vende, y pregunta:
@@ -833,6 +838,16 @@ Lo que hay que saber:
   pedido nuevo, lo trata como pedido nuevo, con su propia pregunta. Un `si` suelto, sin
   ningún pedido esperando (el segundo `si` de un cliente apurado), no anota nada y lo dice.
   Las palabras del sí están en `palabras_de_si()`, arriba en el programa.
+- **El pedido que espera el `si` es de un cliente.** Cada consulta que le llega a Ventas
+  lleva dos nombres: `charla` (el de esa consulta: cada renglón es una) y `cliente` (quién
+  habla, el mismo en todas sus consultas). Ventas guarda un pedido pendiente por cliente, y
+  el `si` de un cliente confirma solo su pedido: si Ana pide y Beto contesta "si", a Beto
+  le dice que no tiene ningún pedido esperando, el stock no se toca, y Ana todavía puede
+  confirmar el suyo. En la charla por teclado el cliente es uno solo y siempre el mismo
+  (`"teclado"`). Si conectás a Ventas con algo donde escriben varios a la vez, cada consulta
+  tiene que venir con el nombre de su cliente (su número, o el de su sesión):
+  `consultar_a_ventas(charla, dicho, cliente)`. Una consulta con el `cliente` vacío no se
+  atiende.
 
   La pregunta deja de esperar con lo primero que se escriba, sea lo que sea: un texto que
   parece un comando de PowerShell no es un sí (avisa `No anoté lo de antes (...)`), y si la
@@ -1153,7 +1168,11 @@ qué conversación pertenece, a cuál contesta y el mensaje como lo da `a_json`)
 `rechazados` y un archivo `candado`. Esa carpeta la lleva Mate: `escribir_archivo` y
 `agregar_a_archivo` no escriben ahí, y Mate nunca escribe a través de un acceso directo
 que alguien haya dejado adentro (ni en los archivos provisorios `.tmp` ni en el `candado`):
-lo saca y crea un archivo de verdad. Lo que un programa ya atendió y lo que todavía tiene
+lo saca y crea un archivo de verdad. Tampoco lee a través de uno: cada sobre se abre una
+sola vez, sin seguir accesos directos, y se controla que sea un archivo común sobre ese
+mismo archivo ya abierto (así nadie lo cambia entre que Mate lo mira y lo lee); lo que no
+es un archivo común queda ahí, sin atender ni borrar. Los provisorios llevan el número del
+proceso en el nombre: dos corridas que escriben a la vez no se pisan el suyo. Lo que un programa ya atendió y lo que todavía tiene
 que repartir queda anotado en su archivo de memoria (`deposito.memoria.json`, en la parte
 `"buzon"`), que `corregir`, `lecciones` y `--olvidar` no tocan. Esas dos funciones tampoco
 escriben en la memoria de un programa nombrado con `usar buzon` (la de otros programas de
@@ -1190,11 +1209,15 @@ atendió). Lo único que se puede repetir es lo que el agente había mostrado en
 - **Correr dos veces un programa que envía manda dos mensajes.** Para que el negocio no lo
   tome dos veces, el mensaje lleva un dato propio (`pedido: "A-17"`) y el que recibe lo
   controla, como en el ejemplo.
-- **Dos ventanas del mismo programa a la vez**: el buzón lo atiende una sola (la otra avisa
-  y no recibe). Si otra ventana guardó cambios mientras esta estaba abierta, esta no atiende
-  y lo dice. Sigue valiendo que, con `estado recordado`, la ventana que termina última gana:
-  una ventana vieja puede pisar el efecto de un mensaje ya atendido. Lo sano es una ventana
-  por programa.
+- **Dos ventanas del mismo programa a la vez**: si el programa tiene `estado recordado`
+  (como el Depósito del ejemplo), no se puede: la segunda avisa `ya hay otra ventana abierta
+  con deposito.mate`, termina y no toca la memoria ni el buzón; los mensajes los atiende la
+  que ya estaba, o la próxima corrida. Así una ventana vieja ya no pisa el efecto de un
+  mensaje atendido. Mientras tanto los demás programas le pueden seguir dejando mensajes, y
+  `buzon deposito.mate` se puede mirar siempre. Si el programa no tiene `estado recordado`,
+  las dos ventanas corren y el buzón lo atiende una sola (la otra avisa y no recibe); lo que
+  quedó por salir de una corrida cortada lo reparte una sola, con el candado de la memoria
+  tomado y leyendo la memoria de nuevo en ese momento.
 - **Carpetas sincronizadas** (OneDrive, Dropbox): no están cubiertas. El buzón está pensado
   para una carpeta común de una misma PC.
 - **Si el archivo de memoria se rompe** (o se usa `--olvidar` sobre una memoria rota) se
@@ -1598,12 +1621,23 @@ python mate\mate.py correr mi_mostrador.mate          (arranca en 1 y termina en
   mensaje (las claves `tipo` y `campos`), en el archivo lo vas a ver envuelto en
   `{"mapa": {...}}`: es para no confundirlo.
 - `recordado` no es una palabra reservada: solo significa algo después de `estado`.
-- **Con el programa abierto en una ventana se puede seguir trabajando desde otra**: anotar
-  una lección con `corregir`, aprobar una propuesta, o correr el mismo programa otra vez. Al
-  guardar, Mate relee el archivo y le **suma** lo de esa corrida (lo que cambió del estado,
-  las lecciones y propuestas nuevas, las consultas que hizo) en vez de pisarlo. Lo anotado
-  desde la otra ventana lo usa el agente desde su próxima corrida. Si las dos ventanas
-  cambiaron el mismo estado recordado, queda el de la que terminó última.
+- **Un programa con `estado recordado` se corre de a una ventana por vez.** Al terminar,
+  cada corrida guarda el estado entero de sus agentes: con dos abiertas, la que cierra
+  última pisaría lo que anotó la otra. Por eso, si ya hay una corrida (`correr`) abierta, la
+  segunda no arranca: avisa `ya hay otra ventana abierta con mi_mostrador.mate`, termina
+  con código 2 y no toca nada. Mientras el programa corre vas a ver al lado un archivo
+  `mi_mostrador.memoria.candado`: es la marca de que está abierto. Se borra solo al
+  terminar; si la ventana se cierra de golpe (la X, un corte de luz) el archivo puede
+  quedar, pero el candado lo suelta el sistema y la corrida siguiente arranca normalmente.
+  No hace falta borrarlo, y borrarlo a mano con el programa abierto le saca la protección.
+- **Con el programa abierto en una ventana se puede seguir trabajando desde otra** en todo
+  lo que no es correrlo: `probar`, `verificar` y `ensayar` no se traban (no escriben el
+  estado), y tampoco anotar una lección con `corregir` o aprobar una propuesta. Al guardar,
+  Mate relee el archivo y le **suma** lo de esa corrida (lo que cambió del estado, las
+  lecciones y propuestas nuevas, las consultas que hizo) en vez de pisarlo. Lo anotado desde
+  la otra ventana lo usa el agente desde su próxima corrida. Un programa **sin** `estado
+  recordado` (uno que solo tiene lecciones o frenos) sí se puede correr en dos ventanas a
+  la vez, como antes.
 
 Así se ve el archivo:
 
@@ -2543,7 +2577,7 @@ numerados desde 1. Este es el del primer caso de arriba, con un equipo al que le
       No cumple: tiene que viajar: Reponer de Deposito a Compras
       No cumple: tiene que viajar: Anotado de Compras a Deposito
       La conversación de este caso (lo que se dijeron los agentes, en orden):
-          ·  1. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-2", dicho: "si" }   (conversación 1)
+          ·  1. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-2", cliente: "teclado", dicho: "si" }   (conversación 1)
           ·  2.    Ventas pregunta a Deposito: Reservar { charla: "consulta-2", producto: "Azúcar", cantidad: 20 }
           ·  2.    Deposito responde a Ventas: Reserva { charla: "consulta-2", producto: "Azúcar", reservadas: 20, quedan: 5 }
           ·  1. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-2", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
@@ -3018,6 +3052,7 @@ que en la 0.6:
 | La clase 13 del curso: un equipo de agentes que se hablan | [El curso](#el-curso) |
 | En el archivo de casos de `ensayar`: `tiene que viajar: Reponer de Deposito a Compras` y `no tiene que viajar: Reponer`. Si un caso de un equipo falla, el informe muestra la conversación | [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo) |
 | El equipo **no anota sin un `si`**: Ventas repite el pedido con la cuenta y los bultos ("Son 6 packs enteros. ¿Lo anoto?") y Depósito hace lo mismo con un `ingreso`. En el archivo de casos, el `si` va en un segundo renglón: `después: si` | [Un equipo propio](#un-equipo-propio-nuevo-equipo) y [Ensayar un mostrador](#ensayar-un-mostrador-ensayar) |
+| Un programa con `estado recordado` se corre de a **una ventana por vez** (la segunda avisa y no arranca), y en el equipo el `si` de un cliente confirma solo su pedido | [Memoria](#memoria-estado-recordado) y [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
 | `usar buzon "deposito.mate"`: un agente le manda un mensaje a un agente de **otro programa** de la misma carpeta. El mensaje queda en un buzón (un archivo) y se entrega, validado con el contrato, cuando ese otro programa corre. La orden `buzon deposito.mate` muestra qué hay esperando | [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón) |
 
 El detalle está en `MEJORAS.md`, mejoras 124, 125 y 126.
@@ -3105,6 +3140,8 @@ archivo viejo deja de andar, casi seguro es por una de estas:
 
 | Qué pasa ahora | Cómo se arregla |
 |---|---|
+| Un programa con `estado recordado` no se puede `correr` en dos ventanas a la vez (0.7): la segunda avisa `ya hay otra ventana abierta con ...` y termina con código 2. Antes corrían las dos y la que cerraba última pisaba lo que guardó la otra | Terminar la charla de la otra ventana y correrlo de nuevo |
+| En el equipo (ejemplo 13 y `nuevo equipo`), `ConsultaDeCliente` lleva un campo más, `cliente`, y `DejarDeEsperar` también (0.7): el pedido que espera el `si` es de ese cliente. Un equipo creado antes es una copia fija y sigue como estaba | Crear el equipo de nuevo; si armabas `ConsultaDeCliente` a mano, agregarle `cliente: "..."` |
 | `buzon` es una orden (0.7): `python mate\mate.py buzon deposito.mate` muestra el buzón de ese programa, y `buzon` sola ya no corre un archivo llamado `buzon.mate` (pide el programa). Dentro de un programa `buzon` sigue sirviendo como nombre: solo significa otra cosa después de `usar` | Escribir la orden entera: `correr buzon.mate` |
 | `leer_tabla` da un error si el renglón de los títulos está repetido más abajo en la planilla (0.6); antes ese renglón llegaba como un producto más, de nombre "producto" | Borrar de la planilla el renglón que dice el error |
 | `ensayar` es una orden (0.6): `python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` ensaya un programa contra una lista de casos. Un programa llamado `ensayar.mate` se sigue corriendo con `ensayar` sola, como antes | Nada |
@@ -3256,7 +3293,9 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
   programa atiende cualquier sobre bien armado que encuentre en su buzón, aunque no conozca al
   que lo manda: la carpeta tiene que ser de confianza. No se probó en una Windows de verdad.
 - El equipo (`nuevo equipo` y el ejemplo 13) anota solo con un `si`, pero no entiende todo lo
-  que se le escribe: un `si` seguido de un emoji o de un signo que lo niega ("si 👎") vale como
+  que se le escribe: "ok" y "dale" valen como sí, igual que "si" (es a propósito: así se
+  contesta en un mostrador; si en tu negocio no, sacalos de `palabras_de_si()`); un `si`
+  seguido de un emoji o de un signo que lo niega ("si 👎") vale como
   sí; "bueno", "claro" o "dale nomás" no valen como sí y hay que repetir el pedido; un Enter
   solo no borra lo que esperaba el `si`; Ventas pregunta "¿Lo anoto?" antes de mirar si el
   stock alcanza; y con una presentación como "pack x 6" la pregunta dice "Son 6 packs enteros"
@@ -3267,8 +3306,13 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
 - Todo lo que trae `usar` queda en un único espacio de nombres: dos archivos no pueden declarar
   algo con el mismo nombre.
 - La memoria de un programa es un archivo al lado del programa, pensado para una persona y una
-  computadora: si el mismo programa corre dos veces a la vez, se guarda lo de la corrida que
-  termina última. Las lecciones solo le llegan a la IA por `consultar_ia`: no cambian lo que
+  computadora. Un programa con `estado recordado` (el equipo, un depósito) se corre de a
+  **una ventana por vez**: la segunda avisa `ya hay otra ventana abierta con ...` y no
+  arranca, así que dos cajas no pueden atender a la vez con el mismo programa; para eso
+  haría falta otra cosa que un archivo (queda para más adelante). El candado es entre
+  ventanas de una misma computadora: en una carpeta compartida por red o sincronizada
+  (OneDrive, Dropbox) no está probado y no hay que contar con él. El pedido que espera el
+  `si` es por cliente, pero la charla por teclado tiene un solo cliente. Las lecciones solo le llegan a la IA por `consultar_ia`: no cambian lo que
   hace el resto del programa (para eso está `lecciones()`).
 - El registro de errores de uso anota un renglón por corrida que falla (el primer error, y
   cuántos más hubo) y no anota nada con `probar`. Tapa lo que tiene forma de dato tuyo, pero

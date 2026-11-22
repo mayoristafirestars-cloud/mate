@@ -12051,7 +12051,7 @@ def test_el_ejemplo_13_pasa_sus_pruebas_y_no_deja_nada(tmp_path, capsys):
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["probar", ruta]) == 0
     salida = capsys.readouterr().out
-    assert "39 de 39 pruebas pasaron" in salida and "✗" not in salida
+    assert "40 de 40 pruebas pasaron" in salida and "✗" not in salida
     for prueba in ("al bajar del mínimo sale UN pedido de reposición, no uno por cada venta",
                    "pedir más de lo que hay no vende, y no descuenta nada",
                    "la conversación va de Ventas a Depósito, y de Depósito a Compras",
@@ -12112,10 +12112,11 @@ def test_el_equipo_se_habla_de_ventas_a_deposito_y_de_deposito_a_compras(tmp_pat
     traza = [r.strip() for r in salida.splitlines() if "·" in r]
     orden = [next(i for i, r in enumerate(traza) if frase in r) for frase in (
         '(programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-1", '
-        'dicho: "quiero 20 azucar" }',
+        'cliente: "teclado", dicho: "quiero 20 azucar" }',
         'Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-1", '
         'respuesta: "Entendí: 20 x Azúcar',
-        '(programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-2", dicho: "si" }',
+        '(programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-2", '
+        'cliente: "teclado", dicho: "si" }',
         'Ventas pregunta a Deposito: Reservar { charla: "consulta-2", producto: "Azúcar", '
         'cantidad: 20 }',
         'Deposito pregunta a Compras: Reponer { charla: "consulta-2", producto: "Azúcar", '
@@ -12240,7 +12241,7 @@ def test_nuevo_equipo_crea_el_programa_la_planilla_y_los_casos_listos_para_usar(
     assert mate.main(["verificar", "mi_negocio.mate"]) == 0
     assert mate.main(["probar", "mi_negocio.mate"]) == 0
     salida = capsys.readouterr().out
-    assert "mi_negocio.mate: sin errores" in salida and "24 de 24 pruebas pasaron" in salida
+    assert "mi_negocio.mate: sin errores" in salida and "25 de 25 pruebas pasaron" in salida
     assert "✓ tu planilla está bien cargada" in salida
     assert "✓ al bajar del mínimo sale UN pedido de reposición, no uno por cada venta" in salida
     assert sorted(p.name for p in tmp_path.iterdir()) == creados
@@ -12414,7 +12415,7 @@ def test_el_equipo_creado_sigue_andando_con_otros_productos_otro_envio_y_otro_mi
                                      f"sea unidades_para_envio = {envio}"), encoding="utf-8-sig")
         assert mate.main(["verificar", "ferreteria.mate"]) == 0, (minimo, envio)
         assert mate.main(["probar", "ferreteria.mate"]) == 0, (minimo, envio)
-        assert "24 de 24 pruebas pasaron" in capsys.readouterr().out, (minimo, envio)
+        assert "25 de 25 pruebas pasaron" in capsys.readouterr().out, (minimo, envio)
     # con el mínimo en 3: de 5 martillos, al vender 3 quedan 2 y se avisa una vez
     programa.write_text(original.replace("sea stock_minimo = 10", "sea stock_minimo = 3"),
                         encoding="utf-8-sig")
@@ -12453,7 +12454,7 @@ def test_el_equipo_creado_se_puede_abrir_con_el_bloc_de_notas_y_se_ensaya_sin_to
                if r.startswith("#") and "mate.py" not in r) <= 100  # el encabezado entra en el Bloc
     assert mate.main(["verificar", "tienda.mate"]) == 0
     assert mate.main(["probar", "tienda.mate"]) == 0
-    assert "24 de 24 pruebas pasaron" in capsys.readouterr().out
+    assert "25 de 25 pruebas pasaron" in capsys.readouterr().out
     # los casos: con la marca del Bloc de notas, el comando de ESTE equipo arriba, y de
     # 'Cómo se escribe' para abajo, los de muestra tal cual
     casos = archivos["tienda_casos.txt"]
@@ -12630,7 +12631,7 @@ def test_nuevo_equipo_da_lo_mismo_con_el_repositorio_en_una_carpeta_de_nombre_la
     assert max(len(r) for r in salida.replace(orden, "mate").splitlines()
                if not r.startswith("Listo. Creé tres archivos en")) <= 86
     assert mate.main(["probar", "mi_negocio.mate"]) == 0
-    assert "24 de 24 pruebas pasaron" in capsys.readouterr().out
+    assert "25 de 25 pruebas pasaron" in capsys.readouterr().out
 
 
 def test_el_equipo_avisa_que_el_stock_se_guarda_al_terminar_con_chau(tmp_path, capsys,
@@ -12703,7 +12704,7 @@ def test_el_equipo_creado_avisa_en_castellano_un_numero_mal_puesto(cambio, frase
     # (P100) con un número de arriba mal puesto fallan TODAS las pruebas, y todas con el
     # mismo aviso en castellano: ninguna muestra el error técnico del contrato
     if ";" not in cambio[0]:
-        assert "0 de 24 pruebas pasaron" in salida and salida.count(frase) >= 24
+        assert "0 de 25 pruebas pasaron" in salida and salida.count(frase) >= 25
         assert "Inventario" not in salida and "no se puede" not in salida
 
 
@@ -12847,7 +12848,7 @@ def test_las_pruebas_del_equipo_creado_pasan_con_un_minimo_muy_grande(tmp_path, 
         assert original.count(cambio[0]) == 1
         programa.write_text(original.replace(*cambio), encoding="utf-8-sig")
         assert mate.main(["probar", "mi_negocio.mate"]) == 0, cambio
-        assert "24 de 24 pruebas pasaron" in capsys.readouterr().out, cambio
+        assert "25 de 25 pruebas pasaron" in capsys.readouterr().out, cambio
 
 
 def test_el_encabezado_del_equipo_creado_no_se_pasa_del_ancho_por_el_nombre(tmp_path, capsys,
@@ -15513,12 +15514,44 @@ def test_buzon_dos_programas_que_envian_a_la_vez_al_mismo_buzon(tmp_path, monkey
 
 
 def test_buzon_dos_ventanas_del_mismo_programa_a_la_vez(tmp_path, monkeypatch):
+    # (C1 de la revisión externa) Depósito tiene 'estado recordado': la segunda ventana no
+    # llega a abrirse. Antes corría, avisaba que no recibía mensajes, y al terminar podía
+    # pisar el estado que guardó la primera.
     carpeta_bz(tmp_path, monkeypatch, traba_py=TRABA_PY, deposito_mate=DEPOSITO_QUE_SE_TRABA)
     dejar_bz(tmp_path / "deposito.buzon", sobre_bz(1))
     dejar_bz(tmp_path / "deposito.buzon", sobre_bz(2))
     (tmp_path / "trabar").write_text("", encoding="utf-8")
     primera = lanzar_bz(tmp_path, "correr", "deposito.mate")
-    esperar_bz(tmp_path / "atendiendo")  # tiene el candado y está atendiendo
+    esperar_bz(tmp_path / "atendiendo")  # tiene los dos candados y está atendiendo
+    antes = todo_lo_que_hay(tmp_path)
+    codigo, salida, err = correr_bz(tmp_path, "correr", "deposito.mate")  # la otra ventana
+    assert (codigo, salida) == (2, "")
+    assert err == YA_HAY_OTRA_VENTANA.replace("caja.mate", "deposito.mate")
+    assert todo_lo_que_hay(tmp_path) == antes  # no tocó nada: ni la memoria ni el buzón
+    # ...y mirar el buzón desde otra ventana se puede siempre
+    codigo, salida, err = correr_bz(tmp_path, "buzon", "deposito.mate")
+    assert (codigo, err) == (0, "") and "2 mensajes" in salida
+    (tmp_path / "trabar").unlink()
+    codigo, salida, err = terminar_bz(primera)
+    assert (codigo, err) == (0, "") and "atendí 2 mensajes" in salida
+    # Cada mensaje se atendió una sola vez en total.
+    assert memoria_de(tmp_path, "deposito")["agentes"]["Deposito"]["estado"] == {
+        "stock": {"yerba": 8, "azucar": 4}, "vistos": ["M-1", "M-2"]}
+    assert len(sobres_de(tmp_path / "ventas.buzon")) == 2
+    assert correr_bz(tmp_path, "correr", "deposito.mate") == (0, "", "")  # (quedaron libres)
+    assert not (tmp_path / "deposito.memoria.candado").exists()
+
+
+def test_buzon_dos_ventanas_de_un_programa_sin_estado_recordado_a_la_vez(tmp_path, monkeypatch):
+    # Sin 'estado recordado' las dos ventanas corren, y el candado del buzón hace que los
+    # mensajes los atienda una sola (como antes de la revisión externa).
+    carpeta_bz(tmp_path, monkeypatch, traba_py=TRABA_PY,
+               deposito_mate=DEPOSITO_QUE_SE_TRABA.replace("estado recordado", "estado"))
+    dejar_bz(tmp_path / "deposito.buzon", sobre_bz(1))
+    dejar_bz(tmp_path / "deposito.buzon", sobre_bz(2))
+    (tmp_path / "trabar").write_text("", encoding="utf-8")
+    primera = lanzar_bz(tmp_path, "correr", "deposito.mate")
+    esperar_bz(tmp_path / "atendiendo")  # tiene el candado del buzón y está atendiendo
     codigo, salida, err = correr_bz(tmp_path, "correr", "deposito.mate")  # la otra ventana
     assert codigo == 0 and salida == ""
     assert err == ("aviso: otra ventana de deposito.mate está atendiendo el buzón; esta no "
@@ -15527,10 +15560,11 @@ def test_buzon_dos_ventanas_del_mismo_programa_a_la_vez(tmp_path, monkeypatch):
     codigo, salida, err = terminar_bz(primera)
     assert (codigo, err) == (0, "") and "atendí 2 mensajes" in salida
     # Cada mensaje se atendió una sola vez en total.
-    assert memoria_de(tmp_path, "deposito")["agentes"]["Deposito"]["estado"] == {
-        "stock": {"yerba": 8, "azucar": 4}, "vistos": ["M-1", "M-2"]}
-    assert len(sobres_de(tmp_path / "ventas.buzon")) == 2
+    assert len(memoria_de(tmp_path, "deposito")["buzon"]["recibidos"]) == 2
+    assert [s["mensaje"]["campos"]["quedan"] for s in sobres_de(tmp_path / "ventas.buzon")] == [
+        9, 8]
     assert correr_bz(tmp_path, "correr", "deposito.mate") == (0, "", "")  # (el candado quedó libre)
+    assert not (tmp_path / "deposito.memoria.candado").exists()
 
 
 def test_buzon_si_otra_ventana_guardo_cambios_esta_no_atiende(tmp_path, monkeypatch):
@@ -16883,3 +16917,492 @@ def test_contrato_el_id_no_se_hereda_a_lo_que_sale_de_la_cola():
         "responder Hecho { precio: ficha.precio }", "")
     salida, interprete = correr(fuente + PREGUNTA_B)
     assert salida == ["1", "busca C"] and not interprete.errores_agentes
+
+
+# (C1) Un programa con 'estado recordado' se corre de a una ventana por vez: al terminar,
+# cada corrida guarda el estado entero de sus agentes, y con dos abiertas la última pisaba
+# lo que anotó la otra (dos cajas vendían la misma última unidad).
+CAJA_CON_MEMORIA = """\
+mensaje Vender { cantidad: numero }
+agente Caja {
+    estado recordado stock = 1
+    estado recordado ventas = 0
+    al recibir Vender como v {
+        si stock >= v.cantidad {
+            stock = stock - v.cantidad
+            ventas = ventas + 1
+            mostrar("Vendido. Quedan {stock}.")
+        } sino {
+            mostrar("No hay stock.")
+        }
+    }
+}
+var seguir = verdadero
+mientras seguir {
+    sea t = leer("Cliente:", "chau")
+    si t == "chau" { seguir = falso } sino { enviar Vender { cantidad: 1 } a Caja }
+}
+prueba "vende la que hay" {
+    enviar Vender { cantidad: 1 } a Caja
+    asegurar largo(mensajes_enviados("Vender")) == 1
+}
+"""
+YA_HAY_OTRA_VENTANA = (
+    "ya hay otra ventana abierta con caja.mate. Este programa recuerda cosas de una corrida "
+    "a la otra ('estado recordado'), y con dos ventanas a la vez una pisaría lo que anotó la "
+    "otra. Terminá la charla de la otra ventana (o cerrala) y corré esto de nuevo. Acá no se "
+    "tocó nada: ni la memoria ni el buzón\n")
+
+
+def con_otra_ventana(monkeypatch, primera, en_la_otra):
+    """Arma el teclado de una charla: lo que se escribe en la primera ventana y, donde dice
+    "OTRA VENTANA", lo que se hace mientras tanto (con la primera todavía abierta)."""
+    tecleado = iter(primera)
+
+    def teclear(_pregunta):
+        dicho = next(tecleado)
+        if dicho != "OTRA VENTANA":
+            return dicho
+        en_la_otra()
+        monkeypatch.setattr(mate, "por_teclado", teclear)
+        return next(tecleado)
+
+    monkeypatch.setattr(mate, "por_teclado", teclear)
+
+
+def test_dos_ventanas_del_mismo_programa_no_venden_la_misma_ultima_unidad(tmp_path, capsys,
+                                                                         monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "caja.mate").write_text(CAJA_CON_MEMORIA, encoding="utf-8")
+    segunda = {}
+
+    def otra_ventana():
+        otra = iter(["v", "chau"])
+        monkeypatch.setattr(mate, "por_teclado", lambda _p: next(otra))
+        antes = capsys.readouterr()
+        segunda["archivos"] = archivos_de(tmp_path)
+        segunda["codigo"] = mate.main(["correr", "caja.mate"])
+        segunda["salida"] = capsys.readouterr()
+        segunda["despues"] = archivos_de(tmp_path)
+        sys.stdout.write(antes.out)
+
+    con_otra_ventana(monkeypatch, ["v", "OTRA VENTANA", "chau"], otra_ventana)
+    codigo, salida, err = orden_mate(capsys, "correr", "caja.mate")
+    # La segunda ventana avisa y termina sin vender ni tocar nada.
+    assert segunda["codigo"] == 2
+    assert (segunda["salida"].out, segunda["salida"].err) == ("", YA_HAY_OTRA_VENTANA)
+    assert segunda["archivos"] == segunda["despues"] == ["caja.mate", "caja.memoria.candado"]
+    # La primera vendió la única unidad, una sola vez, y eso es lo que queda guardado.
+    assert (codigo, salida, err) == (0, "Vendido. Quedan 0.\n", "")
+    assert memoria_de(tmp_path, "caja")["agentes"]["Caja"]["estado"] == {"stock": 0, "ventas": 1}
+    assert archivos_de(tmp_path) == ["caja.mate", "caja.memoria.json"]  # (sin candado de más)
+    # Con la primera ya cerrada, la que sigue corre y ve lo que quedó.
+    otra = iter(["v", "chau"])
+    monkeypatch.setattr(mate, "por_teclado", lambda _p: next(otra))
+    assert orden_mate(capsys, "correr", "caja.mate") == (0, "No hay stock.\n", "")
+    assert archivos_de(tmp_path) == ["caja.mate", "caja.memoria.json"]
+
+
+def test_con_una_ventana_abierta_probar_verificar_ensayar_y_corregir_no_se_traban(
+        tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "caja.mate").write_text(CAJA_CON_MEMORIA, encoding="utf-8")
+    (tmp_path / "casos.txt").write_text("pregunta: hola\n", encoding="utf-8")
+    ordenes = (["probar", "caja.mate"], ["verificar", "caja.mate"],
+               ["ensayar", "caja.mate", "--ia-simulada"], ["buzon", "caja.mate"],
+               ["lecciones", "caja.mate"], ["corregir", "caja.mate", "Caja", "Sé breve"])
+    sin_nadie = [orden_mate(capsys, *orden) for orden in ordenes[:-1]]
+    assert sin_nadie[0][0] == 0 and "1 de 1 pruebas pasaron" in sin_nadie[0][1]
+    assert sin_nadie[1] == (0, "caja.mate: sin errores\n", "")
+    con_ventana = []
+
+    def otra_ventana():
+        antes = capsys.readouterr()
+        con_ventana.extend(orden_mate(capsys, *orden) for orden in ordenes)
+        sys.stdout.write(antes.out)
+
+    con_otra_ventana(monkeypatch, ["v", "OTRA VENTANA", "chau"], otra_ventana)
+    assert orden_mate(capsys, "correr", "caja.mate") == (0, "Vendido. Quedan 0.\n", "")
+    assert con_ventana[:-1] == sin_nadie  # igual que sin ninguna ventana abierta
+    assert con_ventana[-1][0] == 0 and "otra ventana" not in "".join(map(str, con_ventana))
+    # y lo que anotó 'corregir' desde la otra ventana no se pierde al cerrar la charla
+    ficha = memoria_de(tmp_path, "caja")["agentes"]["Caja"]
+    assert ficha["estado"] == {"stock": 0, "ventas": 1}
+    assert [leccion["texto"] for leccion in ficha["lecciones"]] == ["Sé breve"]
+
+
+def test_un_programa_sin_estado_recordado_no_usa_el_candado_de_la_memoria(tmp_path, capsys,
+                                                                         monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "eco.mate").write_text(CAJA_CON_MEMORIA.replace("estado recordado", "estado"),
+                                       encoding="utf-8")
+    vistos = {}
+
+    def otra_ventana():
+        otra = iter(["v", "chau"])
+        monkeypatch.setattr(mate, "por_teclado", lambda _p: next(otra))
+        vistos["archivos"] = archivos_de(tmp_path)
+        vistos["codigo"] = mate.main(["correr", "eco.mate"])
+
+    con_otra_ventana(monkeypatch, ["v", "OTRA VENTANA", "chau"], otra_ventana)
+    assert orden_mate(capsys, "correr", "eco.mate") == (
+        0, "Vendido. Quedan 0.\nVendido. Quedan 0.\n", "")
+    assert vistos == {"archivos": ["eco.mate"], "codigo": 0}
+    assert archivos_de(tmp_path) == ["eco.mate"]
+
+
+def test_el_candado_de_la_memoria_no_se_sigue_si_es_un_acceso_directo(tmp_path, capsys,
+                                                                     monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "negocio").mkdir()
+    (tmp_path / "negocio" / "caja.mate").write_text(CAJA_CON_MEMORIA, encoding="utf-8")
+    importante = tmp_path / "importante.txt"
+    importante.write_text("no me toquen", encoding="utf-8")
+    atajo_bz(tmp_path / "negocio" / "caja.memoria.candado", importante)
+    monkeypatch.chdir(tmp_path / "negocio")
+    tecleado = iter(["v", "chau"])
+    monkeypatch.setattr(mate, "por_teclado", lambda _p: next(tecleado))
+    assert orden_mate(capsys, "correr", "caja.mate") == (0, "Vendido. Quedan 0.\n", "")
+    assert importante.read_text(encoding="utf-8") == "no me toquen"
+    assert archivos_de(tmp_path / "negocio") == ["caja.mate", "caja.memoria.json"]
+    assert archivos_de(tmp_path) == ["importante.txt", "negocio"]
+
+
+CAJA_QUE_SE_TRABA = 'usar python "traba.py"\n' + CAJA_CON_MEMORIA.split("var seguir")[0] + (
+    "enviar Vender { cantidad: 1 } a Caja\ntraba.esperar()\n")
+
+
+def test_dos_procesos_del_mismo_programa_y_el_candado_se_suelta_si_el_primero_muere(
+        tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "caja.mate").write_text(CAJA_QUE_SE_TRABA, encoding="utf-8")
+    (tmp_path / "traba.py").write_text(TRABA_PY, encoding="utf-8")
+    (tmp_path / "trabar").write_text("", encoding="utf-8")
+    primera = lanzar_bz(tmp_path, "correr", "caja.mate")
+    esperar_bz(tmp_path / "atendiendo")  # la primera ventana está abierta, con el candado
+    assert correr_bz(tmp_path, "correr", "caja.mate") == (2, "", YA_HAY_OTRA_VENTANA)
+    assert not (tmp_path / "caja.memoria.json").exists()
+    # 'probar' y 'verificar' no escriben la memoria: no se traban
+    assert correr_bz(tmp_path, "verificar", "caja.mate") == (0, "caja.mate: sin errores\n", "")
+    # La primera muere sin avisar (como cerrar la ventana con la X): el sistema suelta el
+    # candado solo, aunque su archivo haya quedado.
+    primera.kill()
+    primera.communicate(timeout=30)
+    assert (tmp_path / "caja.memoria.candado").exists()
+    (tmp_path / "trabar").unlink()
+    assert correr_bz(tmp_path, "correr", "caja.mate") == (0, "Vendido. Quedan 0.\n", "")
+    assert memoria_de(tmp_path, "caja")["agentes"]["Caja"]["estado"] == {"stock": 0, "ventas": 1}
+    assert not (tmp_path / "caja.memoria.candado").exists()
+
+
+# (C5) Lo que quedó "por salir" de una corrida cortada se recupera con el candado de la
+# memoria tomado, leyendo la memoria de nuevo adentro, y con provisorios que no se comparten.
+VENTAS_SIN_ESTADO = """\
+usar "mensajes.mate"
+usar buzon "deposito.mate"
+
+agente Ventas {
+    al recibir Reservado como r { mostrar("Pedido {r.pedido}: listo.") }
+}
+"""
+
+
+def memoria_con_por_salir(tmp_path, cuantos, nombre="ventas"):
+    import json
+    (tmp_path / f"{nombre}.memoria.json").write_text(json.dumps({"agentes": {}, "buzon": {
+        "recibidos": [], "por_salir": [{"carpeta": "deposito.buzon", "sobre": sobre_bz(n)}
+                                       for n in range(1, cuantos + 1)]}}), encoding="utf-8")
+
+
+def test_escribir_entero_dos_a_la_vez_no_se_borran_el_provisorio(tmp_path, monkeypatch):
+    ruta = str(tmp_path / "programa.memoria.json")
+    de_verdad, vistos = mate.os.replace, []
+
+    def reemplazar(provisorio, final):
+        vistos.append(os.path.basename(provisorio))
+        if len(vistos) == 1:  # justo antes de ponerle el nombre, otra ventana escribe lo suyo
+            mate.escribir_entero(ruta, "la otra")
+        de_verdad(provisorio, final)
+
+    monkeypatch.setattr(mate.os, "replace", reemplazar)
+    mate.escribir_entero(ruta, "esta")  # (antes: FileNotFoundError, la otra le borró el suyo)
+    assert (tmp_path / "programa.memoria.json").read_text(encoding="utf-8-sig") == "esta"
+    assert archivos_de(tmp_path) == ["programa.memoria.json"]
+    assert len(set(vistos)) == 2 and all(
+        v.startswith(f"programa.memoria.json.{os.getpid()}-") and v.endswith(".tmp")
+        for v in vistos)
+    # y los de un sobre del buzón siguen terminando en .json.tmp (así se limpian los viejos)
+    buzon = tmp_path / "deposito.buzon"
+    buzon.mkdir()
+    provisorios = {mate.nombre_provisorio(str(buzon / "abc.json")) for _ in range(20)}
+    assert len(provisorios) == 20 and all(
+        os.path.basename(p).startswith(f"abc.{os.getpid()}-") and p.endswith(".json.tmp")
+        for p in provisorios)
+
+
+def test_buzon_dos_arranques_a_la_vez_no_pisan_la_memoria_ni_reparten_dos_veces(
+        tmp_path, capsys, monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_SIN_ESTADO)
+    memoria_con_por_salir(tmp_path, 3)
+    dejar_de_verdad, pasos, segundo = mate.Buzon.dejar, [], {}
+
+    def dejar(self, carpeta, sobre):
+        pasos.append(sobre["id"])
+        if len(pasos) == 1:
+            # Con el primer arranque a mitad de la recuperación: desde otra ventana se anota
+            # una lección, y arranca OTRA corrida del mismo programa.
+            antes = capsys.readouterr()
+            assert mate.main(["corregir", "ventas.mate", "Ventas", "Sé breve"]) == 0
+            capsys.readouterr()
+            segundo["codigo"] = mate.main(["correr", "ventas.mate"])
+            segundo["salida"] = capsys.readouterr()
+            sys.stdout.write(antes.out)
+            sys.stderr.write(antes.err)
+        return dejar_de_verdad(self, carpeta, sobre)
+
+    monkeypatch.setattr(mate.Buzon, "dejar", dejar)
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert (codigo, err) == (0, "") and salida == (
+        "Buzón: dejé 3 mensajes para deposito.mate; le llegan la próxima vez que corra.\n")
+    # El segundo arranque no repartió nada (lo estaba haciendo el primero) ni avisó de más.
+    assert segundo["codigo"] == 0
+    assert (segundo["salida"].out, segundo["salida"].err) == ("", "")
+    assert pasos == [sobre_bz(n)["id"] for n in (1, 2, 3)]  # cada sobre, una sola vez
+    assert [s["id"] for s in sobres_de(tmp_path / "deposito.buzon")] == pasos
+    # La memoria quedó como la dejó la otra ventana (con su lección), sin nada por salir:
+    # la recuperación no guardó encima lo que había leído al arrancar.
+    guardado = memoria_de(tmp_path, "ventas")
+    assert [leccion["texto"] for leccion in guardado["agentes"]["Ventas"]["lecciones"]] == [
+        "Sé breve"]
+    assert "buzon" not in guardado
+    assert archivos_de(tmp_path) == ["deposito.buzon", "deposito.mate", "mensajes.mate",
+                                     "ventas.mate", "ventas.memoria.json"]
+    assert not [n for n in archivos_de(tmp_path / "deposito.buzon") if n.endswith(".tmp")]
+
+
+def test_buzon_varios_procesos_que_arrancan_juntos_recuperan_lo_por_salir_una_vez(
+        tmp_path, monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_SIN_ESTADO)
+    memoria_con_por_salir(tmp_path, 60)
+    procesos = [lanzar_bz(tmp_path, "correr", "ventas.mate") for _ in range(6)]
+    resultados = [terminar_bz(proceso) for proceso in procesos]
+    for codigo, salida, err in resultados:
+        assert (codigo, err) == (0, ""), err
+    # entre todos dejaron cada sobre una vez, y nadie dijo que no pudo
+    dejados = sum(int(re.search(r"dejé (\d+) mensaje", salida).group(1))
+                  for _, salida, _ in resultados if salida)
+    assert dejados == 60
+    assert [s["id"] for s in sobres_de(tmp_path / "deposito.buzon")] == [
+        sobre_bz(n)["id"] for n in range(1, 61)]
+    assert not (tmp_path / "ventas.memoria.json").exists()  # ya no queda nada por salir
+    assert archivos_de(tmp_path) == ["deposito.buzon", "deposito.mate", "mensajes.mate",
+                                     "ventas.mate"]
+    assert not [n for n in archivos_de(tmp_path / "deposito.buzon") if n.endswith(".tmp")]
+
+
+# (C4, C7 y C8) Un sobre del buzón se abre UNA vez, sin seguir accesos directos, y se
+# controla y se lee por ese mismo archivo abierto: nada cambia entre mirar y leer.
+def test_buzon_un_sobre_cambiado_por_un_acceso_directo_despues_de_mirarlo_no_se_lee(
+        tmp_path, capsys, monkeypatch):
+    import json
+    negocio, _ = negocio_bz(tmp_path, monkeypatch)
+    buzon = negocio / "deposito.buzon"
+    bueno = dejar_bz(buzon, sobre_bz(1))
+    # Afuera del buzón, un archivo con forma de sobre que Depósito atendería (5 de yerba).
+    de_afuera = tmp_path / "de_afuera.json"
+    de_afuera.write_text(json.dumps(sobre_bz(2, {"tipo": "Reservar", "campos": {
+        "pedido": "AFUERA", "producto": "yerba", "cantidad": 5}})), encoding="utf-8")
+    esperan, cambiados = mate.Buzon.esperan, []
+
+    def esperan_y_despues_lo_cambian(self, limpiar=False):
+        archivos = esperan(self, limpiar)
+        if limpiar and not cambiados:  # ya lo miró (es un archivo común); todavía no lo leyó
+            assert archivos == [str(bueno)]
+            bueno.unlink()
+            atajo_bz(bueno, de_afuera)
+            cambiados.append(bueno.name)
+        return archivos
+
+    monkeypatch.setattr(mate.Buzon, "esperan", esperan_y_despues_lo_cambian)
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+    assert cambiados and (codigo, salida, err) == (0, "", "")  # no atendió nada
+    assert memoria_de(negocio, "deposito") == {  # el stock no se movió, ni anotó un recibido
+        "que_es": memoria_de(negocio, "deposito")["que_es"], "agentes": {"Deposito": {
+            "estado": {"stock": {"yerba": 10, "azucar": 4}, "vistos": []}, "lecciones": []}}}
+    assert sobres_de(negocio / "ventas.buzon") == []  # ni contestó
+    # El acceso directo sigue ahí, sin atender ni borrar (como cualquier otro que haya en el
+    # buzón: se saca a mano), y lo de afuera quedó intacto.
+    assert bueno.is_symlink() and archivos_de(buzon) == [bueno.name, "candado"]
+    assert json.loads(de_afuera.read_text(encoding="utf-8"))["mensaje"]["campos"]["pedido"] == "AFUERA"
+    monkeypatch.setattr(mate.Buzon, "esperan", esperan)
+    codigo, salida, _ = orden_mate(capsys, "buzon", "deposito.mate")
+    assert codigo == 0 and "No son mensajes: 1 (una carpeta o un acceso directo" in salida
+
+
+def test_buzon_leer_sobre_abre_una_vez_y_no_sigue_accesos_directos(tmp_path, monkeypatch):
+    import builtins
+    import json
+    buzon = tmp_path / "deposito.buzon"
+    bueno = dejar_bz(buzon, sobre_bz(1))
+    abiertos, os_open, open_de_siempre = [], mate.os.open, builtins.open
+
+    def contar(ruta, *a, **k):
+        abiertos.append(os.path.basename(str(ruta)))
+        return os_open(ruta, *a, **k)
+
+    def nadie_abre_por_el_nombre(ruta, *a, **k):
+        assert isinstance(ruta, int), f"se abrió de nuevo por el nombre: {ruta}"
+        return open_de_siempre(ruta, *a, **k)
+
+    monkeypatch.setattr(mate.os, "open", contar)
+    monkeypatch.setattr(builtins, "open", nadie_abre_por_el_nombre)
+    assert mate.leer_sobre(str(bueno))["id"] == sobre_bz(1)["id"]
+    assert abiertos == [bueno.name]  # una sola vez
+    monkeypatch.undo()
+    # Lo que no es un archivo común no se lee: un acceso directo (aunque apunte a un sobre
+    # bien armado), uno que no apunta a nada, una carpeta.
+    atajo_bz(buzon / "atajo.json", bueno)
+    atajo_bz(buzon / "roto.json", tmp_path / "no_existe.json")
+    (buzon / "carpeta.json").mkdir()
+    for nombre in ("atajo.json", "roto.json", "carpeta.json"):
+        with pytest.raises(OSError):
+            mate.leer_sobre(str(buzon / nombre))
+    assert not (tmp_path / "no_existe.json").exists()
+    # ...y lo que pesa de más o no es un sobre sigue saliendo con su motivo
+    (buzon / "gordo.json").write_bytes(b" " * (mate.MAX_SOBRE + 1))
+    with pytest.raises(mate.NoSeEntrega, match="pesa más de 2 MB"):
+        mate.leer_sobre(str(buzon / "gordo.json"))
+    (buzon / "raro.json").write_text(json.dumps({"hola": 1}), encoding="utf-8")
+    with pytest.raises(mate.NoSeEntrega, match="no es un sobre de Mate"):
+        mate.leer_sobre(str(buzon / "raro.json"))
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="acá no hay tuberías con nombre")
+def test_buzon_leer_sobre_no_se_queda_esperando_una_tuberia(tmp_path):
+    buzon = tmp_path / "deposito.buzon"
+    buzon.mkdir()
+    os.mkfifo(buzon / "tubo.json")
+    with pytest.raises(OSError):  # (antes de la revisión se habría quedado trabado al abrirla)
+        mate.leer_sobre(str(buzon / "tubo.json"))
+
+
+def test_buzon_un_sobre_no_se_deja_a_traves_de_un_acceso_directo_en_el_nombre_final_ni_en_la_carpeta(
+        tmp_path, monkeypatch):
+    import json
+    negocio, importante = negocio_bz(tmp_path, monkeypatch)
+    buzon = mate.Buzon(str(negocio / "ventas.mate"))
+    # El nombre final del sobre ya existe y es un acceso directo a un archivo de afuera: el
+    # sobre queda en el buzón como un archivo de verdad y lo de afuera no se toca.
+    final = negocio / "deposito.buzon" / f"{sobre_bz(21)['id']}.json"
+    atajo_bz(final, importante)
+    assert buzon.dejar("deposito.buzon", sobre_bz(21)) is None
+    assert importante.read_text(encoding="utf-8") == "no me toquen"
+    assert final.is_file() and not final.is_symlink()
+    assert json.loads(final.read_text(encoding="utf-8"))["id"] == sobre_bz(21)["id"]
+    assert archivos_de(negocio / "deposito.buzon") == [final.name]
+    # La carpeta del buzón es un acceso directo a una carpeta de afuera: no se deja nada.
+    afuera = tmp_path / "afuera"
+    afuera.mkdir()
+    atajo_bz(negocio / "compras.buzon", afuera)
+    problema = buzon.dejar("compras.buzon", sobre_bz(22))
+    assert problema and "compras.buzon existe y no es una carpeta" in problema
+    assert archivos_de(afuera) == []
+
+
+# (C2) El pedido que espera el "si" es de UN cliente: el "si" de otro no lo confirma.
+DOS_CLIENTES = """
+prueba "revisión externa: A pide, B dice si, y después A confirma lo suyo" {
+    abrir_el_negocio(%(lista)s)
+    sea antes = (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades
+    mostrar("A: " + consultar_a_ventas("a-1", "quiero 2 yerbas", "cliente A"))
+    mostrar("B: " + consultar_a_ventas("b-1", "si", "cliente B"))
+    mostrar("reservas: {largo(mensajes_enviados("Reservar"))}")
+    mostrar("bajó: {antes - (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades}")
+    mostrar("A: " + consultar_a_ventas("a-2", "si", "cliente A"))
+    mostrar("reservas: {largo(mensajes_enviados("Reservar"))}")
+    mostrar("bajó: {antes - (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades}")
+    mostrar("B: " + consultar_a_ventas("b-2", "si", "cliente B"))
+    mostrar("A: " + consultar_a_ventas("a-3", "si", "cliente A"))
+    mostrar("bajó: {antes - (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades}")
+}
+"""
+PEDIDO_DE_A = ("Entendí: 2 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: "
+               "total $ 70.000,00. Son 2 bolsones enteros. ¿Lo anoto? Contestá si o no.")
+ANOTADO_DE_A = ("Anotado: 2 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada "
+                "uno: total $ 70.000,00.")
+SIN_NADA_ESPERANDO = SIN_PEDIDO[len("Ventas: "):]
+
+
+def lo_que_mostro(salida, prueba):
+    """Los renglones que mostró esa prueba (los que 'probar' escribe debajo de su nombre)."""
+    renglones = salida.split(f"✓ {prueba}\n")[1].splitlines()
+    mostrado = []
+    for renglon in renglones:
+        if not renglon.startswith("      | "):
+            break
+        mostrado.append(renglon[len("      | "):])
+    return mostrado
+
+
+@pytest.mark.parametrize("cual", ["el ejemplo 13", "el equipo creado"])
+def test_el_si_de_un_cliente_no_confirma_el_pedido_de_otro(cual, tmp_path, capsys, monkeypatch):
+    if cual == "el ejemplo 13":
+        ruta, lista = copia_del_equipo(tmp_path), "lista"
+    else:
+        assert crear_equipo(tmp_path, capsys, monkeypatch)[0] == 0
+        ruta, lista = str(tmp_path / "mi_negocio.mate"), "lista_de_prueba()"
+    programa = pathlib.Path(ruta)
+    fuente = programa.read_text(encoding="utf-8-sig")
+    # El programa trae su propia prueba de esto, y pasa.
+    propia = "el 'si' de un cliente no confirma el pedido de otro: cada uno tiene el suyo"
+    assert fuente.count(f'prueba "{propia}"') == 1
+    # Los mensajes que entran a Ventas dicen de qué cliente son, además de la consulta.
+    assert "mensaje ConsultaDeCliente { charla: texto, cliente: texto, dicho: texto }" in fuente
+    assert "mensaje DejarDeEsperar { cliente: texto }" in fuente
+    assert "estado pendientes = {}" in fuente and "estado pendiente = nada" not in fuente
+    # Y esta es la de la revisión, paso a paso.
+    programa.write_text(fuente + DOS_CLIENTES % {"lista": lista}, encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "probar", ruta)
+    assert (codigo, err) == (0, "") and f"✓ {propia}" in salida and "✗" not in salida
+    assert lo_que_mostro(salida, "revisión externa: A pide, B dice si, y después A confirma lo suyo") == [
+        f"A: {PEDIDO_DE_A}",
+        f"B: {SIN_NADA_ESPERANDO}",  # B no tiene ningún pedido pendiente
+        "reservas: 0", "bajó: 0",    # no se le pidió nada a Depósito: el stock, igual
+        f"A: {ANOTADO_DE_A}",        # y A todavía puede confirmar el suyo
+        "reservas: 1", "bajó: 2",
+        f"B: {SIN_NADA_ESPERANDO}", f"A: {SIN_NADA_ESPERANDO}", "bajó: 2"]
+
+
+def test_en_la_charla_por_teclado_el_cliente_es_uno_solo_y_siempre_el_mismo(tmp_path, capsys,
+                                                                           monkeypatch):
+    # La consola usa un cliente fijo: el pedido y su "si" son de dos consultas distintas
+    # (cada una con su charla) y del MISMO cliente.
+    ruta = copia_del_equipo(tmp_path)
+    dicho, salida = charla_del_equipo(ruta, capsys, monkeypatch, "quiero 2 yerbas", "si", "si",
+                                      opciones=("--traza",))
+    assert dicho == [f"Ventas: {PEDIDO_DE_A}", f"Ventas: {ANOTADO_DE_A}", SIN_PEDIDO]
+    consultas = [r for r in salida.splitlines() if "ConsultaDeCliente" in r]
+    assert len(consultas) == 3
+    assert [re.search(r'charla: "([^"]+)"', r).group(1) for r in consultas] == [
+        "consulta-1", "consulta-2", "consulta-3"]
+    assert {re.search(r'cliente: "([^"]+)"', r).group(1) for r in consultas} == {"teclado"}
+
+
+def test_el_manual_dice_lo_que_cambio_con_la_revision_externa():
+    leeme = " ".join((RAIZ / "README.md").read_text(encoding="utf-8").split())
+    equipo = leeme.split("### Un equipo propio: `nuevo equipo`")[1].split(" ### ")[0]
+    limites = leeme.split("## Límites de la versión 0.7")[1].split(" ## ")[0]
+    memoria = leeme.split("### Memoria: `estado recordado`")[1].split(" ### ")[0]
+    buzon = leeme.split("### Dos programas que se hablan: el buzón")[1].split(" ### ")[0]
+    # (C1) una ventana por vez para un programa con estado recordado
+    for parte in (equipo, limites, memoria, buzon):
+        assert "ya hay otra ventana abierta" in parte
+    assert "`mi_mostrador.memoria.candado`" in memoria and "`probar`, `verificar` y `ensayar`" in memoria
+    # (C2) el pendiente es de un cliente
+    assert "el `si` de un cliente confirma solo su pedido" in equipo
+    assert "`cliente`" in equipo and '"teclado"' in equipo
+    # (C3) "ok" y "dale" confirman: dicho con todas las letras, también en los límites
+    assert '"dale", "ok"' in equipo
+    assert '"ok" y "dale" valen como sí' in limites
+    # (C4 y C5) el buzón
+    assert "sin seguir accesos directos" in buzon and "con el candado de la memoria" in buzon

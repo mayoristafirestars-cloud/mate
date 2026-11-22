@@ -53,7 +53,8 @@
 # OJO, QUE ES IMPORTANTE: lo que Depósito y Compras recuerdan se guarda cuando el programa
 # TERMINA. Terminá siempre la charla con chau. Si cerrás la ventana con la X (o se corta la
 # luz), se pierde lo anotado en esa charla: el stock queda como estaba al abrirla. Y no
-# abras el mismo equipo en dos ventanas a la vez: la que cierra última pisa a la otra.
+# abras el mismo equipo en dos ventanas a la vez: la segunda avisa que ya hay otra abierta
+# y no arranca (si las dos anotaran, la que cierra última pisaría a la otra).
 # NADA SE ANOTA SIN UN "SI". Cuando Ventas entiende un pedido lo repite entero ("Entendí:
 # 6 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 43.200,00. Son 6 packs
 # enteros. ¿Lo anoto? Contestá si o no.") y lo anota solo si lo que sigue es un "si" (o
@@ -63,7 +64,9 @@
 # dejá" o "dale, dejá nomás" son un no. Así, si Ventas entendió mal ("quiero un pack x 6
 # de cerveza" son 1 pack, no 6), el cliente lo ve ANTES de que se descuente el stock. El
 # ingreso de mercadería pregunta igual. El pedido que espera el "si" no se recuerda de
-# una corrida a la otra: si se cierra el programa, no quedó anotado.
+# una corrida a la otra: si se cierra el programa, no quedó anotado. Y es de UN cliente:
+# cada consulta dice quién habla, y el "si" de uno no confirma el pedido de otro (en esta
+# charla por teclado el cliente es uno solo, el que está en el teclado).
 # Ventas pregunta "¿Lo anoto?" solo si el pedido está CLARO ("quiero 20 azucar", "20
 # azucar", "dame 12 yerbas con envio"). Con una pregunta, un "no", una duda, una palabra
 # que Ventas no conoce ("recibí 10 yerbas", "haceme un descuento en 20 yerbas") o una
@@ -95,16 +98,22 @@ sea stock_minimo = 10
 # Va un número entero, sin comillas: 1 o más.
 sea ingreso_maximo = 100000
 
-# Los mensajes del cliente a Ventas (charla: el nombre de esa consulta, para no mezclarlas).
+# Los mensajes del cliente a Ventas. Cada uno lleva DOS nombres:
+#   - charla: el de esa consulta (cada renglón que escribe el cliente es una, con el suyo);
+#   - cliente: el de QUIÉN habla, que es el mismo en todas sus consultas. Con ese nombre
+#     Ventas guarda el pedido que espera el "si": el "si" de un cliente confirma solo SU
+#     pedido, nunca el de otro. En la charla por teclado hay un solo cliente (el que está
+#     en el teclado). Si un día a Ventas le escriben varios a la vez (un WhatsApp, una
+#     página), cada uno tiene que venir con su nombre: su número, o el de su sesión.
 mensaje ListaDePrecios { filas: lista }
-mensaje ConsultaDeCliente { charla: texto, dicho: texto } responde RespuestaDeVentas
+mensaje ConsultaDeCliente { charla: texto, cliente: texto, dicho: texto } responde RespuestaDeVentas
 # (aviso solo viene si la IA no pudo contestar)
 mensaje RespuestaDeVentas { charla: texto, respuesta: texto, aviso: texto? }
-# Del programa a Ventas, cuando lo que se escribió no era para ella (un ingreso): si
-# Ventas tenía un pedido esperando el "si", deja de esperarlo. Así un "si" que llega más
-# tarde, y que contestaba otra cosa, no anota un pedido viejo. (aviso: lo que hay que
-# decirle al cliente; "" si no esperaba nada.)
-mensaje DejarDeEsperar responde Dejado
+# Del programa a Ventas, cuando lo que ese cliente escribió no era para ella (un ingreso):
+# si Ventas le tenía un pedido esperando el "si", deja de esperarlo. Así un "si" que llega
+# más tarde, y que contestaba otra cosa, no anota un pedido viejo. (aviso: lo que hay que
+# decirle al cliente; "" si no esperaba nada.) Lo de los demás clientes no se toca.
+mensaje DejarDeEsperar { cliente: texto } responde Dejado
 mensaje Dejado { aviso: texto }
 
 # Los de Ventas a Depósito. Reservar es vender: si alcanza, descuenta.
@@ -178,10 +187,11 @@ contrato conversacion {
 agente Ventas {
     # La lista de precios: una fila por producto, como la deja leer_tabla().
     estado filas = []
-    # El pedido que Ventas entendió y le repitió al cliente, y que espera su "si":
-    # { fila, cantidad, envio }, o nada. No es 'recordado': si el programa se cierra, un
+    # Los pedidos que Ventas entendió y le repitió a un cliente, y que esperan su "si".
+    # Uno por CLIENTE: { nombre del cliente: { fila, cantidad, envio } }. El "si" de un
+    # cliente confirma solo el suyo. No es 'recordado': si el programa se cierra, un
     # pedido sin confirmar no quedó anotado en ningún lado.
-    estado pendiente = nada
+    estado pendientes = {}
 
     # Lo que Mate le revisa a cada respuesta de la IA antes de que le llegue al cliente.
     frenos {
@@ -199,9 +209,9 @@ agente Ventas {
         filas = l.filas
     }
 
-    al recibir DejarDeEsperar {
-        sea esperaba = pendiente
-        pendiente = nada
+    al recibir DejarDeEsperar como d {
+        sea esperaba = obtener(pendientes, d.cliente, nada)
+        pendientes = quitar(pendientes, d.cliente)
         si esperaba == nada {
             responder Dejado { aviso: "" }
         }
@@ -209,10 +219,15 @@ agente Ventas {
     }
 
     al recibir ConsultaDeCliente como c {
-        # 0. ¿Había un pedido esperando el "si"? Lo que el cliente conteste ahora decide,
-        #    y el pedido deja de esperar: solo un "si" claro, y nada más, lo anota.
-        sea esperaba = pendiente
-        pendiente = nada
+        # Sin saber quién habla no se puede saber de quién es el "si".
+        si recortar(c.cliente) == "" {
+            fallar("la consulta no dice de qué cliente es (el campo 'cliente' vino vacío)")
+        }
+        # 0. ¿ESTE cliente tenía un pedido esperando el "si"? Lo que conteste ahora decide,
+        #    y su pedido deja de esperar: solo un "si" claro, y nada más, lo anota. (Lo que
+        #    esperan los demás clientes no se mira ni se toca.)
+        sea esperaba = obtener(pendientes, c.cliente, nada)
+        pendientes = quitar(pendientes, c.cliente)
         # (lo que se le dice primero si contestó otra cosa: que lo de antes no se anotó)
         var antes = ""
         si esperaba != nada {
@@ -230,8 +245,8 @@ agente Ventas {
             # ahora como una consulta nueva (si es otro pedido, con su propia pregunta).
             antes = aviso_de_no_anotado(esperaba)
         }
-        # Un "si" suelto, sin ningún pedido esperando (el segundo "si" de un cliente
-        # apurado, por ejemplo): no hay nada que anotar. Se lo dice el programa, sin IA.
+        # Un "si" suelto, sin ningún pedido de ESTE cliente esperando (el segundo "si" de un
+        # cliente apurado, o el "si" de otro): no hay nada que anotar. Lo dice el programa.
         si esperaba == nada y es_un_si(c.dicho) {
             responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_sin_pedido() }
         }
@@ -260,7 +275,7 @@ agente Ventas {
             # Es un pedido claro. Igual NO se anota todavía: Ventas lo repite con la cuenta
             # completa y con cuántos bultos son, lo deja esperando y pide el "si". Si
             # entendió mal, el cliente lo ve acá, antes de que se descuente nada.
-            pendiente = { fila: pedido.fila, cantidad: pedido.cantidad, envio: pedido.envio }
+            pendientes[c.cliente] = { fila: pedido.fila, cantidad: pedido.cantidad, envio: pedido.envio }
             responder RespuestaDeVentas { charla: c.charla, respuesta: antes + pregunta_de_confirmar(pedido) }
         }
         # 2. Quiere devolver, anular o dice "no quiero...": no se anota nada, y tampoco se
@@ -954,9 +969,10 @@ funcion respuesta_de_venta(pedido, reserva) {
 }
 
 # Una consulta del cliente: va a Ventas, que sabe con quién hablar. (charla: el nombre de
-# esta consulta; cada una lleva el suyo.)
-funcion consultar_a_ventas(charla, dicho) {
-    sea contestado = preguntar ConsultaDeCliente { charla: charla, dicho: dicho } a Ventas
+# esta consulta; cada una lleva el suyo. cliente: quién habla; si no se dice, es el que
+# está en el teclado, que es uno solo y siempre el mismo.)
+funcion consultar_a_ventas(charla, dicho, cliente = "teclado") {
+    sea contestado = preguntar ConsultaDeCliente { charla: charla, cliente: cliente, dicho: dicho } a Ventas
     si contestado.aviso != nada {
         mostrar("   (la IA no contestó y busqué en la lista. El motivo: {contestado.aviso})")
     }
@@ -1059,12 +1075,12 @@ funcion mostrar_lo_que_falta() {
 }
 
 # Cuando lo que se escribió no llega a contestar la pregunta (un comando, o se van de
-# la charla): el pedido que Ventas tenía esperando el "si" deja de esperar; lo mismo el
-# ingreso (habia_ingreso: si había uno esperando). Devuelve los avisos de lo que no
-# quedó anotado, para mostrarlos: una lista vacía si nadie esperaba nada.
+# la charla): el pedido que Ventas le tenía esperando el "si" al del teclado deja de
+# esperar; lo mismo el ingreso (habia_ingreso: si había uno esperando). Devuelve los
+# avisos de lo que no quedó anotado, para mostrarlos: una lista vacía si nadie esperaba nada.
 funcion lo_que_no_quedo(habia_ingreso) {
     var avisos = []
-    sea dejado = preguntar DejarDeEsperar {} a Ventas
+    sea dejado = preguntar DejarDeEsperar { cliente: "teclado" } a Ventas
     si dejado.aviso != "" {
         avisos = agregar(avisos, "Ventas: {dejado.aviso}")
     }
@@ -1125,7 +1141,7 @@ funcion charlar_con_el_equipo(tabla) {
         # azucar", no se suma nada y se explica cómo va.)
         si es_un_ingreso(dicho) o parece_un_ingreso(dicho) {
             # (si Ventas esperaba el "si" a un pedido, esto no lo es: deja de esperarlo)
-            sea dejado = preguntar DejarDeEsperar {} a Ventas
+            sea dejado = preguntar DejarDeEsperar { cliente: "teclado" } a Ventas
             si dejado.aviso != "" {
                 mostrar("Ventas: {dejado.aviso}")
             }
@@ -1254,7 +1270,9 @@ prueba "un pedido lo anota Ventas, lo descuenta Depósito, y la IA ni se entera"
     # Hasta acá no se le pidió nada a Depósito: las 25 siguen estando.
     asegurar largo(mensajes_enviados("Reservar")) == 0
     asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 25
-    # Con el "si", recién ahí, se anota.
+    # Con el "si", recién ahí, se anota. (El "si" es otra consulta, con su propio nombre
+    # de charla; lo que lo une al pedido es que lo dice el MISMO cliente: acá, el del
+    # teclado las dos veces.)
     asegurar consultar_a_ventas("a2", "si") == "Anotado: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."
     asegurar largo(mensajes_enviados("Reservar")) == 1
     # Había 25: quedan 13. Se ve preguntando por más de lo que queda.
@@ -1735,6 +1753,48 @@ prueba "nada se anota sin un 'si': Ventas repite el pedido, con los bultos, y es
     asegurar largo(mensajes_enviados("Reservar")) == 1
     asegurar (preguntar CuantoQueda { producto: "Arroz largo fino" } a Deposito).unidades == 12
     asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
+}
+
+prueba "el 'si' de un cliente no confirma el pedido de otro: cada uno tiene el suyo" {
+    abrir_el_negocio(lista)
+    sea pregunta = "Entendí: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00. Son 12 bolsas enteras. ¿Lo anoto? Contestá si o no."
+    # Ana pide. Antes de que conteste, Beto (otro cliente) dice "si": no tiene ningún
+    # pedido esperando, así que no se anota nada. El stock sigue igual.
+    asegurar consultar_a_ventas("ana-1", "quiero 12 azucar", "ana") == pregunta
+    asegurar consultar_a_ventas("beto-1", "si", "beto") == respuesta_sin_pedido()
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 25
+    # El pedido de Ana sigue esperando SU "si": lo de Beto no lo borró ni lo anotó.
+    asegurar consultar_a_ventas("ana-2", "si", "ana") == "Anotado: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 13
+    # Dos pedidos esperando a la vez, uno de cada uno: cada "si" anota el propio, y el
+    # "no" de uno no toca el del otro. Tampoco lo toca que el otro pregunte otra cosa.
+    asegurar empieza_con(consultar_a_ventas("ana-3", "quiero 2 yerbas", "ana"), "Entendí: 2 x Yerba mate")
+    asegurar empieza_con(consultar_a_ventas("beto-2", "quiero 3 arroz", "beto"), "Entendí: 3 x Arroz largo fino")
+    asegurar tiene(consultar_a_ventas("beto-3", "cuanto salen 5 azucar", "beto"), "No anoté lo de antes (3 x Arroz largo fino)")
+    asegurar empieza_con(consultar_a_ventas("ana-4", "si", "ana"), "Anotado: 2 x Yerba mate")
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 38
+    asegurar (preguntar CuantoQueda { producto: "Arroz largo fino" } a Deposito).unidades == 15
+    asegurar empieza_con(consultar_a_ventas("ana-5", "quiero 1 yerbas", "ana"), "Entendí: 1 x Yerba mate")
+    asegurar empieza_con(consultar_a_ventas("beto-5", "quiero 3 arroz", "beto"), "Entendí: 3 x Arroz largo fino")
+    asegurar consultar_a_ventas("ana-6", "no", "ana") == "Listo: no anoté nada."
+    asegurar empieza_con(consultar_a_ventas("beto-6", "si", "beto"), "Anotado: 3 x Arroz largo fino")
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 38
+    asegurar (preguntar CuantoQueda { producto: "Arroz largo fino" } a Deposito).unidades == 12
+    # El del teclado es un cliente más: su "si" tampoco anota lo de otro, y dejar de
+    # esperarlo a él (un comando, un ingreso) no toca lo que espera otro.
+    asegurar empieza_con(consultar_a_ventas("ana-7", "quiero 1 yerbas", "ana"), "Entendí: 1 x Yerba mate")
+    asegurar consultar_a_ventas("t-1", "si") == respuesta_sin_pedido()
+    asegurar (preguntar DejarDeEsperar { cliente: "teclado" } a Ventas).aviso == ""
+    asegurar empieza_con(consultar_a_ventas("ana-8", "si", "ana"), "Anotado: 1 x Yerba mate")
+    # Una consulta sin nombre de cliente no se atiende: no se sabría de quién es el "si".
+    intentar {
+        consultar_a_ventas("x-1", "quiero 2 yerbas", "  ")
+        fallar("atendió una consulta sin cliente")
+    } si falla motivo {
+        asegurar tiene(motivo, "no dice de qué cliente es"), motivo
+    }
 }
 
 prueba "el 'si' se puede decir de varias maneras, pero tiene que ser lo único que se dice" {
