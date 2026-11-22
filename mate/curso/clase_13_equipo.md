@@ -444,6 +444,9 @@ Terminaste el curso. Para seguir:
   agentes, pero Ventas charla por teclado, lee tu planilla de precios, entiende pedidos
   como "quiero 12 azucar con envio" (con las funciones del ejemplo 12) y usa la IA, con
   frenos, solo para lo que no es un pedido.
+  Un aviso para cuando lo uses: lo que recuerdan los agentes se guarda cuando el
+  programa termina. Terminá siempre la charla con chau: si cerrás la ventana con la X,
+  se pierde lo anotado en esa charla.
 - Para armar ese equipo para tu negocio no hace falta copiar archivos: parado en la
   carpeta donde lo quieras tener, la orden `nuevo equipo mi_negocio` (después de
   `python mate\mate.py`, como las demás) crea el programa, su planilla de muestra y sus

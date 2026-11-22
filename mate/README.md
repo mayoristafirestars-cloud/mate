@@ -102,7 +102,7 @@ o la página `docs\index.html`, que explica los pasos.
 | Armar el mostrador de tu negocio sin copiar archivos a mano | `python mate\mate.py nuevo mostrador mi_negocio` crea el programa y su planilla de precios en la carpeta donde estás (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
 | Armar un equipo de agentes que se reparten el trabajo (Ventas, Depósito y Compras) | `python mate\mate.py nuevo equipo mi_negocio` crea el programa, su planilla y sus casos en la carpeta donde estás (ver [Un equipo propio](#un-equipo-propio-nuevo-equipo)) |
 | Saber si una lección funcionó, sin tipear pregunta por pregunta | `python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` le hace al mostrador las preguntas que anotaste y dice cuáles contestó bien (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)) |
-| Ver programas terminados | `mate\ejemplos`: once programas comentados renglón por renglón (la tabla está en [Primeros pasos en Windows](#primeros-pasos-en-windows)) |
+| Ver programas terminados | `mate\ejemplos`: trece programas comentados renglón por renglón (la tabla está en [Primeros pasos en Windows](#primeros-pasos-en-windows)) |
 | Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
 | Que una IA te escriba un programa en Mate | `python mate\mate.py guia` imprime una página para pegarle antes de pedírselo |
 | Contarle a otra persona qué es Mate | La página `docs\index.html` (está fuera de la carpeta `mate`): un solo archivo que se ve bien en el celular |
@@ -255,7 +255,7 @@ usa una palabra, preguntale a Mate: `python mate\mate.py ayuda si` (o `ayuda par
 `ayuda largo`...) muestra una explicación corta con un ejemplo para copiar.
 
 **7. Seguir aprendiendo.** Lo mejor para arrancar es [el curso](#el-curso)
-(`python mate\mate.py curso`). Además, en `mate\ejemplos` hay once programas cortos, explicados renglón por
+(`python mate\mate.py curso`). Además, en `mate\ejemplos` hay trece programas cortos, explicados renglón por
 renglón, para leer y correr en orden:
 
 | Archivo | Qué enseña |
@@ -778,6 +778,10 @@ python mate\mate.py correr mate\ejemplos\13_equipo_del_negocio.mate --ia-simulad
 python mate\mate.py probar mate\ejemplos\13_equipo_del_negocio.mate
 ```
 
+(Correr el ejemplo ahí mismo deja su memoria, `13_equipo_del_negocio.memoria.json`, en la
+carpeta de los ejemplos de Mate. Sirve para mirar; para usarlo en serio, creá el tuyo en otra
+carpeta, como sigue.)
+
 **Para tu negocio**, parado en la carpeta donde lo querés tener:
 
 ```
@@ -794,29 +798,52 @@ o el mínimo de stock.
 
 Lo que hay que saber:
 
-- **Un pedido se anota y descuenta stock; una pregunta, no.** "quiero 20 azucar" (o "20
-  azucar" a secas) es un pedido: Depósito descuenta y Ventas contesta `Anotado: 20 x Azúcar
-  ...`. "¿cuánto salen 20 azúcar?", "¿tenés 20 azúcar?" o "precio de 20 azúcar" son una
-  pregunta: Ventas le consulta a Depósito cuánto hay, contesta la cuenta y agrega `Todavía no
+- **Terminá siempre la charla con `chau`.** El stock y lo anotado para reponer se guardan
+  **cuando el programa termina** (con `chau`, o con Ctrl+C). Si cerrás la ventana con la X, se
+  apaga la máquina o se corta la luz, **se pierde lo anotado en esa charla**: al cliente se le
+  dijo `Anotado` y en la corrida siguiente el stock está como al abrir. El programa lo recuerda
+  cada vez que arranca. Si atendés todo el día, conviene escribir `chau` y volver a entrar
+  cada tanto. Y no abras el mismo equipo en **dos ventanas** a la vez: la que cierra última
+  pisa lo que anotó la otra.
+- **Un pedido claro se anota y descuenta stock; lo demás, no.** "quiero 20 azucar", "20
+  azucar" a secas, "dame 12 yerbas con envío" o "5 yerbas, las retiro yo" son pedidos:
+  Depósito descuenta y Ventas contesta `Anotado: 20 x Azúcar ...`. Para anotar, Ventas mira
+  la frase palabra por palabra: además de la cantidad y el producto solo puede traer palabras
+  de pedir, de saludar o del envío (la lista está en `palabras_de_un_pedido()`, en el
+  programa, y se le pueden agregar). Con una pregunta ("¿cuánto salen 20 azúcar?", "2
+  azúcar?"), un "no" ("no me mandes 2 arroz"), una duda ("quería saber si puedo pedir 2
+  azúcar") o cualquier otra palabra ("recibí 10 yerbas", "haceme un descuento en 20 yerbas",
+  "a las 3 paso a buscar la yerba"), Ventas le consulta a Depósito cuánto hay, contesta la
+  cuenta y agrega `Todavía no
   anoté nada: para pedirlo, escribí "quiero 20 azucar"`. Tampoco se anota un pedido **con
   envío que no llega a las unidades de la regla**: primero el cliente decide si lo retira o
-  suma más. Ante la duda no se anota.
+  suma más. Ante la duda no se anota: es el error que no le saca stock a nadie. (Un pedido
+  anotado no se puede anular desde la charla.)
 - **Pedir más de lo que hay no vende nada** (no se vende una parte): `De Yerba mate quedan
   40; no llego a 100.`
-- **El mínimo** es el número de `stock_minimo`, arriba en el programa. Cuando de un producto
-  quedan **menos** unidades que esas, Depósito le avisa a Compras, una vez. También le avisa
-  si alguien pide un producto que está en cero. Si Compras falla, la venta no se cae: Depósito
-  lo intenta de nuevo con el pedido que sigue. Al abrir y al cerrar, el programa muestra lo
-  que Compras tiene anotado: `Compras: hay que reponer Azúcar (quedan 5).`
+- **El mínimo** es el número de `stock_minimo`, arriba en el programa (un número entero, 0 o
+  más; si queda mal puesto, el equipo no atiende y dice cómo arreglarlo). Cuando por una
+  venta de un producto quedan **menos** unidades que esas, Depósito le avisa a Compras, una
+  vez. También le avisa si alguien pide un producto que está en cero. Un producto que ya
+  arranca por debajo del mínimo en la planilla **no** se anota hasta que alguien lo pide. Si
+  Compras falla, la venta no se cae: Depósito lo intenta de nuevo con el pedido que sigue. Al
+  abrir y al cerrar, el programa muestra lo que Compras tiene anotado, con lo que queda ese
+  día (se lo pregunta a Depósito): `Compras: hay que reponer Azúcar (quedan 5).`
 - **El stock de la planilla es el de arranque.** Depósito lo toma la primera vez que ve cada
   producto y de ahí en más lo lleva él: queda en `mi_negocio.memoria.json`, que se puede
   mirar con el Bloc de notas (ver [Memoria](#memoria-estado-recordado)). Cambiar el número en
   la planilla **no** cambia lo que Depósito recuerda. Un producto nuevo en la planilla sí
-  entra, con su stock.
-- **La mercadería que llega** se anota en la misma charla: `ingreso 30 azucar`. Depósito la
-  suma y Compras la tacha de su lista; si el producto vuelve a bajar del mínimo, se pide de
-  nuevo. Ojo: lo puede escribir cualquiera que tenga el teclado, así que sirve mientras el
-  teclado lo maneja alguien del negocio.
+  entra, con su stock (en unidades enteras). Si sacás un producto de la planilla o le cambiás
+  el nombre, lo que Depósito y Compras recordaban de él queda guardado: se limpia con
+  `--olvidar`.
+- **La mercadería que llega** se anota en la misma charla: `ingreso 30 azucar`. Va la
+  palabra `ingreso` (así, primera y sin tilde), la cantidad y el producto, y nada más: con un
+  signo menos, otra palabra o un número disparatado (más de `ingreso_maximo`, 100000) no suma
+  nada y explica cómo va. Depósito la suma. Si con eso el producto llega al mínimo, Compras lo
+  tacha de su lista (y si vuelve a bajar, se pide de nuevo); si entró poco y **sigue por
+  debajo del mínimo, el pedido de reposición queda anotado**, con el número nuevo. Ojo: lo
+  puede escribir cualquiera que tenga el teclado, así que sirve mientras el teclado lo maneja
+  alguien del negocio.
 - **Para empezar de nuevo con el stock de la planilla**: `correr mi_negocio.mate --olvidar`,
   una vez. Borra lo que recuerdan Depósito y Compras (las lecciones no).
 - **El contrato** (`contrato conversacion`, arriba en el programa) dice quién le puede hablar
