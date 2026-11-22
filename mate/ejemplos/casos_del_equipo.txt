@@ -28,6 +28,10 @@
 #     Si un caso falla, el informe muestra la conversación de esa pregunta, paso a paso.
 #   - Varias formas de preguntar lo mismo: una pregunta por renglón, una abajo de la
 #     otra, y las reglas una sola vez, debajo de todas.
+#   - Si el caso necesita que el cliente escriba algo MÁS en la misma charla (el "si" a
+#     un pedido, que Ventas repite antes de anotar), va debajo de la pregunta, así:
+#         después: si
+#     Las reglas miran entonces lo que se contesta (y lo que viaja) a ese último renglón.
 #   - Da igual con mayúsculas o minúsculas, y con tilde o sin tilde.
 #   - Con una barra | se dan opciones:   tiene que decir: no hay stock | no queda
 #   - El texto va sin comillas (si copiás una regla del informe, con comillas, vale igual).
@@ -35,9 +39,21 @@
 # Ojo: se busca el texto tal cual. "no puede decir: hay envío" también salta con
 # "no hay envío", porque adentro dice "hay envío".
 
-# Un pedido se anota, y la cuenta tiene que dar exacta: 3 bolsones de yerba a $ 35.000.
+# Ventas no anota directo. Primero repite el pedido con la cuenta completa (3 bolsones de
+# yerba a $ 35.000) y con cuántos BULTOS son, y pregunta. Todavía no viaja nada a Depósito.
 quiero 3 yerbas
 3 yerbas, las retiro yo
+    tiene que decir: entendí: 3 x
+    tiene que decir: $ 105.000,00
+    tiene que decir: son 3 bolsones enteros
+    tiene que decir: ¿lo anoto? contestá si o no
+    no puede decir: anotado
+    no tiene que viajar: Reservar | ConsultarStock | Reponer
+
+# Con el "si", recién ahí, se anota: Ventas le pide a Depósito que lo reserve.
+quiero 3 yerbas
+3 yerbas, las retiro yo
+    después: si
     tiene que decir: anotado: 3 x
     tiene que decir: $ 105.000,00
     tiene que viajar: Reservar de Ventas a Deposito
@@ -45,13 +61,38 @@ quiero 3 yerbas
 # (quedan 37, más que el mínimo: a Compras no se le pide nada)
     no tiene que viajar: Reponer
 
+# Con "no" no se anota nada. Y con cualquier otra cosa tampoco: un "si" con algo más
+# no es un sí.
+quiero 3 yerbas
+    después: no
+    tiene que decir: no anoté nada
+    no puede decir: anotado
+    no tiene que viajar: Reservar
+
+quiero 3 yerbas
+    después: si, pero que sean 5
+    tiene que decir: no anoté lo de antes
+    no puede decir: anotado
+    no tiene que viajar: Reservar
+
 # Un pedido que deja el producto por debajo del mínimo (de 25 bolsas de azúcar quedan 5):
 # Depósito le pide la reposición a Compras antes de contestarle a Ventas.
 quiero 20 azucar
+    después: si
     tiene que decir: anotado: 20 x
     tiene que viajar: Reservar de Ventas a Deposito
     tiene que viajar: Reponer de Deposito a Compras
     tiene que viajar: Anotado de Compras a Deposito
+
+# Las frases que se entienden mal se ven en la pregunta, antes de descontar nada: el
+# cliente quería UN bolsón (de 10 paquetes) y Ventas entendió 10. Lo dice con los bultos.
+quiero un bolson x 10 de yerba
+quiero 10 unidades de yerba
+compro 10 yerbas
+    tiene que decir: son 10 bolsones enteros
+    tiene que decir: ¿lo anoto?
+    no puede decir: anotado
+    no tiene que viajar: Reservar
 
 # Preguntar el precio no es pedir: da la cuenta y no anota nada.
 cuanto salen 3 yerbas?
@@ -62,10 +103,18 @@ tenes 3 yerbas?
     tiene que viajar: ConsultarStock de Ventas a Deposito
     no tiene que viajar: Reservar
 
-# La mercadería que llega: Depósito la suma y le avisa a Compras que ya llegó (con 25
-# bolsas más 30 pasa el mínimo, así que no "sigue faltando"). Ese aviso sale con
-# 'enviar': llega después de contestar, y el ensayo lo cuenta igual.
+# La mercadería que llega: Depósito también repite y pregunta antes de sumar.
 ingreso 30 azucar
+    tiene que decir: entran 30 x
+    tiene que decir: son 30 bolsas enteras
+    tiene que decir: ¿lo sumo?
+    no tiene que viajar: Ingreso
+
+# Con el "si", Depósito la suma y le avisa a Compras que ya llegó (con 25 bolsas más 30
+# pasa el mínimo, así que no "sigue faltando"). Ese aviso sale con 'enviar': llega
+# después de contestar, y el ensayo lo cuenta igual.
+ingreso 30 azucar
+    después: si
     tiene que decir: entraron 30
     tiene que viajar: Ingreso de el programa a Deposito
     tiene que viajar: Llego de Deposito a Compras
@@ -74,6 +123,7 @@ ingreso 30 azucar
 # No se vende lo que no hay: ni total ni envío.
 quiero 12 fideos con envio
 quiero 100000 yerbas
+    después: si
     tiene que decir: no hay stock | no llego a
     no puede decir: anotado: | va con envío
 # (Depósito contesta que reservó 0: no se vende una parte)

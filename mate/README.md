@@ -755,21 +755,25 @@ tiene tres:
 
 | Agente | Qué hace | Qué guarda |
 |---|---|---|
-| **Ventas** | da la cara al cliente, por teclado. Si le piden una cantidad de un producto, entiende el pedido y hace la cuenta con las funciones del ejemplo 12, sin IA; lo demás lo contesta la IA, con frenos | la lista de precios |
+| **Ventas** | da la cara al cliente, por teclado. Si le piden una cantidad de un producto, entiende el pedido y hace la cuenta con las funciones del ejemplo 12, sin IA. **No anota directo**: repite el pedido, con la cuenta y los bultos, y lo anota recién cuando el cliente contesta `si`. Lo demás lo contesta la IA, con frenos | la lista de precios y el pedido que espera el `si` (no se recuerda entre corridas) |
 | **Depósito** | es el **único dueño del stock**: lo descuenta con cada pedido y no vende lo que no hay | el stock (`estado recordado`: sobrevive de una corrida a la otra) |
 | **Compras** | deja anotado lo que hay que reponer | esa lista (también recordada) |
 
 Ninguno toca el estado de otro: Ventas no sabe cuánto stock hay, se lo **pregunta** a Depósito;
 y cuando un producto baja del mínimo, Depósito le pide la reposición a Compras **una sola
-vez**, no una por cada venta. Con `--traza` se ve la conversación:
+vez**, no una por cada venta. Con `--traza` se ve la conversación. Un pedido son dos
+renglones del cliente: con el primero Ventas contesta sola (repite el pedido y pregunta
+"¿Lo anoto?"), y recién con el `si` le habla a Depósito:
 
 ```
-  ·  6. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-2", dicho: "quiero 20 azucar" }   (conversación 5)
-  ·  7.    Ventas pregunta a Deposito: Reservar { charla: "consulta-2", producto: "Azúcar", cantidad: 20 }
-  ·  8.       Deposito pregunta a Compras: Reponer { charla: "consulta-2", producto: "Azúcar", quedan: 5 }
-  ·  8.       Compras responde a Deposito: Anotado { charla: "consulta-2", producto: "Azúcar" }
-  ·  7.    Deposito responde a Ventas: Reserva { charla: "consulta-2", producto: "Azúcar", reservadas: 20, quedan: 5 }
-  ·  6. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-2", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
+  ·  6. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-3", dicho: "quiero 20 azucar" }   (conversación 6)
+  ·  6. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-3", respuesta: "Entendí: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00. Son 20 bolsas enteras. ¿Lo anoto? Contestá si o no.", aviso: nada }
+  ·  7. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-4", dicho: "si" }   (conversación 7)
+  ·  8.    Ventas pregunta a Deposito: Reservar { charla: "consulta-4", producto: "Azúcar", cantidad: 20 }
+  ·  9.       Deposito pregunta a Compras: Reponer { charla: "consulta-4", producto: "Azúcar", quedan: 5 }
+  ·  9.       Compras responde a Deposito: Anotado { charla: "consulta-4", producto: "Azúcar" }
+  ·  8.    Deposito responde a Ventas: Reserva { charla: "consulta-4", producto: "Azúcar", reservadas: 20, quedan: 5 }
+  ·  7. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-4", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
 ```
 
 Para probarlo sin clave ni internet:
@@ -806,10 +810,48 @@ Lo que hay que saber:
   cada vez que arranca. Si atendés todo el día, conviene escribir `chau` y volver a entrar
   cada tanto. Y no abras el mismo equipo en **dos ventanas** a la vez: la que cierra última
   pisa lo que anotó la otra.
-- **Un pedido claro se anota y descuenta stock; lo demás, no.** "quiero 20 azucar", "20
-  azucar" a secas, "me das 20 azucar", "quiero comprar 20 azucar", "hago un pedido de 20
-  azucar", "dame 12 yerbas con envío" o "5 yerbas, las retiro yo" son pedidos: Depósito
-  descuenta y Ventas contesta `Anotado: 20 x Azúcar ...`. Para anotar, Ventas mira la frase
+- **Nada se anota sin un `si`.** Ventas no anota directo. Cuando entiende un pedido lo
+  repite con la cuenta completa y con cuántos **bultos** son, usando la unidad en que se
+  vende, y pregunta:
+
+  ```
+  Cliente: quiero 6 cervezas
+  Ventas: Entendí: 6 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 43.200,00. Son 6 packs enteros. ¿Lo anoto? Contestá si o no.
+  Cliente: si
+  Ventas: Anotado: 6 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 43.200,00.
+  ```
+
+  Solo con un **sí claro, y nada más** ("si", "sí", "dale", "ok", "confirmo", "anotalo"; con
+  "por favor" o "gracias" también vale) le pide a Depósito que lo reserve: recién ahí se
+  descuenta el stock. Con "no" contesta `Listo: no anoté nada.` Con **cualquier otra cosa**
+  ("si, pero que sean 5", "si?", "1", "bueno") tampoco anota: avisa `No anoté lo de antes (6 x
+  Cerveza rubia): no me contestaste que sí.` y atiende lo que se escribió ahora; si es un
+  pedido nuevo, lo trata como pedido nuevo, con su propia pregunta. Un `si` suelto, sin
+  ningún pedido esperando (el segundo `si` de un cliente apurado), no anota nada y lo dice.
+  Las palabras del sí están en `palabras_de_si()`, arriba en el programa.
+
+  Para qué sirve: hay frases que Ventas **entiende mal**, y antes las anotaba y descontaba
+  stock sin vuelta atrás. "Quiero un pack x 6 de cerveza" (el cliente quiere **un** pack)
+  se entiende como 6 packs; "quiero un bolson x 10 de yerba" y "quiero 10 unidades de yerba",
+  como 10 bolsones; "compro 10 yerbas" puede ser "compró"; "hola, 5 yerbas para retirar"
+  puede ser el cliente que viene a buscar lo que ya pidió. Ahora todas esas reciben la
+  pregunta, y el error **se ve antes de anotar**: `Son 10 bolsones enteros (no 10
+  paquetes).` (cuando la cantidad es justo un número de los de adentro del bulto, lo dice
+  así). Si la presentación no nombra el bulto ("6 botellas de 2 litros", o vacía), dice
+  "bultos". Lo que no cambia: Ventas sigue sin entender esas frases; lo que cambia es que
+  el cliente, o quien tenga el teclado, tiene que leer la pregunta y decir que sí. **Un `si`
+  dicho sin leer anota lo que Ventas entendió.**
+
+  El pedido que espera el `si` es estado del agente Ventas y **no se recuerda** de una
+  corrida a la otra: si se cierra el programa antes del `si`, no quedó anotado. Y un `si`
+  contesta siempre lo **último** que se preguntó: si en el medio se escribe un `ingreso`,
+  el pedido deja de esperar (Ventas lo avisa).
+- **A un pedido claro Ventas le pregunta "¿Lo anoto?"; a lo demás, ni eso.** "quiero 20
+  azucar", "20 azucar" a secas, "me das 20 azucar", "quiero comprar 20 azucar", "hago un
+  pedido de 20 azucar", "dame 12 yerbas con envío" o "5 yerbas, las retiro yo" son pedidos:
+  Ventas los repite y, con el `si`, Depósito descuenta y Ventas contesta `Anotado: 20 x
+  Azúcar ...`. Las reglas que deciden qué es un pedido claro son las mismas de antes de que
+  existiera la pregunta (la confirmación se suma, no las reemplaza). Para eso, Ventas mira la frase
   palabra por palabra: además de la cantidad y el producto solo puede traer palabras de
   cuatro listas que están en el programa. Las de **pedir** (`palabras_de_pedir()`: "quiero",
   "dame", "me das", "pido", "llevo", "comprar"...), las **sueltas** de saludar y contar
@@ -825,7 +867,10 @@ Lo que hay que saber:
     yerbas", "a las 3 paso a buscar la yerba", "necesito 12 arroz para mañana");
   - una frase que habla de un pedido que **ya está hecho**: "retiro el pedido de 5 azucar",
     "gracias por las 10 yerbas", "mi pedido de 20 azucar", "ya me mandan los 10 arroz", "te
-    llevo 10 yerbas". El cliente que viene a retirar lo que pidió no lo compra dos veces;
+    llevo 10 yerbas". Vale cuando el retiro o el artículo van **adelante** de la cantidad.
+    Con la cantidad adelante ("hola, 5 yerbas para retirar", "10 yerbas retiro") Ventas lo
+    toma por un pedido con retiro y **pregunta**: el cliente que venía a buscar lo ya
+    pedido no lo compra dos veces mientras conteste que no;
   - algo que **ya pasó o que hizo otro**, escrito con tilde ("compró 10 yerbas", "llevó 10
     yerbas": sin la tilde serían "compro" y "llevo"), un "hago" sin "un pedido" atrás ("hago
     5 yerbas"), un "de" pegado adelante de la cantidad ("encargo de 5 yerbas", "de 5
@@ -855,9 +900,17 @@ Lo que hay que saber:
     decide si lo retira o suma más.
 
   Ante la duda no se anota: es el error que no le saca stock a nadie. El costo es que un
-  pedido bien dicho con una palabra que no está en las listas no se anota, y el cliente lo
-  tiene que escribir de nuevo como le dice Ventas. Si tus clientes usan otra palabra para
+  pedido bien dicho con una palabra que no está en las listas no recibe la pregunta, y el
+  cliente lo tiene que escribir de nuevo como le dice Ventas. Si tus clientes usan otra palabra para
   pedir, agregala en `palabras_de_pedir()` (en minúsculas y sin tildes).
+
+  Lo que la pregunta **no** arregla, para saber: con una presentación que trae la cuenta
+  sin un sustantivo ("caja x 6", "pack x 6", "x 12"), "quiero 6 vinos" se entiende como 6
+  cajas, y la pregunta dice `Son 6 cajas enteras.` sin el "(no 6 ...)", porque no hay
+  palabra para lo de adentro; "quiero 2 bultos de huevos", con "maple de 30 huevos",
+  pregunta por la unidad aunque más arriba dice que con "bultos" se pide (ahí se pide
+  "quiero 2 maples de huevos"); y contestar "1" o "uno solo" a una pregunta de Ventas no
+  retoma el pedido: hay que escribirlo de nuevo.
 - **Un pedido anotado no se anula desde la charla.** A "devuelvo 5 yerbas", "cancelame 5
   yerbas", "anulame el pedido" o "ya no quiero 5 yerbas", Ventas contesta, sin IA y sin tocar
   el stock: `No anoté nada. Y si es por un pedido que ya está anotado: desde esta charla no
@@ -889,7 +942,10 @@ Lo que hay que saber:
   de yerba", "ingreso 30 azucar gracias") o un número disparatado (más de `ingreso_maximo`,
   100000) no suma nada y explica cómo va. Lo mismo si está escrito parecido ("ingresó 30
   azucar", con la tilde que pone el celular; "ingreso: 30 azucar"): no suma y lo explica, en
-  vez de tratarlo como una consulta de un cliente. Depósito la suma. Si con eso el producto llega al mínimo, Compras lo
+  vez de tratarlo como una consulta de un cliente. Bien escrito, **Depósito también pregunta
+  antes de sumar**: `Entendí: entran 30 x Azúcar (bolsa de 10 kg). Son 30 bolsas enteras.
+  ¿Lo sumo? Contestá si o no.` Con `si` lo suma; con `no`, o con cualquier otra cosa, no
+  suma nada (un cero de más se ve antes de tocar el stock). Si con eso el producto llega al mínimo, Compras lo
   tacha de su lista (y si vuelve a bajar, se pide de nuevo); si entró poco y **sigue por
   debajo del mínimo, el pedido de reposición queda anotado**, con el número nuevo. Ojo: lo
   puede escribir cualquiera que tenga el teclado, así que sirve mientras el teclado lo maneja
@@ -900,10 +956,19 @@ Lo que hay que saber:
   a quién y en qué orden: el cliente solo a Ventas, Ventas a Depósito, Depósito a Compras. Si
   el programa le pide una reserva a Depósito salteándose a Ventas, Mate lo frena:
   `charla 'a' en 'llega_el_cliente' no admite pregunta de (programa) a Deposito con 'Reservar'`.
-  Cada consulta del cliente lleva su propio nombre de charla (`consulta-1`, `consulta-2`...).
+  Cada renglón del cliente lleva su propio nombre de charla (`consulta-1`, `consulta-2`...).
+  Un pedido son dos: en la primera Ventas contesta sola (repite el pedido y pide el `si`) y
+  en la segunda, la del `si`, le pide la reserva a Depósito. El contrato no cambió de forma:
+  el único camino a `Reservar` sigue saliendo de Ventas, y Ventas lo toma solo con el `si`.
 - **`probar` y `ensayar` no tocan el stock.** En una prueba los agentes arrancan de cero y no
   se guarda nada. Un ensayo lee lo que Depósito recuerda pero no lo cambia: si de un producto
   ya se vendió casi todo, los casos que lo nombran van a contestar que no alcanza.
+- **En los casos, el `si` del cliente va en un segundo renglón**, debajo de la pregunta:
+  `después: si`. Sin eso, el caso mira la pregunta de Ventas ("Entendí: ... ¿Lo anoto?") y
+  no llega a anotar nada (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)).
+- **Un equipo creado antes de este cambio es una copia fija**: sigue anotando directo. Para
+  tener la confirmación hay que crearlo de nuevo con `nuevo equipo` (con otro nombre, o en
+  otra carpeta) y pasarle la planilla.
 - **Los casos del equipo también miran la conversación**: `mi_negocio_casos.txt` exige, para
   cada pregunta, qué mensajes tienen que viajar entre los agentes y cuáles no (ver
   [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo)).
@@ -2240,6 +2305,23 @@ tenes cafe?
 
 - **Varias formas de preguntar lo mismo** van una abajo de la otra, y las reglas una sola
   vez, debajo de todas: valen para cada una de esas preguntas.
+- **Un caso de más de un renglón.** Si el cliente tiene que escribir algo más en la misma
+  charla (el `si` a un pedido que el programa repite antes de anotar), va debajo de la
+  pregunta, con `después:`
+
+  ```
+  quiero 3 yerbas
+      después: si
+      tiene que decir: anotado: 3 x
+  ```
+
+  Mate le escribe la pregunta al programa y, cuando el programa vuelve a pedir por teclado,
+  le escribe lo que sigue, en la misma corrida. Las reglas miran lo que el programa contesta
+  **al último renglón** (y, en un equipo, los mensajes que viajan desde ahí); si el caso
+  falla, el informe muestra también lo que había contestado a los renglones de antes. Un
+  `después:` vale para todas las preguntas que tiene arriba, como una regla, y puede haber
+  varios (hasta 10). En el informe el caso se ve así: `quiero 3 yerbas  →  si`. Si el
+  programa termina sin volver a pedir, el caso falla y lo dice.
 - `tiene que decir:` y `no puede decir:` buscan ese texto dentro de la respuesta. Da igual
   con mayúsculas o minúsculas y con tilde o sin tilde (`sin envio` encuentra "Sin envío").
 - Con una barra `|` se dan opciones: `tiene que decir:` se cumple con cualquiera de ellas;
@@ -2346,8 +2428,9 @@ Lo que hay que saber:
   programa pide otra cosa antes de la consulta (el nombre, por ejemplo), la pregunta va a
   parar ahí y el ensayo no sirve. Por eso
   sirve con cualquier programa que charle por teclado (el ejemplo 12, lo que crea `nuevo
-  mostrador`, los mostradores del curso) sin tocarlo; y no sirve para ensayar una charla de
-  varias idas y vueltas, ni un programa que no usa `leer`.
+  mostrador`, los mostradores del curso) sin tocarlo; y no sirve para un programa que no usa
+  `leer`. Una charla de varias idas y vueltas se ensaya con los renglones `después:` (más
+  arriba): cada uno entra en el `leer()` que sigue, en la misma corrida.
 - **Hay que decir quién contesta.** Sin `--ia-simulada`, sin modelo propio y sin clave, Mate
   no ensaya y te dice las tres maneras.
 - `mate\ejemplos\casos.txt` trae casos de muestra para el ejemplo 12, y `nuevo mostrador` te
@@ -2367,7 +2450,9 @@ mensajes tienen que viajar entre los agentes** mientras la atienden, y cuáles n
 
 ```
 # Un pedido que deja el azúcar por debajo del mínimo: Depósito le avisa a Compras.
+# (Ventas repite el pedido y pregunta: el "si" del cliente va en un segundo renglón.)
 quiero 20 azucar
+    después: si
     tiene que decir: anotado: 20 x
     tiene que viajar: Reservar de Ventas a Deposito
     tiene que viajar: Reponer de Deposito a Compras
@@ -2390,7 +2475,8 @@ cuanto salen 3 yerbas?
 - Con una barra `|` se dan opciones, como en las otras reglas: `tiene que viajar:` se cumple
   con cualquiera; `no tiene que viajar:` falla si viaja alguno.
 - Se mira **solo lo que viaja por esa pregunta**: desde que el programa la lee hasta que
-  vuelve a pedir algo por teclado. Lo que se hablaron antes (cargar la planilla) no cuenta,
+  vuelve a pedir algo por teclado. (En un caso con renglones `después:`, desde que lee el
+  último: en el de arriba, lo que viaja por el `si`.) Lo que se hablaron antes (cargar la planilla) no cuenta,
   y tampoco lo que el programa había mandado antes con `enviar`, aunque llegue en ese momento.
 - **Lo mandado con `enviar` también cuenta.** Un `enviar` no llega en el momento: queda
   esperando y se entrega más tarde (cuando el programa le vuelve a preguntar a un agente, o
@@ -2434,15 +2520,16 @@ numerados desde 1. Este es el del primer caso de arriba, con un equipo al que le
 `stock_minimo = 0` (así Depósito no pide nunca la reposición):
 
 ```
-  ✗ quiero 20 azucar   (renglón 52 de mi_negocio_casos.txt)
+  ✗ quiero 20 azucar  →  si   (renglón 82 de mi_negocio_casos.txt)
+      A "quiero 20 azucar" había contestado: Ventas: Entendí: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00. Son 20 bolsas enteras. ¿Lo anoto? Contestá si o no.
       Contestó: Ventas: Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.
       No cumple: tiene que viajar: Reponer de Deposito a Compras
       No cumple: tiene que viajar: Anotado de Compras a Deposito
       La conversación de este caso (lo que se dijeron los agentes, en orden):
-          ·  1. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-1", dicho: "quiero 20 azucar" }   (conversación 1)
-          ·  2.    Ventas pregunta a Deposito: Reservar { charla: "consulta-1", producto: "Azúcar", cantidad: 20 }
-          ·  2.    Deposito responde a Ventas: Reserva { charla: "consulta-1", producto: "Azúcar", reservadas: 20, quedan: 5 }
-          ·  1. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-1", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
+          ·  1. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-2", dicho: "si" }   (conversación 1)
+          ·  2.    Ventas pregunta a Deposito: Reservar { charla: "consulta-2", producto: "Azúcar", cantidad: 20 }
+          ·  2.    Deposito responde a Ventas: Reserva { charla: "consulta-2", producto: "Azúcar", reservadas: 20, quedan: 5 }
+          ·  1. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-2", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
       Qué mensajes viajan lo decide el programa, no la IA: una lección no lo cambia.
       Hay que cambiar el programa (o el caso).
 ```
@@ -2913,6 +3000,7 @@ que en la 0.6:
 | `nuevo equipo mi_negocio`: crea ese equipo para tu negocio (programa, planilla y casos), sin copiar archivos a mano | [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
 | La clase 13 del curso: un equipo de agentes que se hablan | [El curso](#el-curso) |
 | En el archivo de casos de `ensayar`: `tiene que viajar: Reponer de Deposito a Compras` y `no tiene que viajar: Reponer`. Si un caso de un equipo falla, el informe muestra la conversación | [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo) |
+| El equipo **no anota sin un `si`**: Ventas repite el pedido con la cuenta y los bultos ("Son 6 packs enteros. ¿Lo anoto?") y Depósito hace lo mismo con un `ingreso`. En el archivo de casos, el `si` va en un segundo renglón: `después: si` | [Un equipo propio](#un-equipo-propio-nuevo-equipo) y [Ensayar un mostrador](#ensayar-un-mostrador-ensayar) |
 | `usar buzon "deposito.mate"`: un agente le manda un mensaje a un agente de **otro programa** de la misma carpeta. El mensaje queda en un buzón (un archivo) y se entrega, validado con el contrato, cuando ese otro programa corre. La orden `buzon deposito.mate` muestra qué hay esperando | [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón) |
 
 El detalle está en `MEJORAS.md`, mejoras 124, 125 y 126.

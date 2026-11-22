@@ -3,7 +3,9 @@
 # Hasta el paso 12 había un solo agente que le contestaba a una persona. Acá son tres, y
 # lo nuevo es que SE HABLAN ENTRE ELLOS:
 #   - VENTAS da la cara al cliente. Entiende el pedido (con las funciones del ejemplo 12,
-#     sin IA) y hace la cuenta. No sabe cuánto stock hay: se lo pregunta a Depósito.
+#     sin IA) y hace la cuenta. NO ANOTA DIRECTO: primero le repite el pedido al cliente,
+#     con la cuenta y cuántos bultos son, y espera que conteste "si". No sabe cuánto stock
+#     hay: se lo pregunta a Depósito.
 #   - DEPÓSITO es el ÚNICO dueño del stock. Lo descuenta cuando se vende y lo RECUERDA de
 #     una corrida a la otra (estado recordado). Cuando un producto baja del mínimo, le
 #     pide la reposición a Compras: UNA vez, no una por cada venta.
@@ -19,11 +21,15 @@
 #
 #   1. Para charlar con el equipo. Probá, de a un renglón:
 #          cuanto salen 20 azucar        (pregunta el precio: no se anota nada)
-#          quiero 20 azucar              (un pedido: Depósito descuenta, y avisa a Compras)
-#          quiero 3 azucar               (otro pedido: a Compras ya no se le avisa de nuevo)
-#          quiero 100 yerbas             (no hay tantas: no se vende)
-#          no me mandes 2 arroz          (no es un pedido claro: no se anota nada)
-#          ingreso 30 azucar             (llegó mercadería: Depósito la suma)
+#          quiero 20 azucar              (un pedido: Ventas lo repite y pregunta "¿Lo anoto?")
+#          si                            (recién ahora Depósito descuenta, y avisa a Compras)
+#          quiero 3 azucar               (otro pedido: lo repite y pregunta)
+#          no                            (no se anota nada)
+#          quiero 100 yerbas             (lo repite y pregunta...)
+#          si                            (...pero no hay tantas: no se vende)
+#          no me mandes 2 arroz          (no es un pedido claro: ni pregunta ni anota)
+#          ingreso 30 azucar             (llegó mercadería: Depósito también pregunta)
+#          si                            (y recién ahí la suma)
 #          chau
 #      El comando:
 #          python mate\mate.py correr mate\ejemplos\13_equipo_del_negocio.mate --ia-simulada
@@ -40,18 +46,29 @@
 #
 # El stock de precios.csv es el de ARRANQUE: Depósito lo toma la primera vez que ve cada
 # producto, y de ahí en más lo lleva él. Cambiar el número en la planilla no cambia lo que
-# Depósito recuerda: la mercadería que llega se anota con "ingreso 30 azucar".
+# Depósito recuerda: la mercadería que llega se anota con "ingreso 30 azucar" (Depósito
+# lo repite y pregunta "¿Lo sumo?": se suma con "si").
 # OJO: "ingreso" se escribe en la misma charla que usa el cliente. Sirve mientras el
 # teclado lo maneja alguien del negocio.
 # OJO, QUE ES IMPORTANTE: lo que Depósito y Compras recuerdan se guarda cuando el programa
 # TERMINA. Terminá siempre la charla con chau. Si cerrás la ventana con la X (o se corta la
 # luz), se pierde lo anotado en esa charla: el stock queda como estaba al abrirla. Y no
 # abras el mismo equipo en dos ventanas a la vez: la que cierra última pisa a la otra.
-# Un pedido se anota solo si está CLARO ("quiero 20 azucar", "20 azucar", "dame 12 yerbas
-# con envio"). Con una pregunta, un "no", una duda, una palabra que Ventas no conoce
-# ("recibí 10 yerbas", "haceme un descuento en 20 yerbas") o una frase que habla de un
-# pedido que YA está hecho ("retiro el pedido de 5 azucar", "gracias por las 10 yerbas")
-# contesta la cuenta y NO anota. Un pedido ya anotado no se anula desde la charla.
+# NADA SE ANOTA SIN UN "SI". Cuando Ventas entiende un pedido lo repite entero ("Entendí:
+# 6 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 43.200,00. Son 6 packs
+# enteros. ¿Lo anoto? Contestá si o no.") y lo anota solo si lo que sigue es un "si" (o
+# "sí", "dale", "ok", "confirmo", "anotalo"), y nada más. Con "no", o con cualquier otra
+# cosa, no anota nada; si la otra cosa es un pedido nuevo, lo trata como pedido nuevo, con
+# su propia pregunta. Así, si Ventas entendió mal ("quiero un pack x 6 de cerveza" son 1
+# pack, no 6), el cliente lo ve ANTES de que se descuente el stock. El ingreso de
+# mercadería pregunta igual. El pedido que espera el "si" no se recuerda de una corrida a
+# la otra: si se cierra el programa, no quedó anotado.
+# Ventas pregunta "¿Lo anoto?" solo si el pedido está CLARO ("quiero 20 azucar", "20
+# azucar", "dame 12 yerbas con envio"). Con una pregunta, un "no", una duda, una palabra
+# que Ventas no conoce ("recibí 10 yerbas", "haceme un descuento en 20 yerbas") o una
+# frase que habla de un pedido que YA está hecho ("retiro el pedido de 5 azucar", "gracias
+# por las 10 yerbas") contesta la cuenta, y ni pregunta ni anota. Un pedido ya anotado no
+# se anula desde la charla.
 # Tampoco anota si piden por lo que viene ADENTRO del bulto ("quiero 10 paquetes de yerba",
 # y la yerba se vende por bolsón de 10 paquetes): no se sabe si son 10 bolsones o 1, así
 # que Ventas pregunta y dice cómo se vende. La unidad de venta es la PRIMERA palabra de la
@@ -82,6 +99,12 @@ mensaje ListaDePrecios { filas: lista }
 mensaje ConsultaDeCliente { charla: texto, dicho: texto } responde RespuestaDeVentas
 # (aviso solo viene si la IA no pudo contestar)
 mensaje RespuestaDeVentas { charla: texto, respuesta: texto, aviso: texto? }
+# Del programa a Ventas, cuando lo que se escribió no era para ella (un ingreso): si
+# Ventas tenía un pedido esperando el "si", deja de esperarlo. Así un "si" que llega más
+# tarde, y que contestaba otra cosa, no anota un pedido viejo. (aviso: lo que hay que
+# decirle al cliente; "" si no esperaba nada.)
+mensaje DejarDeEsperar responde Dejado
+mensaje Dejado { aviso: texto }
 
 # Los de Ventas a Depósito. Reservar es vender: si alcanza, descuenta.
 mensaje ConsultarStock { charla: texto, producto: texto } responde Stock
@@ -110,6 +133,9 @@ mensaje Queda { producto: texto, unidades: numero }
 # El orden en que se pueden hablar por una consulta del cliente. Cada paso dice: estando
 # en tal estado, quién le habla a quién, con qué mensaje, y a qué estado se pasa. Lo que
 # no está acá no puede pasar: Mate lo frena con un error que nombra el estado.
+# Cada renglón que escribe el cliente es una consulta, con su propia charla. Un pedido
+# son DOS: en la primera ("quiero 20 azucar") Ventas contesta sola, repitiendo el pedido y
+# preguntando "¿Lo anoto?"; en la segunda (el "si") le pide a Depósito que lo reserve.
 contrato conversacion {
     id: "charla",
     inicio: "llega_el_cliente",
@@ -117,12 +143,14 @@ contrato conversacion {
         # El cliente le habla a Ventas, y a nadie más.
         { estado: "llega_el_cliente", evento: "pregunta", origen: "(programa)", destino: "Ventas",
           mensaje: "ConsultaDeCliente", sigue: "atiende_ventas" },
-        # Si pregunta el precio, Ventas le consulta a Depósito cuánto hay.
+        # Si pregunta el precio (o el pedido no está claro), Ventas le consulta a Depósito
+        # cuánto hay, y contesta la cuenta sin anotar.
         { estado: "atiende_ventas", evento: "pregunta", origen: "Ventas", destino: "Deposito",
           mensaje: "ConsultarStock", sigue: "mira_deposito" },
         { estado: "mira_deposito", evento: "respuesta", origen: "Deposito", destino: "Ventas",
           mensaje: "Stock", sigue: "contesta_ventas" },
-        # Si es un pedido, Ventas le pide a Depósito que lo reserve.
+        # Si es el "si" a un pedido que Ventas repitió, le pide a Depósito que lo reserve.
+        # (Es el único camino a Reservar: sin el "si" del cliente no se descuenta nada.)
         { estado: "atiende_ventas", evento: "pregunta", origen: "Ventas", destino: "Deposito",
           mensaje: "Reservar", sigue: "reserva_deposito" },
         # Depósito, antes de contestar, puede pedirle la reposición a Compras.
@@ -136,7 +164,8 @@ contrato conversacion {
         { estado: "avisada_compras", evento: "respuesta", origen: "Deposito", destino: "Ventas",
           mensaje: "Reserva", sigue: "contesta_ventas" },
         # Y Ventas le contesta al cliente: después de hablar con Depósito, o sola (cuando
-        # no era un pedido, o faltaba un dato).
+        # repite un pedido y pide el "si", cuando el cliente dice "no", cuando no era un
+        # pedido o cuando faltaba un dato).
         { estado: "contesta_ventas", evento: "respuesta", origen: "Ventas", destino: "(programa)",
           mensaje: "RespuestaDeVentas", sigue: "fin" },
         { estado: "atiende_ventas", evento: "respuesta", origen: "Ventas", destino: "(programa)",
@@ -148,12 +177,17 @@ contrato conversacion {
 agente Ventas {
     # La lista de precios: una fila por producto, como la deja leer_tabla().
     estado filas = []
+    # El pedido que Ventas entendió y le repitió al cliente, y que espera su "si":
+    # { fila, cantidad, envio }, o nada. No es 'recordado': si el programa se cierra, un
+    # pedido sin confirmar no quedó anotado en ningún lado.
+    estado pendiente = nada
 
     # Lo que Mate le revisa a cada respuesta de la IA antes de que le llegue al cliente.
     frenos {
         # Los únicos importes que puede nombrar son los de la lista.
         precios: solo_precios(filas)
-        prohibido: ["descuento", "rebaja", "fiado"]
+        # ("anotado": que un pedido quedó anotado lo dice solo el programa, después del "si")
+        prohibido: ["descuento", "rebaja", "fiado", "anotado"]
         largo: 400
         reserva: "Eso te lo confirma una persona. Ya te paso con alguien."
         consultas_por_dia: 300
@@ -164,12 +198,47 @@ agente Ventas {
         filas = l.filas
     }
 
+    al recibir DejarDeEsperar {
+        sea esperaba = pendiente
+        pendiente = nada
+        si esperaba == nada {
+            responder Dejado { aviso: "" }
+        }
+        responder Dejado { aviso: recortar(aviso_de_no_anotado(esperaba)) }
+    }
+
     al recibir ConsultaDeCliente como c {
+        # 0. ¿Había un pedido esperando el "si"? Lo que el cliente conteste ahora decide,
+        #    y el pedido deja de esperar: solo un "si" claro, y nada más, lo anota.
+        sea esperaba = pendiente
+        pendiente = nada
+        # (lo que se le dice primero si contestó otra cosa: que lo de antes no se anotó)
+        var antes = ""
+        si esperaba != nada {
+            si es_un_si(c.dicho) {
+                # Confirmado: el stock lo descuenta Depósito, que es el que sabe cuánto hay.
+                sea reserva = preguntar Reservar {
+                    charla: c.charla, producto: esperaba.fila.producto, cantidad: esperaba.cantidad,
+                } a Deposito
+                responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_venta(esperaba, reserva) }
+            }
+            si es_un_no(c.dicho) {
+                responder RespuestaDeVentas { charla: c.charla, respuesta: "Listo: no anoté nada." }
+            }
+            # Cualquier otra cosa no es un "si": no se anota, y se atiende lo que dijo
+            # ahora como una consulta nueva (si es otro pedido, con su propia pregunta).
+            antes = aviso_de_no_anotado(esperaba)
+        }
+        # Un "si" suelto, sin ningún pedido esperando (el segundo "si" de un cliente
+        # apurado, por ejemplo): no hay nada que anotar. Se lo dice el programa, sin IA.
+        si esperaba == nada y es_un_si(c.dicho) {
+            responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_sin_pedido() }
+        }
         # 1. ¿Es un pedido? Lo dice leer_pedido(), una función del programa: sin IA.
         sea pedido = leer_pedido(filas, c.dicho)
         # Falta un dato ("¿cuántos querés?") o preguntan por el envío: se contesta eso.
         si tipo(pedido) == "texto" {
-            responder RespuestaDeVentas { charla: c.charla, respuesta: pedido }
+            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + pedido }
         }
         si tipo(pedido) == "mapa" {
             sea producto = pedido.fila.producto
@@ -178,34 +247,35 @@ agente Ventas {
             # se anota ni se cotiza: Ventas pregunta, y dice en qué unidad se vende.
             sea otra_unidad = unidad_de_adentro(pedido.fila, c.dicho)
             si otra_unidad != nada {
-                responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_unidad(pedido, otra_unidad) }
+                responder RespuestaDeVentas { charla: c.charla, respuesta: antes + respuesta_de_unidad(pedido, otra_unidad) }
             }
             # Si no es un pedido claro (pregunta el precio, duda, dice que no) o pide un
             # envío que no le corresponde, no se anota nada: Ventas mira cuánto hay y
             # contesta la cuenta.
             si no es_para_anotar(pedido, c.dicho) {
                 sea hay = preguntar ConsultarStock { charla: c.charla, producto: producto } a Deposito
-                responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_precio(pedido, hay.unidades) }
+                responder RespuestaDeVentas { charla: c.charla, respuesta: antes + respuesta_de_precio(pedido, hay.unidades) }
             }
-            # Es un pedido: el stock lo descuenta Depósito, que es el que sabe cuánto hay.
-            sea reserva = preguntar Reservar {
-                charla: c.charla, producto: producto, cantidad: pedido.cantidad,
-            } a Deposito
-            responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_venta(pedido, reserva) }
+            # Es un pedido claro. Igual NO se anota todavía: Ventas lo repite con la cuenta
+            # completa y con cuántos bultos son, lo deja esperando y pide el "si". Si
+            # entendió mal, el cliente lo ve acá, antes de que se descuente nada.
+            pendiente = { fila: pedido.fila, cantidad: pedido.cantidad, envio: pedido.envio }
+            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + pregunta_de_confirmar(pedido) }
         }
         # 2. Quiere devolver, anular o dice "no quiero...": no se anota nada, y tampoco se
         #    deshace un pedido desde la charla. Se lo dice el programa, sin IA.
         si entender(filas, c.dicho).otra_cosa {
-            responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_anular() }
+            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + respuesta_de_anular() }
         }
         # 3. No era un pedido: contesta la IA, con los frenos de arriba.
         sea instrucciones = """
             Atendés las ventas de un mayorista de almacén. Contestá en castellano
             rioplatense, con amabilidad y en pocas palabras. Usá SOLO los precios de esta
             lista; si piden algo que no está, decí que no lo trabajamos.
-            NO hagas cuentas ni digas totales, NO confirmes ni rechaces envíos y NO digas
-            si hay o no hay stock: de eso se ocupa el sistema. Si te lo preguntan, pedí que
-            escriban, con números, cuántas unidades de qué producto quieren.
+            NO hagas cuentas ni digas totales, NO confirmes ni rechaces envíos, NO digas
+            si hay o no hay stock y NO digas que un pedido quedó anotado: de eso se ocupa
+            el sistema. Si te lo preguntan, pedí que escriban, con números, cuántas
+            unidades de qué producto quieren.
             LISTA DE PRECIOS DE HOY:
             {lista_en_texto(filas)}
         """
@@ -213,10 +283,10 @@ agente Ventas {
         sea sin_ia = buscar_en_lista(filas, c.dicho)
         intentar {
             # El tercer valor es lo que "contesta la IA" con --ia-simulada.
-            responder RespuestaDeVentas { charla: c.charla, respuesta: consultar_ia(instrucciones, c.dicho, sin_ia) }
+            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + consultar_ia(instrucciones, c.dicho, sin_ia) }
         } si falla motivo {
             # Sin clave, sin internet o sin crédito: se contesta con lo que dice la lista.
-            responder RespuestaDeVentas { charla: c.charla, respuesta: sin_ia, aviso: motivo }
+            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + sin_ia, aviso: motivo }
         }
     }
 }
@@ -648,6 +718,156 @@ funcion es_para_anotar(pedido, dicho) {
     devolver no (pedido.envio == "si" y pedido.cantidad < unidades_para_envio)
 }
 
+# ── La confirmación: nada se anota sin un "si" ──
+
+# Las palabras que dicen que sí. Valen solo si son lo ÚNICO que contestó el cliente ("si",
+# "sí", "dale", "ok", "si, anotalo"): con cualquier otra palabra ("si pero que sean 5",
+# "si quiero 2 mas") ya no es un sí, y no se anota. Si tus clientes confirman con otra
+# palabra, agregala acá (en minúsculas y sin tildes).
+funcion palabras_de_si() {
+    devolver ["si", "sii", "siii", "sip", "dale", "ok", "oka", "okey", "okay", "confirmo",
+              "confirmado", "confirmar", "anotalo", "anotala", "anotalos", "anotalas",
+              "anotamelo", "anotamela", "anotamelos", "anotamelas", "sumalo", "sumala",
+              "sumalos", "sumalas", "correcto", "exacto"]
+}
+
+# Las que dicen que no ("no", "no, gracias", "mejor no", "no, dejá"): no se anota nada.
+funcion palabras_de_no() {
+    devolver ["no", "nop", "noo", "nooo", "cancela", "cancelalo", "cancelala", "anula",
+              "anulalo", "anulala", "dejalo", "dejala"]
+}
+
+# Las que pueden acompañar al sí o al no, y solas no dicen nada: "si, por favor", "dale,
+# gracias", "mejor no", "no, dejá".
+funcion palabras_de_cortesia() {
+    devolver ["por", "favor", "porfa", "gracias", "muchas", "nomas", "mejor", "deja"]
+}
+
+# ¿Lo que contestó es alguna de esas palabras fuertes, y todo lo demás es cortesía?
+# (Con un signo de pregunta no: "si?" o "¿dale?" preguntan, no confirman.)
+funcion contesta_solo_con(dicho, fuertes) {
+    si tiene(dicho, "?") o tiene(dicho, "¿") o tiene(dicho, "？") {
+        devolver falso
+    }
+    var hay_una = falso
+    para palabra en palabras_de(dicho) {
+        si tiene(fuertes, palabra) {
+            hay_una = verdadero
+            continuar
+        }
+        si no tiene(palabras_de_cortesia(), palabra) {
+            devolver falso
+        }
+    }
+    devolver hay_una
+}
+
+# ¿Es un "si" claro, y nada más? Es lo ÚNICO que anota un pedido o suma un ingreso. ("si
+# no" o "no, si" no lo son: "no" no está entre las palabras de sí ni entre las de cortesía.)
+funcion es_un_si(dicho) {
+    devolver contesta_solo_con(dicho, palabras_de_si())
+}
+
+# ¿Es un "no", y nada más? (Con cualquier otra cosa tampoco se anota: esto solo elige qué
+# se le contesta.)
+funcion es_un_no(dicho) {
+    devolver contesta_solo_con(dicho, palabras_de_no())
+}
+
+# Una palabra en plural, para decir los bultos: "caja" → "cajas", "bolsón" → "bolsones",
+# "bidón" → "bidones", "pack" → "packs", "barril" → "barriles".
+funcion en_plural(palabra) {
+    sea ultima = ultimo(palabra)
+    si tiene("sx", ultima) {
+        devolver palabra
+    }
+    si ultima == "z" {
+        devolver porcion(palabra, 0, largo(palabra) - 1) + "ces"
+    }
+    si tiene("nlrdj", ultima) {
+        # (la tilde de la última sílaba se va: "bolsón" → "bolsones")
+        var sin_tilde = porcion(palabra, 0, largo(palabra) - 2)
+        var vocal = porcion(palabra, largo(palabra) - 2, largo(palabra) - 1)
+        para con, sin en { "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u" } {
+            vocal = reemplazar(vocal, con, sin)
+        }
+        devolver sin_tilde + vocal + ultima + "es"
+    }
+    devolver palabra + "s"
+}
+
+# La palabra del bulto como está escrita en la planilla, con su tilde ("bolsón"); "bulto"
+# si la presentación no lo nombra ("6 botellas de 2 litros", "x 6 latas", o vacía).
+funcion nombre_del_bulto(fila) {
+    sea unidad = unidad_de_venta(fila)
+    si unidad == "" {
+        devolver "bulto"
+    }
+    para escrita en partir(minusculas(texto(fila.presentacion)), " ") {
+        si palabras_de(escrita) == [unidad] {
+            # (sin los signos que tenga pegados: "caja," o "(pack")
+            var limpia = escrita
+            para signo en [",", ".", ";", ":", "(", ")", "\""] {
+                limpia = reemplazar(limpia, signo, "")
+            }
+            devolver limpia
+        }
+    }
+    devolver unidad
+}
+
+# Si la cantidad es justo un número de los de ADENTRO del bulto ("10", y se vende por
+# bolsón de 10 paquetes), la palabra que lleva ese número ("paquetes"); si no, "". Es el
+# error más común: el cliente dijo lo de adentro y Ventas entendió bultos.
+funcion lo_de_adentro_con_ese_numero(fila, cantidad) {
+    sea presentacion = palabras_de(texto(fila.presentacion))
+    sea de_adentro = unidades_de_adentro(fila)
+    para i en rango(1, largo(presentacion)) {
+        si numero_de(presentacion[i - 1]) == cantidad y tiene(de_adentro, presentacion[i]) {
+            devolver presentacion[i]
+        }
+    }
+    devolver ""
+}
+
+# Cuántos BULTOS son, dicho en palabras y con la unidad en que se vende: "Son 6 packs
+# enteros.", "Es 1 caja entera.", "Son 10 bolsones enteros (no 10 paquetes)." Es lo que
+# le deja ver al cliente si Ventas entendió bultos donde él dijo otra cosa.
+funcion en_bultos(fila, cantidad) {
+    sea bulto = nombre_del_bulto(fila)
+    # ("caja", "bolsa", "lata": femenino; lo demás, masculino)
+    var entero = "entero"
+    si ultimo(bulto) == "a" {
+        entero = "entera"
+    }
+    si cantidad == 1 {
+        devolver "Es 1 {bulto} {entero}."
+    }
+    var aclaracion = ""
+    sea adentro = lo_de_adentro_con_ese_numero(fila, cantidad)
+    si adentro != "" {
+        aclaracion = " (no {cantidad} {adentro})"
+    }
+    devolver "Son {cantidad} {en_plural(bulto)} {entero}s{aclaracion}."
+}
+
+# Lo que Ventas contesta cuando entendió un pedido: lo repite con la cuenta completa y
+# con los bultos, y pide el "si". Todavía no se anotó ni se descontó nada.
+funcion pregunta_de_confirmar(pedido) {
+    devolver "Entendí: {cuenta_del_pedido(pedido.fila, pedido.cantidad, pedido.envio)} {en_bultos(pedido.fila, pedido.cantidad)} ¿Lo anoto? Contestá si o no."
+}
+
+# Lo que se le dice al cliente cuando, en vez de "si" o "no", contestó otra cosa: el
+# pedido de antes no quedó anotado. (Va adelante de la respuesta a lo que dijo ahora.)
+funcion aviso_de_no_anotado(esperaba) {
+    devolver "No anoté lo de antes ({esperaba.cantidad} x {esperaba.fila.producto}): no me contestaste que sí. "
+}
+
+# Lo que se contesta a un "si" cuando no hay ningún pedido esperando.
+funcion respuesta_sin_pedido() {
+    devolver "No tengo ningún pedido esperando tu sí: no anoté nada. Para pedir, decime cuántas unidades de qué producto querés."
+}
+
 # Lo que se contesta a una devolución, una anulación o un "no quiero 5 yerbas".
 funcion respuesta_de_anular() {
     devolver "No anoté nada. Y si es por un pedido que ya está anotado: desde esta charla no se anula ni se devuelve, eso lo arregla una persona del negocio."
@@ -721,9 +941,10 @@ funcion parece_un_ingreso(dicho) {
 }
 
 # "ingreso 30 azucar": llegó mercadería. Va la palabra ingreso, la cantidad y el nombre
-# del producto, y NADA más (ni signos, ni "de", ni "gracias"); la suma la hace Depósito.
-# Si no está escrito así, no suma nada y explica cómo va.
-funcion anotar_ingreso(tabla, dicho) {
+# del producto, y NADA más (ni signos, ni "de", ni "gracias"). Devuelve el ingreso
+# entendido, en un mapa: { fila, cantidad }. Si no está escrito así, o es demasiado para
+# un solo ingreso, devuelve un texto que lo explica. No suma nada: eso es después.
+funcion leer_ingreso(tabla, dicho) {
     sea como_va = "No entendí el ingreso. No sumé nada. Va la palabra ingreso (sin tilde), la cantidad (un número, sin signos) y el nombre de un producto de la planilla, y nada más. Por ejemplo: ingreso 30 azucar"
     sea partes = quitar(partir(minusculas(recortar(dicho)), " "), "")
     si largo(partes) < 3 o partes[0] != "ingreso" o numero_de(partes[1]) == nada o trae_un_menos(dicho) {
@@ -762,8 +983,26 @@ funcion anotar_ingreso(tabla, dicho) {
     si pedido.cantidad > ingreso_maximo {
         devolver "No lo anoté: {pedido.cantidad} es mucho para un solo ingreso (anoto hasta {ingreso_maximo} por vez). Fijate si no hay un cero de más."
     }
-    sea ingresado = preguntar Ingreso { producto: pedido.fila.producto, cantidad: pedido.cantidad } a Deposito
-    var respuesta = "Entraron {pedido.cantidad} de {ingresado.producto}: ahora hay {ingresado.quedan}."
+    devolver { fila: pedido.fila, cantidad: pedido.cantidad }
+}
+
+# Lo que Depósito pregunta antes de sumar un ingreso: lo repite, con los bultos, y pide
+# el "si". Un cero de más o un producto equivocado se ven acá, antes de tocar el stock.
+funcion pregunta_de_ingreso(ingreso) {
+    sea fila = ingreso.fila
+    devolver "Entendí: entran {ingreso.cantidad} x {fila.producto} ({fila.presentacion}). {en_bultos(fila, ingreso.cantidad)} ¿Lo sumo? Contestá si o no."
+}
+
+# Suma un ingreso YA CONFIRMADO: es lo que pasa cuando, a la pregunta de Depósito, se
+# contesta "si" (en la charla, charlar_con_el_equipo() la llama recién ahí). La suma la
+# hace Depósito. Si el ingreso no está bien escrito no suma nada, y explica cómo va.
+funcion anotar_ingreso(tabla, dicho) {
+    sea ingreso = leer_ingreso(tabla, dicho)
+    si tipo(ingreso) == "texto" {
+        devolver ingreso
+    }
+    sea ingresado = preguntar Ingreso { producto: ingreso.fila.producto, cantidad: ingreso.cantidad } a Deposito
+    var respuesta = "Entraron {ingreso.cantidad} de {ingresado.producto}: ahora hay {ingresado.quedan}."
     si ingresado.quedan < stock_minimo {
         respuesta += " Sigue por debajo del mínimo ({stock_minimo}): queda anotado para reponer."
     }
@@ -780,9 +1019,12 @@ funcion mostrar_lo_que_falta() {
     }
 }
 
-# La charla por teclado: termina con chau. Devuelve cuántas consultas atendió.
+# La charla por teclado: termina con chau. Devuelve cuántos renglones del cliente atendió
+# Ventas (el "si" o el "no" a un pedido es un renglón más; lo de un ingreso no cuenta).
 funcion charlar_con_el_equipo(tabla) {
     var consultas = 0
+    # El ingreso que Depósito repitió y que espera el "si" (como se escribió), o nada.
+    var ingreso_pendiente = nada
     mientras verdadero {
         sea dicho = leer("Cliente:", "chau")
         # Un Enter solo no es una consulta.
@@ -797,10 +1039,37 @@ funcion charlar_con_el_equipo(tabla) {
             mostrar("    Seguís dentro de la charla. Para salir, escribí chau y apretá Enter.)")
             continuar
         }
-        # "ingreso 30 azucar" no es del cliente: es mercadería que llegó. (Si está escrito
-        # parecido, "ingresó 30 azucar", no se suma nada y se explica cómo va.)
+        # ¿Había un ingreso esperando el "si"? Solo un "si" claro lo suma. Con "no" no se
+        # suma nada; con cualquier otra cosa tampoco, y se atiende lo que se escribió ahora.
+        si ingreso_pendiente != nada {
+            sea esperaba = ingreso_pendiente
+            ingreso_pendiente = nada
+            si es_un_si(dicho) {
+                mostrar("Depósito: {anotar_ingreso(tabla, esperaba)}")
+                continuar
+            }
+            si es_un_no(dicho) {
+                mostrar("Depósito: Listo: no sumé nada.")
+                continuar
+            }
+            mostrar("Depósito: No sumé el ingreso de antes: no me contestaste que sí.")
+        }
+        # "ingreso 30 azucar" no es del cliente: es mercadería que llegó. Depósito lo
+        # repite y pregunta antes de sumar. (Si está mal escrito, o parecido, "ingresó 30
+        # azucar", no se suma nada y se explica cómo va.)
         si es_un_ingreso(dicho) o parece_un_ingreso(dicho) {
-            mostrar("Depósito: {anotar_ingreso(tabla, dicho)}")
+            # (si Ventas esperaba el "si" a un pedido, esto no lo es: deja de esperarlo)
+            sea dejado = preguntar DejarDeEsperar {} a Ventas
+            si dejado.aviso != "" {
+                mostrar("Ventas: {dejado.aviso}")
+            }
+            sea ingreso = leer_ingreso(tabla, dicho)
+            si tipo(ingreso) == "texto" {
+                mostrar("Depósito: {ingreso}")
+            } sino {
+                ingreso_pendiente = dicho
+                mostrar("Depósito: {pregunta_de_ingreso(ingreso)}")
+            }
             continuar
         }
         consultas += 1
@@ -886,6 +1155,7 @@ si por_arreglar != nada {
     # Lo que quedó anotado para reponer en las corridas de antes.
     mostrar_lo_que_falta()
     mostrar("Escribí tu consulta y apretá Enter. Para terminar, escribí chau.")
+    mostrar("(Un pedido se anota recién cuando contestás si a la pregunta de Ventas.)")
     mostrar("(Si llegó mercadería, anotala así: ingreso 30 azucar)")
     mostrar("(Ojo: lo anotado se guarda al terminar con chau. Si cerrás la ventana con la X, se pierde.)")
     sea atendidas = charlar_con_el_equipo(lista)
@@ -899,10 +1169,28 @@ si por_arreglar != nada {
 # por eso cada una abre el negocio con la planilla de muestra. La IA nunca es de verdad.
 # mensajes_enviados("Reponer") da los mensajes de ese tipo que viajaron en la prueba.
 
+# En las pruebas, el cliente que pide y, cuando Ventas le repite el pedido y le pregunta
+# "¿Lo anoto?", contesta "si". Devuelve lo que Ventas contesta a ese "si". Si Ventas no
+# preguntó (no entendió un pedido claro), devuelve lo que contestó, y no dice "si".
+funcion pedir_y_confirmar(charla, dicho) {
+    sea entendido = consultar_a_ventas(charla, dicho)
+    si no (empieza_con(entendido, "Entendí: ") y termina_con(entendido, "¿Lo anoto? Contestá si o no.")) {
+        devolver entendido
+    }
+    devolver consultar_a_ventas("{charla} (el si)", "si")
+}
+
 prueba "un pedido lo anota Ventas, lo descuenta Depósito, y la IA ni se entera" {
     abrir_el_negocio(lista)
     simular_ia("Son $ 10,80.")
-    asegurar consultar_a_ventas("a", "quiero 12 azucar") == "Anotado: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."
+    # Ventas no anota directo: repite el pedido, con la cuenta y los bultos, y pregunta.
+    asegurar consultar_a_ventas("a", "quiero 12 azucar") == "Entendí: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00. Son 12 bolsas enteras. ¿Lo anoto? Contestá si o no."
+    # Hasta acá no se le pidió nada a Depósito: las 25 siguen estando.
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 25
+    # Con el "si", recién ahí, se anota.
+    asegurar consultar_a_ventas("a2", "si") == "Anotado: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."
+    asegurar largo(mensajes_enviados("Reservar")) == 1
     # Había 25: quedan 13. Se ve preguntando por más de lo que queda.
     asegurar consultar_a_ventas("b", "tenes 20 azucar?") == "De Azúcar quedan 13; no llego a 20."
     asegurar largo(consultas_ia()) == 0
@@ -910,39 +1198,41 @@ prueba "un pedido lo anota Ventas, lo descuenta Depósito, y la IA ni se entera"
 
 prueba "la conversación va de Ventas a Depósito, y de Depósito a Compras" {
     abrir_el_negocio(lista)
-    consultar_a_ventas("a", "quiero 20 azucar")
+    pedir_y_confirmar("a", "quiero 20 azucar")
     # Quién le preguntó a quién, en orden (de: el que manda; a: el que recibe). Lo que
     # mandó abrir_el_negocio() fue con 'enviar': no es una pregunta y acá no se mira.
+    # El cliente habló dos veces: el pedido, y el "si". Recién con el "si" Ventas le
+    # habla a Depósito.
     var camino = []
     para m en mensajes_enviados() {
         si m.pregunta {
             camino = agregar(camino, "{m.de} → {m.a}: {m.tipo}")
         }
     }
-    asegurar camino == ["(programa) → Ventas: ConsultaDeCliente", "Ventas → Deposito: Reservar",
-                        "Deposito → Compras: Reponer"], camino
+    asegurar camino == ["(programa) → Ventas: ConsultaDeCliente", "(programa) → Ventas: ConsultaDeCliente",
+                        "Ventas → Deposito: Reservar", "Deposito → Compras: Reponer"], camino
 }
 
 prueba "pedir más de lo que hay no vende, y no descuenta nada" {
     abrir_el_negocio(lista)
-    asegurar consultar_a_ventas("a", "quiero 100 yerbas") == "De Yerba mate quedan 40; no llego a 100."
-    asegurar consultar_a_ventas("b", "quiero 3 fideos") == "De Fideos secos ahora no hay stock."
+    asegurar pedir_y_confirmar("a", "quiero 100 yerbas") == "De Yerba mate quedan 40; no llego a 100."
+    asegurar pedir_y_confirmar("b", "quiero 3 fideos") == "De Fideos secos ahora no hay stock."
     # Las 40 yerbas siguen estando: se pueden vender todas.
-    asegurar empieza_con(consultar_a_ventas("c", "quiero 40 yerbas"), "Anotado: 40 x Yerba mate")
-    asegurar consultar_a_ventas("d", "quiero 1 yerba") == "De Yerba mate ahora no hay stock."
+    asegurar empieza_con(pedir_y_confirmar("c", "quiero 40 yerbas"), "Anotado: 40 x Yerba mate")
+    asegurar pedir_y_confirmar("d", "quiero 1 yerba") == "De Yerba mate ahora no hay stock."
 }
 
 prueba "al bajar del mínimo sale UN pedido de reposición, no uno por cada venta" {
     abrir_el_negocio(lista)
     # De azúcar hay 25 y el mínimo es 10: con 12 menos quedan 13, todavía no se avisa.
-    consultar_a_ventas("a", "quiero 12 azucar")
+    pedir_y_confirmar("a", "quiero 12 azucar")
     asegurar largo(mensajes_enviados("Reponer")) == 0
     # Con 5 menos quedan 8: ahora sí.
-    consultar_a_ventas("b", "quiero 5 azucar")
+    pedir_y_confirmar("b", "quiero 5 azucar")
     asegurar largo(mensajes_enviados("Reponer")) == 1
     # Las ventas que siguen no vuelven a avisar.
-    consultar_a_ventas("c", "quiero 2 azucar")
-    consultar_a_ventas("d", "quiero 2 azucar")
+    pedir_y_confirmar("c", "quiero 2 azucar")
+    pedir_y_confirmar("d", "quiero 2 azucar")
     asegurar largo(mensajes_enviados("Reponer")) == 1
     # Compras lo tiene anotado una sola vez, con lo que quedaba cuando se le avisó.
     sea faltantes = preguntar QueFalta {} a Compras
@@ -952,8 +1242,8 @@ prueba "al bajar del mínimo sale UN pedido de reposición, no uno por cada vent
 prueba "un producto sin stock también se pide a Compras, una sola vez" {
     abrir_el_negocio(lista)
     # De fideos no hay: no se vende, pero alguien los pidió y Compras se entera.
-    consultar_a_ventas("a", "quiero 3 fideos")
-    consultar_a_ventas("b", "quiero 3 fideos")
+    pedir_y_confirmar("a", "quiero 3 fideos")
+    pedir_y_confirmar("b", "quiero 3 fideos")
     asegurar largo(mensajes_enviados("Reponer")) == 1
     sea faltantes = preguntar QueFalta {} a Compras
     asegurar faltantes.pedidos == [{ producto: "Fideos secos", quedan: 0 }]
@@ -967,31 +1257,31 @@ prueba "preguntar el precio no anota nada ni descuenta stock" {
     # Nadie reservó nada, ni se le avisó a Compras.
     asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
     # Las 25 siguen estando.
-    asegurar empieza_con(consultar_a_ventas("z", "quiero 25 azucar"), "Anotado: 25 x Azúcar")
+    asegurar empieza_con(pedir_y_confirmar("z", "quiero 25 azucar"), "Anotado: 25 x Azúcar")
 }
 
 prueba "un envío que no corresponde no se anota: primero decide el cliente" {
     abrir_el_negocio(lista)
     # Con 12 hay envío: se anota.
-    asegurar consultar_a_ventas("a", "quiero 12 azucar con envio") == "Anotado: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00. Con envío: sí, va con envío."
+    asegurar pedir_y_confirmar("a", "quiero 12 azucar con envio") == "Anotado: 12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00. Con envío: sí, va con envío."
     # Con 5 no hay envío: se le dice, y no se anota hasta que elija.
     sea contestado = consultar_a_ventas("b", "me mandas 5 yerbas?")
     asegurar tiene(contestado, "Sin envío: hacemos envíos desde 10 unidades y pedís 5.")
     asegurar termina_con(contestado, "Todavía no anoté nada: para pedirlo, escribí \"quiero 5 yerba\".")
     asegurar largo(mensajes_enviados("Reservar")) == 1
     # Si dice que lo retira, sí.
-    asegurar empieza_con(consultar_a_ventas("c", "quiero 5 yerbas, las retiro yo"), "Anotado: 5 x Yerba mate")
+    asegurar empieza_con(pedir_y_confirmar("c", "quiero 5 yerbas, las retiro yo"), "Anotado: 5 x Yerba mate")
 }
 
 prueba "la mercadería que llega se suma, y Compras la tacha de su lista" {
     abrir_el_negocio(lista)
-    consultar_a_ventas("a", "quiero 20 azucar")
+    pedir_y_confirmar("a", "quiero 20 azucar")
     asegurar largo((preguntar QueFalta {} a Compras).pedidos) == 1
     # Llegan 30: de 5 pasa a 35, y ya no hay nada que reponer.
     asegurar anotar_ingreso(lista, "ingreso 30 azucar") == "Entraron 30 de Azúcar: ahora hay 35."
     asegurar (preguntar QueFalta {} a Compras).pedidos == []
     # Si vuelve a bajar del mínimo, se pide de nuevo (es el segundo pedido de la prueba).
-    consultar_a_ventas("b", "quiero 30 azucar")
+    pedir_y_confirmar("b", "quiero 30 azucar")
     asegurar largo(mensajes_enviados("Reponer")) == 2
     # Un ingreso mal escrito no suma nada: explica cómo va.
     asegurar empieza_con(anotar_ingreso(lista, "ingreso azucar"), "No entendí el ingreso.")
@@ -1000,8 +1290,10 @@ prueba "la mercadería que llega se suma, y Compras la tacha de su lista" {
 prueba "en la charla, 'ingreso' va a Depósito y no cuenta como consulta" {
     abrir_el_negocio(lista)
     # (el "teclado" de la prueba: tres renglones)
-    simular_teclado(["ingreso 5 fideos", "quiero 5 fideos", "chau"])
-    asegurar charlar_con_el_equipo(lista) == 1
+    # (el ingreso y el pedido se confirman con "si"; el "si" de un pedido es un renglón
+    # más para Ventas, el de un ingreso no)
+    simular_teclado(["ingreso 5 fideos", "si", "quiero 5 fideos", "si", "chau"])
+    asegurar charlar_con_el_equipo(lista) == 2
     # Los 5 que entraron se vendieron: no queda ninguno.
     asegurar consultar_a_ventas("z", "tenes 1 fideo?") == "De Fideos secos ahora no hay stock."
 }
@@ -1018,7 +1310,7 @@ prueba "el contrato no deja saltearse a Ventas ni hablarle a Compras por afuera"
     # Ni pedirle una reposición a Compras: eso es de Depósito.
     asegurar falla { preguntar Reponer { charla: "b", producto: "Azúcar", quedan: 1 } a Compras }
     # Y no pasó nada: el azúcar está entero y Compras no anotó nada.
-    asegurar empieza_con(consultar_a_ventas("c", "quiero 25 azucar"), "Anotado: 25 x Azúcar")
+    asegurar empieza_con(pedir_y_confirmar("c", "quiero 25 azucar"), "Anotado: 25 x Azúcar")
 }
 
 prueba "si Compras falla, la venta no se cae y se le avisa con el pedido que sigue" {
@@ -1027,9 +1319,9 @@ prueba "si Compras falla, la venta no se cae y se le avisa con el pedido que sig
     simular Compras al recibir Reponer como r {
         fallar "Compras está cerrado"
     }
-    asegurar empieza_con(consultar_a_ventas("a", "quiero 20 azucar"), "Anotado: 20 x Azúcar")
+    asegurar empieza_con(pedir_y_confirmar("a", "quiero 20 azucar"), "Anotado: 20 x Azúcar")
     # No quedó anotado como avisado: con el pedido que sigue, Depósito prueba de nuevo.
-    consultar_a_ventas("b", "quiero 1 azucar")
+    pedir_y_confirmar("b", "quiero 1 azucar")
     asegurar largo(mensajes_enviados("Reponer")) == 2
 }
 
@@ -1054,7 +1346,7 @@ prueba "si falta un dato del pedido, Ventas pregunta y no molesta a Depósito" {
 
 prueba "lo que Depósito ya conoce no se pisa con la planilla" {
     abrir_el_negocio(lista)
-    consultar_a_ventas("a", "quiero 20 azucar")
+    pedir_y_confirmar("a", "quiero 20 azucar")
     # Se abre de nuevo con la misma planilla (dice 25): Depósito sigue con sus 5.
     abrir_el_negocio(lista)
     asegurar consultar_a_ventas("b", "tenes 6 azucar?") == "De Azúcar quedan 5; no llego a 6."
@@ -1077,7 +1369,7 @@ prueba "lo que no es un pedido claro no se anota: negaciones, dudas, preguntas y
     }
     # Nadie reservó nada ni se le avisó a Compras: el stock está entero.
     asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
-    asegurar empieza_con(consultar_a_ventas("z", "quiero 25 azucar"), "Anotado: 25 x Azúcar")
+    asegurar empieza_con(pedir_y_confirmar("z", "quiero 25 azucar"), "Anotado: 25 x Azúcar")
 }
 
 prueba "un pedido claro se anota, se diga como se diga" {
@@ -1085,22 +1377,22 @@ prueba "un pedido claro se anota, se diga como se diga" {
     para dicho en ["quiero 2 arroz", "2 arroz", "Hola, quería 2 bolsas de arroz por favor",
                    "dame 2 arroz, lo retiro yo", "anotame 2 arroz sin envio",
                    "necesito dos arroz largo fino"] {
-        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Arroz largo fino"), dicho
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x Arroz largo fino"), dicho
     }
-    asegurar empieza_con(consultar_a_ventas("z", "mandame 12 harina"), "Anotado: 12 x Harina 000")
+    asegurar empieza_con(pedir_y_confirmar("z", "mandame 12 harina"), "Anotado: 12 x Harina 000")
     asegurar largo(mensajes_enviados("Reservar")) == 7
 }
 
 prueba "si entra poca mercadería y sigue bajo el mínimo, el pedido de reposición queda" {
     abrir_el_negocio(lista)
     # De 25 de azúcar se venden 23: quedan 2, y Compras lo tiene anotado.
-    consultar_a_ventas("a", "quiero 20 azucar")
-    consultar_a_ventas("b", "quiero 3 azucar")
+    pedir_y_confirmar("a", "quiero 20 azucar")
+    pedir_y_confirmar("b", "quiero 3 azucar")
     # Entran 2: hay 4, todavía menos que el mínimo (10). El pedido sigue, con el número nuevo.
     asegurar anotar_ingreso(lista, "ingreso 2 azucar") == "Entraron 2 de Azúcar: ahora hay 4. Sigue por debajo del mínimo (10): queda anotado para reponer."
     asegurar (preguntar QueFalta {} a Compras).pedidos == [{ producto: "Azúcar", quedan: 4 }]
     # Y como sigue anotado, la venta que sigue no le avisa de nuevo a Compras.
-    consultar_a_ventas("c", "quiero 1 azucar")
+    pedir_y_confirmar("c", "quiero 1 azucar")
     asegurar largo(mensajes_enviados("Reponer")) == 1
     # De fideos no había y nadie los pidió: si entran 3 (menos que el mínimo), se anotan.
     anotar_ingreso(lista, "ingreso 3 fideos")
@@ -1130,8 +1422,8 @@ prueba "un ingreso mal escrito no suma nada" {
 
 prueba "lo que hay que reponer se muestra con lo que queda hoy, no con lo que quedaba" {
     abrir_el_negocio(lista)
-    consultar_a_ventas("a", "quiero 20 azucar")
-    consultar_a_ventas("b", "quiero 3 azucar")
+    pedir_y_confirmar("a", "quiero 20 azucar")
+    pedir_y_confirmar("b", "quiero 3 azucar")
     # Compras anotó cuando quedaban 5; hoy quedan 2, y eso es lo que le dice Depósito.
     asegurar (preguntar QueFalta {} a Compras).pedidos == [{ producto: "Azúcar", quedan: 5 }]
     asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 2
@@ -1189,9 +1481,9 @@ prueba "las maneras corrientes de pedir se anotan" {
                    "buen día, quiero hacer un pedido de 2 yerbas", "me llevo 2 yerbas",
                    "buenas tardes, 2 yerbas por favor", "2 yerbas, las retiro yo",
                    "dame otras 2 yerbas"] {
-        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
     }
-    asegurar empieza_con(consultar_a_ventas("z", "12 yerbas con envio a mi casa, muchas gracias"), "Anotado: 12 x Yerba mate")
+    asegurar empieza_con(pedir_y_confirmar("z", "12 yerbas con envio a mi casa, muchas gracias"), "Anotado: 12 x Yerba mate")
     asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40 - 11 * 2 - 12
 }
 
@@ -1213,10 +1505,10 @@ prueba "un pedido en la unidad de ADENTRO del bulto no se anota: Ventas pregunta
     asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
     asegurar (preguntar CuantoQueda { producto: "Aceite de girasol" } a Deposito).unidades == 8
     # Con la unidad de venta adelante sí está claro: lo de atrás describe el bulto.
-    asegurar empieza_con(consultar_a_ventas("x", "quiero 1 bolsón de yerba"), "Anotado: 1 x Yerba mate")
+    asegurar empieza_con(pedir_y_confirmar("x", "quiero 1 bolsón de yerba"), "Anotado: 1 x Yerba mate")
     asegurar empieza_con(consultar_a_ventas("y", "quiero 2 cajas de 12 botellas de aceite"), "Veo más de un número")
-    asegurar empieza_con(consultar_a_ventas("z", "quiero 2 cajas de aceite"), "Anotado: 2 x Aceite de girasol")
-    asegurar empieza_con(consultar_a_ventas("w", "quiero 3 bolsas de azucar de 10 kg"), "Anotado: 3 x Azúcar")
+    asegurar empieza_con(pedir_y_confirmar("z", "quiero 2 cajas de aceite"), "Anotado: 2 x Aceite de girasol")
+    asegurar empieza_con(pedir_y_confirmar("w", "quiero 3 bolsas de azucar de 10 kg"), "Anotado: 3 x Azúcar")
     asegurar unidad_de_venta(lista[0]) == "bolson" y unidad_de_adentro(lista[0], "2 bolsones de yerba") == nada
     asegurar unidad_de_adentro({ producto: "Tomate", presentacion: "x 6 latas" }, "quiero 6 latas de tomate") == "latas"
 }
@@ -1257,7 +1549,7 @@ prueba "con una planilla propia: la presentación que arranca con un número, o 
                    "quiero 2 cajas de galletitas", "quiero 2 grisines sin sal",
                    "quiero 2 bidones de 5 litros de lavandina", "quiero 2 cajas de sidra",
                    "quiero 2 dulce de leche", "dulce de leche 2 cajas"] {
-        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x "), dicho
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x "), dicho
     }
     asegurar largo(mensajes_enviados("Reservar")) == 13
     asegurar unidades_de_adentro(propia[4]) == ["paquetes"] y unidades_de_adentro(propia[8]) == ["botellas"]
@@ -1267,10 +1559,10 @@ prueba "el 'de' del nombre de un producto, adelante de la cantidad, no frena el 
     abrir_el_negocio(lista)
     para dicho en ["aceite de girasol 1 caja", "quiero aceite de girasol 1",
                    "quiero aceite de girasol, 1 caja", "quiero hacer un pedido de aceite de girasol: 1 caja"] {
-        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 1 x Aceite de girasol"), dicho
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 1 x Aceite de girasol"), dicho
     }
     para dicho en ["de yerba quiero 2", "quiero de yerba 2", "buenas tardes, de yerba 2 bolsones"] {
-        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
     }
     asegurar largo(mensajes_enviados("Reservar")) == 7
     asegurar (preguntar CuantoQueda { producto: "Aceite de girasol" } a Deposito).unidades == 4
@@ -1296,7 +1588,7 @@ prueba "un pasado con tilde, o un 'hago' o un 'de' sueltos, no anotan" {
     # Y las que sí piden siguen anotando.
     para dicho en ["compro 2 yerbas", "llevo 2 yerbas", "encargo 2 yerbas", "dame 2 yerbas mas",
                    "quiero hacerte un pedido de 2 yerbas", "haceme un pedido de 2 yerbas"] {
-        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
     }
 }
 
@@ -1338,4 +1630,156 @@ prueba "los números de arriba mal puestos se muestran como están escritos" {
     asegurar numeros_mal_puestos() == nada
     asegurar como_esta_escrito("10") == "\"10\" (con comillas: hay que sacarlas)"
     asegurar como_esta_escrito(2.5) == "2.5" y como_esta_escrito(-5) == "-5"
+}
+
+prueba "nada se anota sin un 'si': Ventas repite el pedido, con los bultos, y espera" {
+    abrir_el_negocio(lista)
+    # (aunque la IA "quiera" decir que anotó, el freno no la deja)
+    simular_ia("Listo, anotado: 2 yerbas.")
+    sea pregunta = "Entendí: 2 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 70.000,00. Son 2 bolsones enteros. ¿Lo anoto? Contestá si o no."
+    # Con "no" no se anota nada.
+    asegurar consultar_a_ventas("a", "quiero 2 yerbas") == pregunta
+    asegurar consultar_a_ventas("b", "no") == "Listo: no anoté nada."
+    # Con cualquier otra cosa tampoco: ni una pregunta, ni un "si" con algo más, ni un
+    # número suelto. Ventas avisa que lo de antes no quedó anotado, y atiende lo nuevo.
+    para otra_cosa en ["si?", "si pero que sean 5", "si no", "no si", "bueno", "1", "uno solo",
+                       "si quiero", "claro que no", "s", "siempre", "y si mejor llevo 3?",
+                       "si, y mandame 5 azucar", "dale que va", "ok pero mañana"] {
+        # (cada consulta lleva su nombre de charla, distinto de los demás)
+        asegurar consultar_a_ventas("pide y sigue: {otra_cosa}", "quiero 2 yerbas") == pregunta
+        sea contestado = consultar_a_ventas(otra_cosa, otra_cosa)
+        asegurar empieza_con(contestado, "No anoté lo de antes (2 x Yerba mate): no me contestaste que sí. "), otra_cosa
+        asegurar no tiene(contestado, "Anotado"), otra_cosa
+        # (y el pedido dejó de esperar: un "si" tardío no lo anota)
+        consultar_a_ventas("no, después de: {otra_cosa}", "no")
+        asegurar consultar_a_ventas("si, después de: {otra_cosa}", "si") == respuesta_sin_pedido(), otra_cosa
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 25
+    # Si la otra cosa es un pedido nuevo, se trata como pedido nuevo, con su propia
+    # pregunta: el "si" que sigue anota ESE, y no el de antes.
+    asegurar consultar_a_ventas("g", "quiero 2 yerbas") == pregunta
+    asegurar consultar_a_ventas("h", "mejor quiero 3 arroz") == "No anoté lo de antes (2 x Yerba mate): no me contestaste que sí. 3 x Arroz largo fino (bolsa de 30 kg) a $ 27.300,00 cada uno: total $ 81.900,00. Todavía no anoté nada: para pedirlo, escribí \"quiero 3 arroz\"."
+    asegurar consultar_a_ventas("i", "quiero 2 yerbas") == pregunta
+    asegurar consultar_a_ventas("j", "quiero 3 arroz") == "No anoté lo de antes (2 x Yerba mate): no me contestaste que sí. Entendí: 3 x Arroz largo fino (bolsa de 30 kg) a $ 27.300,00 cada uno: total $ 81.900,00. Son 3 bolsas enteras. ¿Lo anoto? Contestá si o no."
+    asegurar consultar_a_ventas("k", "si") == "Anotado: 3 x Arroz largo fino (bolsa de 30 kg) a $ 27.300,00 cada uno: total $ 81.900,00."
+    # Un segundo "si" no anota de nuevo.
+    asegurar consultar_a_ventas("l", "si") == respuesta_sin_pedido()
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    asegurar (preguntar CuantoQueda { producto: "Arroz largo fino" } a Deposito).unidades == 12
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
+}
+
+prueba "el 'si' se puede decir de varias maneras, pero tiene que ser lo único que se dice" {
+    abrir_el_negocio(lista)
+    sea maneras = ["si", "Sí", "SI", "sí.", "si!", "dale", "ok", "okey", "confirmo", "confirmado",
+                   "anotalo", "si, anotalo", "sí, por favor", "dale, gracias", "Dale!", "si si"]
+    para manera en maneras {
+        asegurar empieza_con(consultar_a_ventas("pide y contesta: {manera}", "quiero 1 yerba"), "Entendí: 1 x Yerba mate"), manera
+        asegurar empieza_con(consultar_a_ventas(manera, manera), "Anotado: 1 x Yerba mate"), manera
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == largo(maneras)
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40 - largo(maneras)
+    asegurar es_un_si("si") y es_un_si("  Sí, dale ") y no es_un_si("") y no es_un_si("gracias") y no es_un_si("por favor")
+    asegurar no es_un_si("si?") y no es_un_si("¿si?") y no es_un_si("si pero no") y no es_un_si("no") y no es_un_si("si 2")
+    asegurar es_un_no("no") y es_un_no("No, gracias") y es_un_no("mejor no") y no es_un_no("no se") y no es_un_no("si")
+}
+
+prueba "las frases que Ventas entendía mal ya no descuentan stock: se ven en la pregunta" {
+    # La planilla de muestra y, además, presentaciones con la cuenta adentro ("pack x 6").
+    sea propia = lista + [{ producto: "Cerveza rubia", presentacion: "pack x 6", precio: 7200, stock: 50 },
+                          { producto: "Vino tinto", presentacion: "caja x 6", precio: 14500, stock: 50 },
+                          { producto: "Atún", presentacion: "x 6 latas", precio: 9000, stock: 50 },
+                          { producto: "Agua mineral", presentacion: "caja de 12 botellas", precio: 5400, stock: 50 }]
+    abrir_el_negocio(propia)
+    # El cliente quería UN pack, y Ventas entendió 6: ahora se lo dice antes de anotar.
+    asegurar consultar_a_ventas("a", "quiero un pack x 6 de cerveza") == "Entendí: 6 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 43.200,00. Son 6 packs enteros. ¿Lo anoto? Contestá si o no."
+    asegurar consultar_a_ventas("b", "no") == "Listo: no anoté nada."
+    # Si la cantidad es justo un número de adentro del bulto, lo dice con todas las letras.
+    asegurar consultar_a_ventas("c", "quiero un bolson x 10 de yerba") == "Entendí: 10 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 350.000,00. Son 10 bolsones enteros (no 10 paquetes). ¿Lo anoto? Contestá si o no."
+    asegurar consultar_a_ventas("d", "no, uno solo") == "No anoté lo de antes (10 x Yerba mate): no me contestaste que sí. Decime el nombre del producto y cuántas unidades querés, y te digo el total."
+    # Las demás: repetir la presentación con "x N", "N unidades", un "compro" que era
+    # "compró", o venir a retirar lo ya pedido. Ninguna anota sin el "si": o Ventas
+    # pregunta diciendo los bultos, o contesta la cuenta.
+    para dicho en ["quiero una caja x 6 de vino", "quiero caja x 6 botellas de vino",
+                   "quiero un bulto x 6 de atun", "quiero bolsa x 10 azucar",
+                   "quiero 10 unidades de yerba", "quiero 12 unidades de agua",
+                   "quiero 6 unidades de cerveza", "quiero 6 vinos", "quiero 6 x cerveza",
+                   "cerveza pack x 6", "yerba x 10", "compro 10 yerbas",
+                   "hola, 5 yerbas para retirar", "5 yerbas a retirar", "10 yerbas retiro",
+                   "llevo 10 yerbas al local", "yo llevo 10 yerbas", "encargo de yerba 5",
+                   "quiero 2 bultos de yerba", "quiero 10 paquetes de yerba",
+                   "quiero 6 botellas de aceite", "compró 10 yerbas", "hago 5 yerbas"] {
+        sea contestado = consultar_a_ventas(dicho, dicho)
+        asegurar no tiene(contestado, "Anotado"), dicho
+        si empieza_con(contestado, "Entendí: ") {
+            # (la pregunta dice cuántos bultos son, con la unidad en que se vende)
+            asegurar tiene(contestado, " enteros") o tiene(contestado, " enteras"), contestado
+            asegurar termina_con(contestado, "¿Lo anoto? Contestá si o no."), contestado
+        } sino {
+            asegurar tiene(contestado, "Todavía no anoté nada"), contestado
+        }
+        # El cliente ve que no era eso, y dice que no.
+        consultar_a_ventas("{dicho} (el no)", "no")
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
+    para fila en propia {
+        asegurar (preguntar CuantoQueda { producto: fila.producto } a Deposito).unidades == fila.stock, fila.producto
+    }
+    # Dicho bien, y con el "si", se anota lo que el cliente quería: un pack.
+    asegurar pedir_y_confirmar("z", "quiero 1 cerveza") == "Anotado: 1 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 7.200,00."
+    asegurar (preguntar CuantoQueda { producto: "Cerveza rubia" } a Deposito).unidades == 49
+}
+
+prueba "los bultos se dicen en palabras, con la unidad en que se vende" {
+    asegurar en_plural("caja") == "cajas" y en_plural("bolsón") == "bolsones" y en_plural("pack") == "packs"
+    asegurar en_plural("bidón") == "bidones" y en_plural("barril") == "barriles" y en_plural("maple") == "maples"
+    asegurar en_plural("lápiz") == "lápices" y en_plural("blister") == "blisteres" y en_plural("atados") == "atados"
+    asegurar en_bultos(lista[0], 2) == "Son 2 bolsones enteros." y en_bultos(lista[0], 1) == "Es 1 bolsón entero."
+    asegurar en_bultos(lista[0], 10) == "Son 10 bolsones enteros (no 10 paquetes)."
+    asegurar en_bultos(lista[3], 12) == "Son 12 cajas enteras (no 12 botellas)." y en_bultos(lista[3], 1) == "Es 1 caja entera."
+    # Si la presentación no nombra el bulto (arranca con un número, o está vacía): "bultos".
+    asegurar en_bultos({ producto: "Agua", presentacion: "6 botellas de 2 litros" }, 6) == "Son 6 bultos enteros (no 6 botellas)."
+    asegurar en_bultos({ producto: "Servilletas", presentacion: "" }, 3) == "Son 3 bultos enteros."
+    asegurar nombre_del_bulto({ producto: "Vino", presentacion: "Caja, de 6 botellas" }) == "caja"
+}
+
+prueba "el ingreso de mercadería también pide el 'si' antes de sumar" {
+    abrir_el_negocio(lista)
+    asegurar pregunta_de_ingreso(leer_ingreso(lista, "ingreso 30 azucar")) == "Entendí: entran 30 x Azúcar (bolsa de 10 kg). Son 30 bolsas enteras. ¿Lo sumo? Contestá si o no."
+    # leer_ingreso() no suma nada: entiende, o explica cómo va.
+    asegurar empieza_con(leer_ingreso(lista, "ingreso 30 azucar?"), "No entendí el ingreso. No sumé nada.")
+    asegurar largo(mensajes_enviados("Ingreso")) == 0
+    # Sin el "si" no entra nada: ni con "no", ni con otra cosa, ni con un ingreso corregido
+    # (ese pregunta de nuevo), ni cortando la charla con el ingreso esperando.
+    simular_teclado(["ingreso 300 azucar", "no", "ingreso 300 azucar", "uy, eran 30",
+                     "ingreso 300 azucar", "ingreso 30 azucar", "si?", "ingreso 30 azucar", "chau"])
+    asegurar charlar_con_el_equipo(lista) == 2
+    asegurar largo(mensajes_enviados("Ingreso")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 25
+}
+
+prueba "con el 'si', el ingreso entra una sola vez" {
+    abrir_el_negocio(lista)
+    # (el segundo "si" va a Ventas, que no tiene ningún pedido esperando)
+    simular_teclado(["ingreso 30 azucar", "si", "si", "chau"])
+    asegurar charlar_con_el_equipo(lista) == 1
+    asegurar largo(mensajes_enviados("Ingreso")) == 1 y largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 55
+}
+
+prueba "un 'si' contesta lo último que se preguntó: no anota un pedido ni un ingreso de antes" {
+    abrir_el_negocio(lista)
+    # En el medio de un pedido se anota un ingreso: el pedido deja de esperar. El "si" del
+    # ingreso no lo anota, y otro "si" tampoco. Y al revés: con un ingreso esperando, el
+    # "si" a un pedido no suma el ingreso.
+    simular_teclado(["quiero 2 yerbas", "ingreso 5 fideos", "si", "si",
+                     "ingreso 7 arroz", "quiero 3 azucar", "si", "chau"])
+    asegurar charlar_con_el_equipo(lista) == 4
+    asegurar largo(mensajes_enviados("Reservar")) == 1 y largo(mensajes_enviados("Ingreso")) == 1
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
+    asegurar (preguntar CuantoQueda { producto: "Fideos secos" } a Deposito).unidades == 5
+    asegurar (preguntar CuantoQueda { producto: "Arroz largo fino" } a Deposito).unidades == 15
+    asegurar (preguntar CuantoQueda { producto: "Azúcar" } a Deposito).unidades == 22
 }
