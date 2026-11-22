@@ -1253,3 +1253,132 @@ contenido de la clase 13 más allá de que sus pruebas pasan.
 
 **Para la vuelta 2**: P79, P80 (aviso), P81 y P82 (obligatorios). Si entran: P83, P84, P85,
 P86, P87, P88, P90, P91 y la frase de P92. P89 pasa al cambio 2.
+
+### Cambio 1: equipo del negocio (ejemplo 13 y orden nuevo equipo), vuelta 2 — NO cerrado
+
+Revisor y agente de pruebas no aprobaron. Queda un problema medio: P81, arreglado a medias.
+P79, P80 (el aviso) y P82 quedaron resueltos.
+
+**Qué se hizo** (commit `0123b06`, implementador; local, sin push, sin tocar `main` ni este
+archivo). Tocó el ejemplo 13, `mate.py`, `test_mate.py`, README, MEJORAS y `clase_13_equipo.md`.
+- P81: Ventas anota solo un "pedido claro". `es_pedido_claro()` mira la frase palabra por
+  palabra y, además de la cantidad y el producto, acepta solo las palabras de
+  `palabras_de_un_pedido()`. Las 18 frases de la vuelta 1 ya no descuentan. Se quitó
+  `pregunta_el_precio()`. Quedó a medias: ver P81 en la tabla.
+- P79: un ingreso que deja el producto bajo el mínimo ya no borra el pedido de reposición.
+  Depósito manda `SigueFaltando` y Compras lo deja con el número nuevo; se tacha recién cuando
+  el stock llega al mínimo. Con prueba en el ejemplo, en `_PRUEBAS_DEL_EQUIPO` y en pytest.
+- P80, arreglo mínimo: el aviso "terminá siempre con chau; si cerrás la ventana con la X se
+  pierde lo anotado en esa charla" está en el encabezado del 13, en el del programa creado, en
+  los pasos de `nuevo equipo`, en el README, en la clase 13 y en un renglón al abrir la charla.
+  Una prueba lo exige.
+- P82: la prueba del ancho mide con la ruta de `mate.py` reemplazada y con un tope más justo
+  (86 en vez de 110); hay una prueba nueva con un `mate.py` en una ruta muy larga.
+- P83: `ingreso` es más estricto: primera palabra "ingreso" sin tilde, después la cantidad sin
+  signo, sin envío y hasta `ingreso_maximo` (100000) por vez. Todavía acepta de más: ver P83.
+- P84: lo que hay que reponer se muestra con lo que queda hoy; el programa se lo pregunta a
+  Depósito con `CuantoQueda` / `Queda`.
+- P90 y parte de P91: `que_arreglar()` avisa en castellano, antes de atender, un `stock_minimo`
+  o un `unidades_para_envio` mal puestos y un stock con decimales en la planilla. "quiero -3
+  azucar" ya no anota.
+- P85, P86, P87 y P88: resueltos solo con texto (README y encabezados).
+- P92: el README dice "trece programas"; las tres pruebas viejas exigen ahora esa frase.
+- El ejemplo 13 pasa de 14 a 20 pruebas y el equipo creado de 10 a 13. MEJORAS 124 lleva una
+  nota de esta vuelta. No se tocó el lenguaje: siguen 36 palabras y 48 funciones incluidas.
+
+**No se hizo** (declarado por el implementador): P80 de fondo (guardar después de cada
+consulta); P85, P87 y P88 en el código; el resto de P91 (dos renglones con el mismo producto,
+memoria editada a mano); P86 (solo avisado); P89 (pasa al cambio 2); `VERSION` sigue en 0.6.
+
+**Quién revisó y quién probó**: revisor (R) y agente de pruebas (P), cada uno sobre una copia
+en una carpeta temporal propia. Integrador (I): las tres corridas y este registro; no tocó
+código ni pruebas.
+
+**Veredictos**: R **no aprueba** (un medio: P81). P **no aprueba** (un medio: P81). Cambio 1
+**NO cerrado**.
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `0123b06`, Python 3.13.18)
+- `pytest mate/pruebas mate/modelo`: 925 pasan, 0 fallan (antes 913). Implementador, R y P
+  dieron el mismo número; R lo corrió además desde una ruta distinta y más larga.
+- `probar mate/ejemplos`: 86 de 86, en 19 archivos. `probar mate/curso`: 37 de 37, en 26 archivos.
+- Después de todo, `git status --short` vacío.
+- Reproducido por I, en una carpeta temporal propia (ya borrada), sobre un equipo creado con
+  `nuevo equipo`: "gracias por las 10 yerbas" contesta "Anotado" y deja la yerba en 30 (de 40);
+  "retiro el pedido de 5 yerbas" contesta "Anotado" y la deja en 35. "recibi 10 yerba", de la
+  vuelta 1, ya no anota (queda en 40).
+- R y P corrieron en Python 3.11 y 3.12: `probar` de ejemplos (86 de 86) y el equipo creado
+  (13 de 13); P además `verificar`, `correr`, `ensayar` (8 de 8) y el curso (37 de 37). En esta
+  vuelta nadie corrió en 3.10 ni en 3.14 (no están en la máquina). pytest completo solo en
+  3.13. Nadie probó en una Windows de verdad.
+- Pruebas viejas tocadas (R y P revisaron los renglones quitados): solo valores esperados
+  ("14 de 14" a "20 de 20", "10 de 10" a "13 de 13", "(quedan 5)" a "(quedan 2)" y "(quedan 2)"
+  a "(quedan 1)" por P84, "once" a "trece programas cortos") y la del ancho (de 110 con ruta a
+  86 sin ruta). Ninguna se quitó ni afirma menos.
+
+**Criterios de aceptación del cambio 1**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| `nuevo equipo mi_negocio` crea los archivos, pasa `verificar` y `probar` | cumple | 3 archivos, "sin errores", 13 de 13, `ensayar --ia-simulada` 8 de 8 (R, P); carpeta con espacios, nombres raros, no pisa archivos ni una memoria vieja (P) |
+| Con `--traza` se ve Ventas → Depósito → Compras | cumple | "Ventas pregunta a Deposito: Reservar", "Deposito pregunta a Compras: Reponer", "Compras responde a Deposito: Anotado" (R, P) |
+| Un pedido descuenta stock y el stock sobrevive entre corridas | cumple, con reservas | 25 → 2 y la corrida siguiente arranca con 2 (R, P). Se guarda con chau, fin de entrada o Ctrl+C; con la X o un corte no (P80 de fondo, ahora avisado). Además descuenta frases que no son un pedido nuevo (P81) |
+| Pedir más de lo que hay no vende | cumple | "De Yerba mate quedan 40; no llego a 100", stock intacto; sin stock lo dice (R, P) |
+| Al bajar del mínimo sale UN pedido de reposición | cumple | un solo Reponer, no se repite; tras un ingreso parcial queda anotado con el número nuevo y se tacha al llegar al mínimo (P79 resuelto; R, P) |
+| Ningún agente toca el estado de otro | cumple | `Deposito.stock` desde el programa da "agente no tiene campos"; el contrato frena Reservar y Reponer directos (P); los mensajes nuevos llevan contrato (R) |
+| Para todo: pruebas que ya había, sin aflojar | cumple | 925 / 86 de 86 / 37 de 37; ya no depende de la carpeta (P82), salvo una ruta con espacios (P99) |
+| Para todo: topes, red, claves, README/`ayuda`/MEJORAS | cumple, con pendientes bajos | 36 palabras y 48 funciones; `probar` y `ensayar` no cambian la memoria (mismo md5); sin clave avisa y sigue (P). README promete de más en `ingreso` (P83) y en "ante la duda no se anota" (P81) |
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|---|
+| P81 | A medias. Ventas sigue anotando, y Depósito descontando sin forma de anular, frases que hablan de un pedido YA hecho o que no piden nada, armadas solo con palabras de la lista permitida ("gracias", "por", "pedido", "retiro", "llevo", "mandan", "ya", "otro", "dia"): "gracias por las 10 yerbas", "retiro el pedido de 5 azucar", "ya llevo el pedido de 5 azucar", "hola, por mi pedido de 5 azucar", "mi pedido de 20 azucar", "ya me mandan los 10 arroz", "te llevo 10 yerbas", "otro dia quiero 20 azucar". El cliente que viene a retirar lo que ya pidió lo vende dos veces. Las 18 frases de la vuelta 1 sí quedaron bien | R, P; reproducido por I | media | no | pendiente (vuelta 3, obligatorio): sacar de `palabras_de_un_pedido()` las que hablan de un pedido que ya existe o no piden nada, o exigir un verbo de pedir; con estas frases como prueba |
+| P95 | El menos solo se detecta pegado al número y con guion común: "quiero - 3 azucar" y "quiero –3 azucar" (raya larga) anotan 3; "quiero 20 azucar？" (signo de pregunta ancho) anota | R | baja | no | pendiente (vuelta 3 si entra, va con P81) |
+| P83 | Resto. README y mensaje dicen "cantidad y producto, y nada más", pero "ingreso 5 yerbas no", "ingreso 5 yerbas?", "ingreso 5 de yerba" e "ingreso 30 azucar gracias" suman. "ingresó 30 azucar" (con tilde, como corrige un celular), "ingreso: 30 azucar" e "ingresos 30 azucar" van a Ventas como consulta, sin explicar cómo se escribe. Lo demás quedó bien (menos, tope, envío, dos números) | R, P | baja | no | pendiente (vuelta 3 si entra): rechazar cualquier palabra de más y explicar el ingreso cuando la primera palabra se parece a "ingreso" |
+| P96 | Pedidos corrientes con un verbo fuera de la lista no se anotan: "quiero comprar 20 azucar", "quiero pedir 20 azucar", "me das 5 yerbas", "pasame 5 yerbas", "necesito 12 arroz para mañana con envio". Contesta la cuenta y cómo pedirlo: se equivoca para el lado seguro. Aparte, "devuelvo 5 yerbas" o "anulame el pedido de 5 yerbas" no descuentan (bien) pero contestan solo el renglón de la lista, sin decir que no se anotó ni que un pedido no se anula desde la charla | R, P | baja | no | pendiente (vuelta 3 si entra): agregar los infinitivos y verbos comunes; una respuesta clara para devolver o anular |
+| P97 | `ingreso_maximo` se puede cambiar arriba y `que_arreglar()` no lo revisa: con un texto pasa `verificar`, atiende y corta la charla al primer ingreso con un error técnico (se pierde lo vendido en esa charla). Tampoco hay tope para `stock_minimo`: con 1000000 fallan 2 de 13 pruebas del programa creado, contra lo que dice el README | R | baja | no | pendiente (si entra) |
+| P98 | Con `unidades_para_envio = "10"` el aviso dice "sin comillas. Ahora dice: 10": no muestra las comillas y confunde | R | baja | no | pendiente (si entra) |
+| P99 | Con el repositorio en una ruta con ESPACIOS fallan 5 pruebas de pytest (2 de `nuevo equipo` y 3 que ya había de `nuevo mostrador` / `ensayar`): arman el comando esperado sin comillas y el programa, bien, lo muestra entre comillas. Es defecto de las pruebas; `nuevo equipo` en una carpeta con espacios anda. No es P82: en una ruta larga sin espacios pasan las 95 | P | baja | sí (3 de las 5) | pendiente (si entra): que las pruebas armen el comando igual que el programa, sin aflojarlas |
+| P100 | Con `stock_minimo` mal puesto (-5, "diez", verdadero, nada) `verificar` sigue diciendo "sin errores" y `probar` da 0 de 13: la primera prueba avisa claro y las otras 12 muestran un error técnico. Con 2.5 da 9 de 13. `correr` sí avisa bien y no atiende | P | baja | no | pendiente (si entra) |
+| P101 | Un renglón del encabezado del programa creado se pasa del ancho porque lleva adentro el nombre del archivo de memoria; con un nombre largo se pasa más | P | baja | no | pendiente (prolijidad) |
+| P79 | Ingreso parcial borraba el pedido de reposición | R, P | media | no | **resuelto** (R y P lo comprobaron) |
+| P80 | Lo anotado se pierde si la charla no termina con chau o Ctrl+C | R, P | media | el mecanismo sí | aviso: **resuelto** (seis lugares y al abrir la charla). De fondo: pendiente, con SIGTERM o la X se sigue perdiendo (P lo comprobó); necesita propuesta escrita y revisada antes de tocar el intérprete |
+| P82 | La prueba del ancho dependía de la carpeta | R, P | media | no | **resuelto** (925 desde otra ruta más larga) |
+| P84 | Compras mostraba el número del día del aviso | R, P | baja | no | **resuelto** |
+| P85 | Un producto que arranca bajo el mínimo no genera pedido hasta que alguien lo pide | R, P | baja | no | solo avisado (README y encabezado). Avisar a Compras al cargar rompía dos pruebas existentes del ejemplo |
+| P86 | Correr el 13 en su lugar deja la memoria en `mate/ejemplos` y rompe otra prueba | R, P | baja | sí | solo avisado; README y ejemplo mandan a usar `nuevo equipo` |
+| P87 | Dos ventanas a la vez se pisan | P | baja | sí | solo avisado |
+| P88 | Un producto sacado de la planilla deja su stock y su pedido hasta `--olvidar` | P | baja | no | solo avisado (P lo volvió a ver) |
+| P89 | `ensayar` depende del stock recordado | P, R | baja | no | sin tocar; pasa al cambio 2 |
+| P90 | Números de arriba mal puestos cortaban con un error técnico | P | baja | no | **resuelto** al correr; lo que queda es P97, P98 y P100 |
+| P91 | Planilla y memoria | P | baja | no | decimales y "quiero -3 azucar": resueltos. Quedan: dos renglones con el mismo producto comparten stock; memoria editada a mano con texto corta la charla |
+| P92 | `VERSION` en 0.6; "once programas cortos" | R | baja | la frase sí | la frase: **resuelta**. `VERSION`: al cierre de la 0.7 |
+| P94 | Carpetas temporales del implementador en `/tmp`: en esta vuelta quedaron cuatro (dos sin nombre anotado); un control bloqueó el borrado y no lo forzó. Solo copias de ejemplos y memorias de prueba | implementador | — | — | las borra quien las creó o el dueño; nadie más las toca |
+| P11 | Sin probar en una Windows de verdad (`py`, PowerShell, Bloc de notas) | R, P, I | baja | sí | pendiente del dueño |
+
+No verificado por nadie en esta vuelta: Python 3.10 y 3.14, pytest completo fuera de 3.13,
+Windows, una falla real de Compras y el contenido de la clase 13 más allá de sus pruebas.
+
+**Decisiones técnicas nuevas**
+- P81 por lista de palabras permitidas, no prohibidas: si se equivoca, no descuenta. Costo: un
+  pedido dicho con una palabra fuera de la lista no se anota; contesta la cuenta y cómo pedirlo
+  ("quiero 12 azucar"). El dueño puede agregar palabras en `palabras_de_un_pedido()`. La lista
+  de hoy tiene palabras de más (P81) y le faltan verbos comunes (P96).
+- Las palabras de envío aceptadas en un pedido son una lista fija (mandame, envio, flete...) y
+  no todo lo que empieza con "mand": así "me mandaron 10 fideos" no se anota.
+- P84: se le pregunta a Depósito el stock de hoy, en vez de cambiar el texto a "quedaban". Por
+  eso cambió el número esperado en dos pruebas.
+- `SigueFaltando`, `Llego`, `CuantoQueda` y `Queda` van fuera del contrato de conversación,
+  como ya iban `Ingreso` y `QueFalta`: no llevan el campo `charla`.
+- `que_arreglar()` y `es_entero_desde()` están bajo el título "El programa" del ejemplo 13, no
+  bajo "El equipo": su mensaje nombra la planilla y el tramo de los agentes se copia tal cual
+  al programa creado.
+- En `_PRUEBAS_DEL_EQUIPO` la prueba del ingreso usa `stock_minimo + 30` y la del ingreso
+  parcial se saltea con mínimo 0 o 1, para que pasen con cualquier mínimo válido.
+- `ingreso_maximo` (100000) es un número nuevo que el dueño puede cambiar arriba (ver P97).
+- Integrador: no arregló nada en esta vuelta. P81 cambia comportamiento y pruebas y pide
+  revisión independiente. P80 de fondo sigue esperando una propuesta escrita acá.
+
+**Para la vuelta 3**: P81 (obligatorio), con las frases de R y P como prueba. Si entran, y
+conviene porque tocan el mismo tramo: P95, P83 y P96. Después: P97, P98, P99, P100 y P101.
+P89 pasa al cambio 2. El orden del dueño sigue igual: primero A, después B; nada de B todavía.
