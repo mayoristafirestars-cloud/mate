@@ -1142,4 +1142,114 @@ agente del equipo trabaja en una carpeta temporal PROPIA (mktemp -d), nunca comp
 
 ## Vueltas de la 0.7
 
-(las completa el integrador)
+### Cambio 1: equipo del negocio (ejemplo 13 y orden nuevo equipo), vuelta 1 — NO cerrado
+
+Revisor y agente de pruebas no aprobaron. Quedan cuatro problemas medios: P79, P80, P81 y P82.
+
+**Qué se hizo** (commit `931d0f6`, implementador; local, sin push, sin tocar `main`)
+- Ejemplo `mate/ejemplos/13_equipo_del_negocio.mate`: agentes Ventas, Deposito y Compras, 15
+  mensajes con contrato y un `contrato conversacion` de 10 pasos. Trae 14 pruebas.
+- Ventas charla por teclado y reusa la lógica de pedidos del ejemplo 12 con `usar`; la IA,
+  con frenos, queda solo para lo que no es un pedido.
+- Deposito es el único dueño del stock (`estado recordado`): descuenta, no vende lo que no
+  hay, y el stock queda de una corrida a la otra.
+- Compras recibe UN pedido de reposición cuando un producto baja de `stock_minimo` (10) y lo
+  deja anotado; el programa lo muestra al abrir y al cerrar.
+- Con `--traza` se ve Ventas pregunta a Deposito y Deposito pregunta a Compras; el contrato
+  frena al programa si le habla directo a Deposito o a Compras.
+- Orden `nuevo equipo <nombre>` (la misma función `orden_nuevo` que `nuevo mostrador`): crea
+  `<nombre>.mate`, `<nombre>_precios.csv` y `<nombre>_casos.txt`, no pisa nada (tampoco una
+  memoria vieja) y no deja nada a medias. El programa creado anda solo, sin `usar`, con 10 pruebas.
+- `mate/ejemplos/casos_del_equipo.txt`: 8 preguntas de muestra para `ensayar`.
+- Clase 13 del curso (`clase_13_equipo.md`, `.mate` y solución); el curso pasa a trece clases.
+- README (sección "Un equipo propio: nuevo equipo"), `ayuda`, MEJORAS 124, `docs/index.html`.
+- 17 funciones de prueba nuevas (28 casos). Pruebas viejas tocadas solo para extenderlas
+  (ejemplos hasta el 13, trece clases, 26 archivos en el curso, `curso 14`,
+  `casos_del_equipo.txt` permitido); R confirmó que ninguna afirma menos.
+- No se tocó el lenguaje: siguen 36 palabras y 48 funciones incluidas. `VERSION` sigue en 0.6.
+
+**Quién revisó y quién probó**: revisor (R) y agente de pruebas (P), cada uno sobre una copia
+en una carpeta temporal propia. Integrador (I): las tres corridas y este registro; no tocó
+código ni pruebas.
+
+**Veredictos**: R **no aprueba** (dos medios: P79 y P80). P **no aprueba** (tres medios: P80,
+P81 y P82). Cambio 1 **NO cerrado**.
+
+**Pruebas** (integrador, Linux, `MATE_SIN_REGISTRO=1`, sobre `931d0f6`, Python 3.13)
+- `pytest mate/pruebas mate/modelo`: 913 pasan, 0 fallan (R y P dieron el mismo
+  número en esta misma ruta).
+- `probar mate/ejemplos`: 80 de 80, en 19 archivos. `probar mate/curso`: 37 de 37, en 26 archivos.
+- Después de todo, `git status --short` vacío.
+- Reproducido por I: P82. Con el repositorio copiado a una ruta más larga
+  (`<carpeta temporal>/repositorio_copiado`), `-k test_nuevo_equipo_crea_el_programa` da 1 falla
+  (`test_mate.py:12116`). O sea: los 913 valen en esta ruta.
+- P corrió en Python 3.10, 3.11, 3.12, 3.13 y 3.14: `nuevo equipo` + `verificar` + `probar`
+  (10 de 10) + `correr` + `ensayar` (8 de 8) + `probar` ejemplos y curso, todo bien. pytest
+  completo solo en 3.13. Nadie probó en una Windows de verdad.
+
+**Criterios de aceptación del cambio 1**
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| `nuevo equipo mi_negocio` crea los archivos, pasa `verificar` y `probar` | cumple | 3 archivos, "sin errores", 10 de 10, `ensayar --ia-simulada` 8 de 8 (R, P); nombres raros, rutas con espacios, no pisa, no deja a medias (P) |
+| Con `--traza` se ve Ventas → Depósito → Compras | cumple | "Ventas pregunta a Deposito: Reservar", "Deposito pregunta a Compras: Reponer" (R, P) |
+| Un pedido descuenta stock y el stock sobrevive entre corridas | cumple, con reserva | 25 → 2 → `ingreso 30` → 30 saliendo con chau, fin de entrada o Ctrl+C (R, P). No se guarda si se cierra la ventana o se corta el proceso (P80) |
+| Pedir más de lo que hay no vende | cumple | "De Yerba mate quedan 40; no llego a 100.", stock intacto (R, P) |
+| Al bajar del mínimo sale UN pedido de reposición | cumple, con reserva | un solo Reponer; no se repite en la venta ni en la corrida siguiente (R, P). Tras un ingreso parcial queda bajo el mínimo y sin pedido (P79) |
+| Ningún agente toca el estado de otro | cumple | `Deposito.stock` desde Compras da "agente no tiene campos"; el contrato frena al programa (R, P) |
+| Para todo: pruebas que ya había, sin aflojar | cumple en esta ruta | 913 / 80 de 80 / 37 de 37; falla una prueba nueva según la carpeta (P82) |
+| Para todo: topes, red, claves, README/`ayuda`/MEJORAS | cumple, con pendientes bajos | 36 palabras y 48 funciones; `probar` y `ensayar` no cambian la memoria (mismo md5); sin claves ni datos personales (P). README: P80, P92 |
+
+**Problemas** (R = revisor, P = agente de pruebas, I = integrador)
+
+| # | Problema | Quién | Gravedad | ¿Ya estaba? | Estado |
+|---|---|---|---|---|---|
+| P79 | Un `ingreso` PARCIAL borra el pedido de reposición aunque el producto siga bajo el mínimo: Azúcar en 4 (mínimo 10), Compras con la lista vacía, y no se vuelve a pedir hasta otra venta. "al recibir Ingreso" de Deposito siempre tacha y manda `Llego` | R (media), P (baja) | media | no | pendiente (vuelta 2, obligatorio): tachar en Compras solo si el stock quedó en el mínimo o más; si no, dejar el pedido con el número nuevo. Con prueba en el ejemplo y en `_PRUEBAS_DEL_EQUIPO` |
+| P80 | Las ventas "Anotado" se pierden si la charla no termina con chau o Ctrl+C (cerrar la ventana con la X, corte de luz): la memoria se escribe recién al terminar. Ni el encabezado del 13, ni el del programa creado, ni los pasos de `nuevo equipo`, ni "Un equipo propio" del README lo avisan | R, P | media | el mecanismo sí; usarlo como libro de stock y no avisarlo, no | pendiente (vuelta 2, obligatorio): avisarlo en esos cuatro lugares. Guardar después de cada consulta toca el lenguaje: ver decisiones |
+| P81 | Ventas anota, y Depósito descuenta sin forma de anular, frases que no son un pedido: "no me mandes 2 arroz", "se puede pedir 2 aceite?", "2 azucar?", "haceme un descuento en 20 yerba", "a las 3 paso a buscar la yerba", "quiero saber si puedo llevar 20 azucar". Lo peor: "recibi 10 yerba" o "llegaron 10 fideos" VENDEN 10. Contradice "ante la duda no se anota" | P (media), R (baja) | media | no (en el 12 solo daba una cuenta) | pendiente (vuelta 2, obligatorio): anotar solo con palabras claras de pedido y sin negación, pregunta ni duda; lo demás da la cuenta y "Todavía no anoté nada". Con pruebas de estas frases |
+| P82 | `test_nuevo_equipo_crea_el_programa_la_planilla_y_los_casos_listos_para_usar` exige renglones de hasta 110 caracteres y el renglón de `ensayar` lleva la ruta completa de `mate.py`: con el repositorio en una ruta más larga falla (912 de 913) | P; reproducido por I | media | no | pendiente (vuelta 2, obligatorio): que la prueba no dependa de la ruta, sin aflojar lo que cuida (medir sin la ruta, o correr con una ruta fija) |
+| P83 | `ingreso` acepta de más: una pregunta que empieza con "Ingresó..." suma stock; `ingreso -5 azucar` suma 5; un número enorme entra sin preguntar; `ingreso 10 fideos con envio` entra igual | R, P | baja | no | pendiente (vuelta 2 si entra): exigir "ingreso" exacto seguido del número, rechazar el menos y un número disparatado |
+| P84 | Compras muestra "(quedan 5)" con el número del momento del aviso aunque ya queden 2 | R | baja | no | pendiente: "quedaban 5 cuando se pidió", o preguntarle a Depósito el stock de hoy |
+| P85 | Un producto que ARRANCA bajo el mínimo en la planilla (Aceite: 8) no genera pedido hasta que alguien lo pide; el README no lo dice | R, P | baja | no | pendiente: decirlo en el README o avisar a Compras en `Inventario` |
+| P86 | Correr el ejemplo 13 en su lugar deja `13_equipo_del_negocio.memoria.json` en `mate/ejemplos` y con eso falla `test_el_ejemplo_del_agente_que_aprende` | R, P | baja | sí (pasaba con el ejemplo 8); ahora hay un ejemplo más cuyo uso documentado lo provoca | pendiente: que README y encabezado manden a copiarlo o a usar `nuevo equipo` |
+| P87 | Dos ventanas con el mismo equipo: la que termina última pisa el stock de la otra. El README lo dice para `estado recordado` en general, no en la parte del equipo | P | baja | sí | pendiente: una línea en "Un equipo propio" (junto con P80) |
+| P88 | Un producto sacado o renombrado en la planilla deja su stock y su pedido de reposición para siempre; `ingreso` ya no lo tacha; solo `--olvidar`, que borra todo | P, implementador | baja | no | pendiente (si entra): limpiar lo que ya no está en la planilla, o decirlo en el README |
+| P89 | `ensayar` usa el stock que Depósito recuerda: con la yerba casi vendida fallan 5 de 8 casos de muestra y el informe dice "Hay que cambiar el programa (o el caso)" | P, R, implementador | baja | no | pasa al cambio 2 (ensayar la conversación entre agentes) |
+| P90 | Números que el encabezado invita a cambiar y rompen: `unidades_para_envio = 0` (9 de 10), `stock_minimo = 2.5`; `stock_minimo = -5` o "diez" pasan `verificar` y cortan al correr con un error técnico | P | baja | no | pendiente (si entra): decir en el encabezado qué valores valen y dar un mensaje simple |
+| P91 | Planilla y memoria: stock con decimales contesta "quedan 0.5" (con punto); dos renglones con el mismo producto comparten stock; memoria editada a mano con texto corta la charla; "quiero -3 azucar" anota 3 | P | baja | no | pendiente (si entra) |
+| P92 | `VERSION` sigue en 0.6; el README dice "once programas cortos" con trece filas en la tabla (tres pruebas viejas exigen la frase) | R, implementador | baja | la frase sí | `VERSION`: al cierre de la 0.7. La frase: pendiente, cambiando frase y pruebas juntas sin aflojarlas |
+| P93 | `ingreso` lo puede escribir cualquiera con el teclado; un solo mínimo para todos los productos; un producto por pedido; sin anulación de un pedido anotado | implementador | baja | no | aceptado como límite de la 0.7; está avisado en ejemplo, programa creado y README |
+| P94 | Quedaron cuatro o cinco carpetas temporales del implementador en `/tmp` (un control bloqueó el borrado); solo copias de ejemplos y memorias de prueba | implementador | — | — | las borra quien las creó o el dueño; nadie más las toca |
+| P11 | Sin probar en una Windows de verdad (`py`, PowerShell, Bloc de notas) | R, P, I | baja | sí | pendiente del dueño |
+
+No verificado por nadie: una falla real de Compras (solo la simulada de la prueba) y el
+contenido de la clase 13 más allá de que sus pruebas pasan.
+
+**Decisiones técnicas nuevas**
+- `responder_pedido()` del ejemplo 12 se partió en `leer_pedido()`, `falta_stock()` y
+  `cuenta_del_pedido()`; el 12 contesta igual y sus 22 pruebas no cambiaron.
+- El ejemplo 13 trae esa lógica con `usar` en vez de copiarla. Costo: viene el agente
+  Mostrador del 12 sin usarse y los nombres del 13 esquivan los del 12.
+- Pedido y pregunta se distinguen: un pedido se anota ("Anotado: ..."), una pregunta da la
+  cuenta y dice "Todavía no anoté nada". La regla "ante la duda no se anota" queda, y hoy no
+  se cumple (P81).
+- El stock de la planilla es solo el de arranque; la mercadería entra por la charla con
+  `ingreso 30 azucar` y `--olvidar` vuelve a la planilla.
+- Deposito le pregunta a Compras dentro del contrato y marca "ya avisé" recién cuando Compras
+  contesta; si Compras falla, la venta no se cae y se reintenta con el pedido siguiente.
+  También avisa si piden un producto que está en cero.
+- Cada consulta del cliente lleva su propia charla (`consulta-1`, `consulta-2`...) y el
+  contrato termina en `fin`. La carga inicial, `Ingreso`, `Llego` y `QueFalta` van fuera del contrato.
+- `nuevo equipo` depende de siete títulos de los ejemplos 12 y 13; si alguno cambia, falla con
+  "no tiene la forma que espero" (con pruebas) y los dos ejemplos lo avisan en su encabezado.
+- `nuevo` a secas dice ahora "Crea un mostrador o un equipo de agentes".
+- La clase 13 no usa teclado ni IA, para que lo que "tiene que salir" sea exacto.
+- Integrador, sobre P80: en la vuelta 2 va el arreglo mínimo (avisar). Guardar lo recordado
+  después de cada consulta cambia el intérprete para todos los programas con `estado
+  recordado`; no se hace sin una propuesta escrita acá y revisada por R. Queda anotado como
+  candidato antes de cerrar la 0.7, porque un mostrador queda abierto todo el día.
+- Integrador: no arregló nada en esta vuelta; P79, P81 y P82 cambian comportamiento o pruebas
+  y piden revisión independiente.
+
+**Para la vuelta 2**: P79, P80 (aviso), P81 y P82 (obligatorios). Si entran: P83, P84, P85,
+P86, P87, P88, P90, P91 y la frase de P92. P89 pasa al cambio 2.
