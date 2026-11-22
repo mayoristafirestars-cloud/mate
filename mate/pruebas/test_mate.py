@@ -27,6 +27,12 @@ def sin_red_ni_clave(monkeypatch):
     # ...ni anota en el registro de errores de uso de verdad (tampoco las que corren mate.py
     # como programa aparte: heredan esta variable)
     monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    # ...ni cambia según con qué se lanzaron las pruebas ('py -m pytest' o 'python -m
+    # pytest'): acá nadie averigua quién lanzó a Mate, y los mate.py que se corren como
+    # programa aparte heredan la forma fijada a mano. Las pruebas que miran la forma 'py' o
+    # 'mate' la ponen ellas.
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "")
+    monkeypatch.setenv("MATE_ORDEN", "python")
 
 
 def correr(fuente, traza=False):
@@ -10249,7 +10255,7 @@ def test_el_ejemplo_12_resuelve_los_pedidos_sin_consultar_a_la_ia(tmp_path, caps
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["probar", ruta]) == 0
     salida = capsys.readouterr().out
-    assert "14 de 14 pruebas pasaron" in salida
+    assert "18 de 18 pruebas pasaron" in salida
     assert "✓ los dos pedidos que una IA contestó mal: total exacto, envío bien y sin IA" in salida
     assert sorted(p.name for p in tmp_path.iterdir()) == [nombre, "precios.csv"]  # probar no deja nada
     # corrido de verdad, con el teclado: el pedido lo contesta el programa aunque la IA
@@ -10269,6 +10275,60 @@ def test_el_ejemplo_12_resuelve_los_pedidos_sin_consultar_a_la_ia(tmp_path, caps
     assert "Eso te lo confirma una persona. Ya te paso con alguien." in salida
     traza = (tmp_path / "traza.txt").read_text(encoding="utf-8-sig")
     assert traza.count("Consulta") >= 1 and "12 azucar" not in traza and "5 yerbas" not in traza
+
+
+def test_el_ejemplo_12_no_confirma_un_envio_negado_y_revisa_la_planilla(tmp_path, capsys,
+                                                                      monkeypatch):
+    import io
+    import shutil
+    nombre = "12_mostrador_con_reglas.mate"
+    ruta = str(shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre))
+    planilla = tmp_path / "precios.csv"
+    shutil.copy(RAIZ / "ejemplos" / "precios.csv", planilla)
+
+    def charla(*renglones):
+        monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(renglones) + "\nchau\n"))
+        assert mate.main(["correr", ruta, "--ia-simulada", f"--traza={tmp_path / 'traza.txt'}"]) == 0
+        return [r.split("Mostrador: ", 1)[1] for r in capsys.readouterr().out.splitlines()
+                if "Cliente: Mostrador: " in r]
+
+    # las frases que encontraron el revisor y el agente de pruebas: con 10 o más habría
+    # envío, pero el cliente dijo que no; va solo el total
+    negadas = ["12 yerbas, no me lo mandes", "12 yerbas, no necesito envio",
+               "12 yerbas no hace falta que lo manden", "no quiero envio, 12 azucar",
+               "12 azucar, no hace falta envio", "10 arroz no me lo mandes"]
+    respuestas = charla(*negadas)
+    assert len(respuestas) == len(negadas)
+    for dicho, respuesta in zip(negadas, respuestas):
+        assert re.search(r"total \$ [\d.]+,00\.$", respuesta), (dicho, respuesta)
+        assert "nvío" not in respuesta, (dicho, respuesta)
+    # ...y nada de eso pasó por la IA
+    assert "Consulta" not in (tmp_path / "traza.txt").read_text(encoding="utf-8-sig")
+    # lo demás que cambió en la segunda vuelta
+    respuestas = charla("1,000 yerbas", "2 docenas de yerba", "necesito 3 arroz y que me lo traigan",
+                        "12 azucar me la mandas o tengo que retirar?", "no quiero 3 yerbas")
+    assert respuestas[0].endswith("Va por unidades enteras: decime cuántos querés.")
+    assert respuestas[1].endswith("a $ 35.000,00 cada uno. Decime cuántos querés.")
+    assert "Sin envío: hacemos envíos desde 10 unidades y pedís 3." in respuestas[2]
+    assert respuestas[3].endswith("total $ 117.606,00. Con envío: sí, va con envío.")
+    assert "total" not in respuestas[4]  # (no se cotiza: fue a la IA)
+    assert (tmp_path / "traza.txt").read_text(encoding="utf-8-sig").count("no quiero 3 yerbas") >= 1
+    # un producto que es la primera palabra de otro se puede pedir
+    planilla.write_text("producto;presentacion;precio;stock\nPan;bolsa;500;3\n"
+                        "Pan rallado;bolsa;700;10\n", encoding="utf-8")
+    assert charla("2 pan", "2 panes", "2 pan rallado") == [
+        "2 x Pan (bolsa) a $ 500,00 cada uno: total $ 1.000,00.",
+        "2 x Pan (bolsa) a $ 500,00 cada uno: total $ 1.000,00.",
+        "2 x Pan rallado (bolsa) a $ 700,00 cada uno: total $ 1.400,00."]
+    # una planilla sin la columna stock: lo dice al arrancar, en castellano, y no atiende
+    planilla.write_text("producto;presentacion;precio\nPan;bolsa;500\n", encoding="utf-8")
+    monkeypatch.setattr("sys.stdin", io.StringIO("2 pan\nchau\n"))
+    assert mate.main(["correr", ruta, "--ia-simulada"]) == 0
+    capturado = capsys.readouterr()
+    assert capturado.out == ("Mostrador: así no puedo atender. A la planilla precios.csv le "
+                             "falta la columna 'stock'. El primer renglón de precios.csv tiene "
+                             "que decir: producto;presentacion;precio;stock\n")
+    assert capturado.err == ""
 
 
 def test_orden_segun_como_se_llamo_a_mate():
@@ -10333,10 +10393,45 @@ def test_fuera_de_windows_no_se_averigua_quien_lanzo_a_mate(monkeypatch):
     assert mate.como_se_llama() == "mate" and mate._QUIEN_ME_LANZO is None
 
 
+def test_las_pruebas_no_dependen_de_con_que_se_lanzaron(tmp_path, monkeypatch):
+    # el arreglo automático de arriba deja fija la forma. Un mate.py corrido como programa
+    # aparte, en una "Windows" donde lo lanzó py.exe ('py -m pytest', el caso del dueño),
+    # sugiere 'python' porque hereda la forma fijada; sin eso diría 'py'
+    aparte = tmp_path / "aparte.py"
+    aparte.write_text(
+        "import os, sys\n"
+        f"sys.path.insert(0, {str(RAIZ)!r})\n"
+        "import mate\n"
+        "mate.os.name = 'nt'\n"
+        "mate._lanzador_en_windows = lambda: 'py'\n"
+        "print(mate.como_se_llama())\n", encoding="utf-8")
+    heredado = dict(os.environ)
+    assert heredado["MATE_ORDEN"] == "python"
+    r = subprocess.run([sys.executable, str(aparte)], capture_output=True, text=True,
+                       env=heredado)
+    assert r.stdout.strip() == "python mate\\mate.py", r.stderr
+    del heredado["MATE_ORDEN"]
+    r = subprocess.run([sys.executable, str(aparte)], capture_output=True, text=True,
+                       env=heredado)
+    assert r.stdout.strip() == "py mate\\mate.py", r.stderr
+
+    # ...y acá adentro nadie mira la lista de programas, ni con la variable ni sin ella
+    def no_tiene_que_llamarse():
+        raise AssertionError("una prueba quiso averiguar quién lanzó a Mate")
+
+    monkeypatch.setattr(mate, "_lanzador_en_windows", no_tiene_que_llamarse)
+    monkeypatch.setattr(mate.os, "name", "nt")
+    assert mate.quien_me_lanzo() == ""
+    assert mate.como_se_llama() == "python mate\\mate.py"
+    monkeypatch.delenv("MATE_ORDEN")
+    assert mate.como_se_llama() == "python mate\\mate.py"
+
+
 def test_lanzado_con_py_los_comandos_sugeridos_dicen_py(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(RAIZ.parent)
     monkeypatch.delenv("MATE_ORDEN", raising=False)
     de_siempre = {"guia": mate.texto_de_guia(), "ayuda": mate.texto_de_ayuda()}
+    sistema = mate.os.name
     monkeypatch.setattr(mate.os, "name", "nt")  # (como en la computadora del dueño)
     monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
     assert mate.como_se_llama() == "py mate\\mate.py"
@@ -10372,7 +10467,8 @@ def test_lanzado_con_py_los_comandos_sugeridos_dicen_py(tmp_path, capsys, monkey
     monkeypatch.setenv("MATE_ORDEN", "mate")
     assert mate.como_se_llama() == "mate"
     # y si no se sabe, los textos quedan como estaban
-    monkeypatch.undo()
+    monkeypatch.setattr(mate.os, "name", sistema)
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "")
     monkeypatch.delenv("MATE_ORDEN", raising=False)
     assert mate.texto_de_guia() == de_siempre["guia"]
     assert mate.texto_de_ayuda() == de_siempre["ayuda"]
@@ -10383,6 +10479,12 @@ def test_los_textos_fijos_aclaran_lo_de_py_y_que_va_en_cada_lugar():
     assert "**Si en tu computadora Python se llama con `py`**" in manual
     assert "escribí `py` en lugar de `python` en todos los comandos" in manual
     assert "### Qué va en una lección, qué en un freno y qué en el programa" in manual
+    assert '`$env:MATE_ORDEN = "py"`' in manual  # (la salida manual, si no se da cuenta)
+    que_va = manual.split("### Qué va en una lección")[1].split("\n## ")[0]
+    assert "mandame una docena\" va a la IA" not in que_va  # (eso lo contesta el programa)
+    for frase in ['"no me lo\n  mandes"', '"2 pan" es el Pan', "le falta una\ncolumna",
+                  "`probar` marca fallas hasta que adaptes esas pruebas"]:
+        assert frase in que_va, frase
     for frase in ["**En el programa**", "**En un freno**", "**En una lección**",
                   "12_mostrador_con_reglas.mate"]:
         assert frase in manual.split("### Qué va en una lección")[1], frase

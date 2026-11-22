@@ -71,7 +71,9 @@ Lo que hay que saber del instalador:
 > "no se reconoce", pero `py --version` contesta): en todos los comandos de este manual escribí
 > `py` donde dice `python`. Por ejemplo, `py mate\mate.py correr mate\ejemplos\01_hola.mate`.
 > Mate se da cuenta de cómo lo llamaste: los comandos que te sugiere en pantalla ya salen con
-> `py`, con `python` o con `mate`, listos para copiar.
+> `py`, con `python` o con `mate`, listos para copiar. Si lo llamaste con `py` y te los sigue
+> sugiriendo con `python`, se lo podés decir vos: escribí `$env:MATE_ORDEN = "py"` en
+> PowerShell (vale hasta que cerrás esa ventana).
 
 **Sin instalar** (y en Linux o Mac) se usa con la orden larga, parado en la carpeta que
 contiene a la carpeta `mate`. Todo este README está escrito con esa forma, que anda siempre:
@@ -1705,25 +1707,46 @@ Cómo entiende el programa lo que escribe el cliente, y qué hace cuando no est�
 
 - **El producto** se reconoce por la primera palabra de su nombre en la planilla ("yerba",
   "azúcar"), con o sin tilde, en singular o en plural, y siempre la palabra entera ("pan" no
-  es "panceta"). Si dos productos empiezan igual ("Harina 000" y "Harina 0000") vale el que
-  se nombró completo; si no se sabe cuál, el programa pregunta.
+  es "panceta"). Si dos productos empiezan igual ("Harina 000" y "Harina 0000", o "Pan" y
+  "Pan rallado") vale el que se nombró completo: "2 pan" es el Pan y "2 pan rallado" es el
+  otro. Si no se sabe cuál, el programa pregunta.
 - **La cantidad** es un número entero: `12`, `x12`, `1.000` (mil) o con letras hasta `doce`.
   Un número con una medida atrás no es una cantidad ("1 kg de yerba" habla del paquete): ahí
-  el programa dice cómo se vende el producto y pregunta cuántos. Lo mismo con `2,5`, con `0` y
-  con plata ("$ 50.000").
+  el programa dice cómo se vende el producto y pregunta cuántos. Lo mismo con "2 docenas", con
+  un número con coma (`2,5`, `1,000`), con `0` y con plata ("$ 50.000").
 - **Si hay dos productos o dos cantidades en la misma frase** ("2 yerbas y 3 azúcar", "2 o 3
   yerbas", un teléfono al lado del pedido), no elige por el cliente: pide que lo diga de a uno.
-- **El envío** se detecta por palabras como "envío", "mandás", "me lo alcanzan", "a
-  domicilio"; "sin envío" y "lo retiro" es que no. Si preguntan por el envío sin hacer un
-  pedido, el programa contesta la regla.
+- **El envío** se detecta por palabras como "envío", "mandás", "me lo alcanzan", "que me lo
+  traigan", "a domicilio". Si el cliente dice que **no** lo quiere ("sin envío", "no me lo
+  mandes", "no hace falta que lo manden"), el programa da solo el total y no habla de envío:
+  ante la duda no confirma un envío que capaz no pidieron. "¿Me lo mandás o lo retiro?" y "no
+  sé si mandan" son preguntas, y se contestan con la regla. Si preguntan por el envío sin
+  hacer un pedido ("¿hacen envíos?", "mandame una docena de yerbas"), el programa contesta
+  la regla y pide la cantidad con números.
+- **Una devolución, una cancelación o un "no quiero 3 yerbas"** no se cotizan: van a la IA.
 - **Si no es nada de eso**, el programa no contesta y la consulta va a la IA. A la IA se le
   pide que no haga cuentas ni hable de envíos, y el freno de precios no la deja nombrar un
   importe que no esté en la lista (así tampoco puede inventar un total).
 
 Lo que no hace: no arma un pedido de varios productos ni suma totales entre consultas, y solo
-entiende lo que está escrito de esas formas (un "mandame una docena" va a la IA, que le pide
-al cliente el número). Para adaptarlo, cambiá `precios.csv` (con las columnas `producto`,
-`presentacion`, `precio` y `stock`) y el número de `unidades_para_envio`, arriba de todo.
+entiende lo que está escrito de esas formas (un "quiero una docena de yerbas" o un "veinte
+yerbas" van a la IA, que le pide al cliente el número). Lo que da es una cotización: no anota
+ni reserva nada. Algunos casos que conviene conocer:
+
+- Un "no" pegado a la palabra de envío siempre se toma como que no lo quiere. Por eso a
+  "¿no me mandás 12 yerbas?" le contesta el total sin hablar de envío; con "¿me mandás 12
+  yerbas?" sí contesta la regla.
+- Un guion delante del número se pierde: "-3 yerbas" se cotiza como 3 (mucha gente escribe
+  las listas con guiones).
+- Si piden un producto con un número que no está en la planilla ("3 harina 0000" cuando solo
+  hay "Harina 000"), el programa ve dos números y pregunta; no cotiza la harina que hay como
+  si fuera la que pidieron.
+
+Para adaptarlo, cambiá `precios.csv` (con las columnas `producto`, `presentacion`, `precio` y
+`stock`) y el número de `unidades_para_envio`, arriba de todo. Si a la planilla le falta una
+columna, el programa lo dice al arrancar y no atiende. Las pruebas del final del ejemplo están
+escritas para la planilla de muestra: si cambiás los productos, `correr` anda igual, pero
+`probar` marca fallas hasta que adaptes esas pruebas a tu lista.
 
 ## Referencia rápida
 
