@@ -4160,11 +4160,14 @@ def tomar_candado(ruta):
     """El candado del buzón: lo tiene una sola ventana a la vez, y el sistema lo suelta si
     el programa muere. Devuelve el archivo abierto con el candado tomado, o None si lo
     tiene otra ventana. No espera. (OSError si el archivo no se puede crear.) Un 'candado'
-    que es un acceso directo no se sigue: se saca y se crea uno de verdad."""
+    que es un acceso directo no se sigue: se saca y se crea uno de verdad. Se crea como
+    cualquier archivo de datos (0o666 menos lo que saque el sistema), sin permiso de
+    ejecución: os.open(), si no se le dice, lo crea con 0o777."""
     if os.path.islink(ruta):
         os.remove(ruta)
     f = open(ruta, "a+b",
-             opener=lambda donde, como: os.open(donde, como | getattr(os, "O_NOFOLLOW", 0)))
+             opener=lambda donde, como: os.open(donde, como | getattr(os, "O_NOFOLLOW", 0),
+                                                0o666))
     try:
         if os.name == "nt":
             import msvcrt
@@ -9909,6 +9912,9 @@ _ENCABEZADO_DEL_EQUIPO = """\
 #     ("cuanto salen 12 azucar"), un "no", una duda, una palabra que no conoce ("recibí
 #     10 yerbas") o una frase que habla de un pedido que YA está hecho ("retiro el pedido
 #     de 5 azucar", "gracias por las 10 yerbas") contesta la cuenta y no anota nada.
+#     Tampoco anota si piden por lo que viene ADENTRO del bulto ("10 paquetes de yerba",
+#     y la yerba se vende por bolsón de 10 paquetes): pregunta, y dice cómo se vende.
+#     La unidad de venta es la PRIMERA palabra de la columna presentacion.
 #     Un pedido ya anotado no se anula desde la charla: eso lo arregla una persona.
 #     Todo lo demás (saludar, contar qué hay) lo contesta la IA, con frenos para que no
 #     invente precios.
@@ -10199,6 +10205,29 @@ prueba "hablar de un pedido que YA está hecho no lo anota otra vez" {
     # Nadie reservó nada: la yerba está entera.
     asegurar largo(mensajes_enviados("Reservar")) == 0
     asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+}
+
+prueba "un pedido en la unidad de ADENTRO del bulto no se anota: Ventas pregunta" {
+    abrir_el_negocio(lista_de_prueba())
+    # La yerba se vende por bolsón de 10 paquetes: "10 paquetes" puede ser 1 bolsón o 10.
+    asegurar consultar_a_ventas("a", "quiero 10 paquetes de yerba") == "Todavía no anoté nada, para no equivocarme: dijiste \\"paquetes\\", y Yerba mate se vende por bolsón de 10 paquetes de 1 kg, a $ 35.000,00 cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \\"quiero 1 yerba\\"."
+    para dicho en ["10 paquetes de yerba", "dame 1 paquete de yerba", "anotame 20 paquetes de fideos",
+                   "quiero 10 paquetes de yerba con envio", "cuanto salen 10 paquetes de yerba?",
+                   "quiero 2 azucar de 10 kg"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada, para no equivocarme: dijiste \\""), dicho
+    }
+    # Un pasado con tilde ("compró" no es "compro"), o un "hago" o un "de" sueltos, tampoco.
+    para dicho en ["compró 10 yerbas", "llevó 10 yerbas", "encargó 5 yerbas", "encargo de 5 yerbas",
+                   "de 5 yerbas", "hago 5 yerbas", "hacerte 5 yerbas", "me hacer 5 yerbas",
+                   "llevo 10 yerbas de mas"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada: para pedirlo, escribí \\"quiero "), dicho
+    }
+    # Nadie reservó nada: la yerba está entera.
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(consultas_ia()) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+    # Con la unidad de venta adelante sí está claro.
+    asegurar empieza_con(consultar_a_ventas("x", "quiero 1 bolsón de yerba"), "Anotado: 1 x Yerba mate")
+    asegurar empieza_con(consultar_a_ventas("y", "quiero 3 bolsas de azucar de 10 kg"), "Anotado: 3 x Azúcar")
 }
 
 prueba "devolver o anular no anota nada, y Ventas dice que eso lo arregla una persona" {

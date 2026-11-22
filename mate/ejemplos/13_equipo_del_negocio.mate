@@ -52,6 +52,10 @@
 # ("recibí 10 yerbas", "haceme un descuento en 20 yerbas") o una frase que habla de un
 # pedido que YA está hecho ("retiro el pedido de 5 azucar", "gracias por las 10 yerbas")
 # contesta la cuenta y NO anota. Un pedido ya anotado no se anula desde la charla.
+# Tampoco anota si piden por lo que viene ADENTRO del bulto ("quiero 10 paquetes de yerba",
+# y la yerba se vende por bolsón de 10 paquetes): no se sabe si son 10 bolsones o 1, así
+# que Ventas pregunta y dice cómo se vende. La unidad de venta es la PRIMERA palabra de la
+# columna presentacion de la planilla ("bolsón", "caja", "bolsa").
 # Para tu negocio no hace falta copiar este archivo: la orden 'nuevo equipo mi_negocio'
 # crea en tu carpeta un programa con este mismo equipo y su planilla. (Copia lo que hay
 # entre los títulos "El equipo" y "Las pruebas" de este archivo, y del ejemplo 12 las
@@ -169,6 +173,13 @@ agente Ventas {
         }
         si tipo(pedido) == "mapa" {
             sea producto = pedido.fila.producto
+            # Pide por lo que viene ADENTRO del bulto ("10 paquetes de yerba", y la yerba
+            # se vende por bolsón de 10 paquetes): no se sabe si son 10 bolsones o 1. No
+            # se anota ni se cotiza: Ventas pregunta, y dice en qué unidad se vende.
+            sea otra_unidad = unidad_de_adentro(pedido.fila, c.dicho)
+            si otra_unidad != nada {
+                responder RespuestaDeVentas { charla: c.charla, respuesta: respuesta_de_unidad(pedido, otra_unidad) }
+            }
             # Si no es un pedido claro (pregunta el precio, duda, dice que no) o pide un
             # envío que no le corresponde, no se anota nada: Ventas mira cuánto hay y
             # contesta la cuenta.
@@ -415,11 +426,78 @@ funcion vale_por_la_de_al_lado(palabras, i) {
     }
     # "Hago un pedido de 5 yerbas" pide; "mi pedido", "el pedido" y "retiro un pedido" no.
     si palabra == "pedido" {
-        devolver antes == "un" y tiene(["hago", "hacer", "hacerte", "haceme"], mas_atras)
+        devolver antes == "un" y tiene(palabras_de_hacer_un_pedido(), mas_atras)
     }
     devolver falso
 }
 
+# Las que piden solo si atrás viene "un pedido": "hago un pedido de 5 yerbas". Solas no
+# ("hago 5 yerbas" lo dice el que las fabrica, no el que las compra).
+funcion palabras_de_hacer_un_pedido() {
+    devolver ["hago", "hacer", "hacerte", "haceme"]
+}
+
+# ¿Cuenta algo que YA pasó con una palabra que, sin la tilde, es de pedir? "compró 10
+# yerbas", "llevó 10 yerbas", "encargó 5 yerbas": lo hizo otro, o fue antes. Se mira la
+# frase como la escribió el cliente, porque palabras_de() saca las tildes.
+funcion trae_un_pasado(dicho) {
+    # (se marca la "ó" antes de sacar las tildes: "compró" queda "comprzzz")
+    para palabra en palabras_de(reemplazar(minusculas(dicho), "ó", "zzz")) {
+        si termina_con(palabra, "zzz") y tiene(palabras_de_pedir(), reemplazar(palabra, "zzz", "o")) {
+            devolver verdadero
+        }
+    }
+    devolver falso
+}
+
+# La unidad en que se vende el producto: la primera palabra de su presentación ("bolsón",
+# de "bolsón de 10 paquetes de 1 kg"; "caja", de "caja de 12 botellas de 900 ml").
+funcion unidad_de_venta(fila) {
+    para palabra en palabras_de(texto(fila.presentacion)) {
+        si numero_de(palabra) == nada {
+            devolver palabra
+        }
+    }
+    devolver ""
+}
+
+# ¿El cliente pide por lo que viene ADENTRO del bulto? "10 paquetes de yerba" (se vende
+# por bolsón de 10 paquetes), "6 botellas de aceite" (por caja de 12 botellas): devuelve
+# esa palabra, como la dijo. Devuelve nada si no nombra ninguna, o si ANTES nombró la
+# unidad de venta: en "2 bolsas de 10 kg de azucar" el "kg" solo describe la bolsa.
+funcion unidad_de_adentro(fila, dicho) {
+    sea nombre = palabras_de(texto(fila.producto))
+    sea unidad = unidad_de_venta(fila)
+    sea presentacion = palabras_de(texto(fila.presentacion))
+    para palabra en palabras_de(dicho) {
+        si numero_de(palabra) != nada {
+            continuar
+        }
+        si misma_palabra(palabra, unidad) {
+            devolver nada
+        }
+        # (una palabra del nombre del producto no es una unidad)
+        var es_del_nombre_del_producto = falso
+        para suya en nombre {
+            si misma_palabra(palabra, suya) {
+                es_del_nombre_del_producto = verdadero
+            }
+        }
+        si es_del_nombre_del_producto {
+            continuar
+        }
+        para suya en presentacion {
+            # (los números y las palabras de unión de la presentación no son unidades)
+            si numero_de(suya) == nada y no tiene(["de", "x", "por", "con", "y", "a", "c", "u"], suya) y misma_palabra(palabra, suya) {
+                devolver palabra
+            }
+        }
+    }
+    devolver nada
+}
+
+# (Tampoco es claro "compró 10 yerbas", con tilde, ni "10 paquetes de yerba" cuando la
+# yerba se vende por bolsón: ver trae_un_pasado() y unidad_de_adentro(), más arriba.)
 # ¿Es un pedido CLARO de ese producto? Sí: "quiero 20 azúcar", "20 azúcar", "dame 12 yerbas
 # con envío", "5 yerbas, las retiro yo". No: una pregunta ("¿cuánto salen 20 azúcar?", "2
 # azúcar?"), un número con menos, una frase con alguna palabra que no esté en las listas
@@ -431,8 +509,14 @@ funcion es_pedido_claro(fila, dicho) {
     si tiene(dicho, "?") o tiene(dicho, "¿") o tiene(dicho, "？") o trae_un_menos(dicho) {
         devolver falso
     }
+    # "Compró 10 yerbas" cuenta lo que hizo otro; "10 paquetes de yerba" no dice cuántos
+    # bolsones. Ninguna de las dos está clara.
+    si trae_un_pasado(dicho) o unidad_de_adentro(fila, dicho) != nada {
+        devolver falso
+    }
     sea palabras = palabras_de(dicho)
-    # (las palabras del producto y de cómo se vende: "azucar", "bolsa", "kg")
+    # (las palabras del producto y de cómo se vende: "azucar", "bolsa", "kg". Las de
+    # adentro de la presentación llegan acá solo si antes se nombró la unidad de venta.)
     sea del_producto = palabras_de("{fila.producto} {fila.presentacion}")
     var hay_de_pedir = falso
     var falta_la_de_pedir = falso
@@ -449,8 +533,21 @@ funcion es_pedido_claro(fila, dicho) {
             si palabra == "llevo" y i > 0 y tiene(["te", "le", "se"], palabras[i - 1]) {
                 devolver falso
             }
+            # "Hago 5 yerbas" no pide: tiene que ser "hago un pedido de 5 yerbas".
+            si tiene(palabras_de_hacer_un_pedido(), palabra) y no (i + 2 < largo(palabras) y palabras[i + 1] == "un" y palabras[i + 2] == "pedido") {
+                devolver falso
+            }
             hay_de_pedir = verdadero
             continuar
+        }
+        # "De" adelante de la cantidad vale solo en "un pedido de 5 yerbas": "encargo de 5
+        # yerbas" o "de 5 yerbas" hablan de algo que ya existe. Y "5 yerbas de más" es una
+        # queja, no un pedido.
+        si palabra == "de" y no paso_la_cantidad y (i == 0 o palabras[i - 1] != "pedido") {
+            devolver falso
+        }
+        si palabra == "mas" y i > 0 y palabras[i - 1] == "de" {
+            devolver falso
         }
         # Una palabra del producto, en singular o en plural: sigue.
         var es_del_producto = falso
@@ -492,6 +589,13 @@ funcion es_para_anotar(pedido, dicho) {
 # Lo que se contesta a una devolución, una anulación o un "no quiero 5 yerbas".
 funcion respuesta_de_anular() {
     devolver "No anoté nada. Y si es por un pedido que ya está anotado: desde esta charla no se anula ni se devuelve, eso lo arregla una persona del negocio."
+}
+
+# Lo que se contesta cuando piden por lo que viene adentro del bulto (dicha: la palabra
+# que usó el cliente): no se anota, y se aclara en qué unidad se vende.
+funcion respuesta_de_unidad(pedido, dicha) {
+    sea fila = pedido.fila
+    devolver "Todavía no anoté nada, para no equivocarme: dijiste \"{dicha}\", y {fila.producto} se vende por {fila.presentacion}, a {pesos(fila.precio)} cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \"quiero 1 {palabras_de(texto(fila.producto))[0]}\"."
 }
 
 # Cómo se pide de verdad ese producto: con la primera palabra de su nombre.
@@ -1015,6 +1119,51 @@ prueba "las maneras corrientes de pedir se anotan" {
     }
     asegurar empieza_con(consultar_a_ventas("z", "12 yerbas con envio a mi casa, muchas gracias"), "Anotado: 12 x Yerba mate")
     asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40 - 11 * 2 - 12
+}
+
+prueba "un pedido en la unidad de ADENTRO del bulto no se anota: Ventas pregunta" {
+    abrir_el_negocio(lista)
+    # La yerba se vende por bolsón de 10 paquetes, y el aceite por caja de 12 botellas:
+    # "10 paquetes" puede ser 1 bolsón o 10. No se anota ni se cotiza: se pregunta.
+    asegurar consultar_a_ventas("a", "quiero 10 paquetes de yerba") == "Todavía no anoté nada, para no equivocarme: dijiste \"paquetes\", y Yerba mate se vende por bolsón de 10 paquetes de 1 kg, a $ 35.000,00 cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \"quiero 1 yerba\"."
+    asegurar consultar_a_ventas("b", "quiero 6 botellas de aceite") == "Todavía no anoté nada, para no equivocarme: dijiste \"botellas\", y Aceite de girasol se vende por caja de 12 botellas de 900 ml, a $ 31.200,00 cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \"quiero 1 aceite\"."
+    para dicho en ["10 paquetes de yerba", "dame 1 paquete de yerba", "quiero 12 botellas de aceite",
+                   "6 botellas de aceite de girasol, gracias", "anotame 20 paquetes de fideos",
+                   "quiero 10 paquetes de yerba con envio", "cuanto salen 10 paquetes de yerba?",
+                   "quiero 2 azucar de 10 kg", "quiero 10 paquetes del bolson de yerba"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada, para no equivocarme: dijiste \""), dicho
+    }
+    # Nadie le habló a Depósito: ni para reservar ni para mirar el stock.
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("ConsultarStock")) == 0
+    asegurar largo(consultas_ia()) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
+    asegurar (preguntar CuantoQueda { producto: "Aceite de girasol" } a Deposito).unidades == 8
+    # Con la unidad de venta adelante sí está claro: lo de atrás describe el bulto.
+    asegurar empieza_con(consultar_a_ventas("x", "quiero 1 bolsón de yerba"), "Anotado: 1 x Yerba mate")
+    asegurar empieza_con(consultar_a_ventas("y", "quiero 2 cajas de 12 botellas de aceite"), "Veo más de un número")
+    asegurar empieza_con(consultar_a_ventas("z", "quiero 2 cajas de aceite"), "Anotado: 2 x Aceite de girasol")
+    asegurar empieza_con(consultar_a_ventas("w", "quiero 3 bolsas de azucar de 10 kg"), "Anotado: 3 x Azúcar")
+    asegurar unidad_de_venta(lista[0]) == "bolson" y unidad_de_adentro(lista[0], "2 bolsones de yerba") == nada
+    asegurar unidad_de_adentro({ producto: "Tomate", presentacion: "x 6 latas" }, "quiero 6 latas de tomate") == "latas"
+}
+
+prueba "un pasado con tilde, o un 'hago' o un 'de' sueltos, no anotan" {
+    abrir_el_negocio(lista)
+    # "Compró" sin la tilde es "compro": se mira cómo lo escribió el cliente.
+    para dicho en ["compró 10 yerbas", "llevó 10 yerbas", "encargó 5 yerbas", "Compró 5 yerbas",
+                   "encargo de 5 yerbas", "de 5 yerbas", "hago 5 yerbas", "hacerte 5 yerbas",
+                   "me hacer 5 yerbas", "haceme 5 yerbas", "llevo 10 yerbas de mas",
+                   "llevo 10 yerbas de más"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada: para pedirlo, escribí \"quiero "), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == 40
+    asegurar trae_un_pasado("compró 10 yerbas") y no trae_un_pasado("compro 10 yerbas") y no trae_un_pasado("quiero 1 bolsón de yerba")
+    # Y las que sí piden siguen anotando.
+    para dicho en ["compro 2 yerbas", "llevo 2 yerbas", "encargo 2 yerbas", "dame 2 yerbas mas",
+                   "quiero hacerte un pedido de 2 yerbas", "haceme un pedido de 2 yerbas"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+    }
 }
 
 prueba "devolver o anular no anota nada, y Ventas dice que eso lo arregla una persona" {

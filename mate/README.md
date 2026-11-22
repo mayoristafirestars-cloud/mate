@@ -826,6 +826,17 @@ Lo que hay que saber:
   - una frase que habla de un pedido que **ya está hecho**: "retiro el pedido de 5 azucar",
     "gracias por las 10 yerbas", "mi pedido de 20 azucar", "ya me mandan los 10 arroz", "te
     llevo 10 yerbas". El cliente que viene a retirar lo que pidió no lo compra dos veces;
+  - algo que **ya pasó o que hizo otro**, escrito con tilde ("compró 10 yerbas", "llevó 10
+    yerbas": sin la tilde serían "compro" y "llevo"), un "hago" sin "un pedido" atrás ("hago
+    5 yerbas"), un "de" adelante de la cantidad ("encargo de 5 yerbas") o "5 yerbas de más";
+  - un pedido dicho en la unidad de **adentro del bulto**: "quiero 10 paquetes de yerba"
+    cuando la yerba se vende por "bolsón de 10 paquetes de 1 kg", o "quiero 6 botellas de
+    aceite" con "caja de 12 botellas". No se sabe si son 10 bolsones o 1: Ventas no anota ni
+    cotiza, y pregunta diciendo cómo se vende (`Todavía no anoté nada, para no equivocarme:
+    dijiste "paquetes", y Yerba mate se vende por bolsón de 10 paquetes de 1 kg... ¿Cuántos
+    querés de esos?`). La unidad de venta es la **primera palabra** de la columna
+    `presentacion`; si esa palabra va adelante ("2 bolsas de azucar de 10 kg"), lo demás
+    describe el bulto y el pedido se anota. "2 azucar de 10 kg", sin la unidad, pregunta;
   - un pedido **con envío que no llega a las unidades de la regla**: primero el cliente
     decide si lo retira o suma más.
 
