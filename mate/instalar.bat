@@ -125,6 +125,7 @@ echo     "%LANZADOR%"
 echo No toque nada mas. La carpeta de Mate y tus programas siguen donde estaban:
 echo     "%AQUI%"
 echo Mate se sigue pudiendo usar con la orden larga:   python mate\mate.py ...
+echo (si en esta computadora Python se llama con py:   py mate\mate.py ...)
 set "CODIGO=0"
 goto fin
 

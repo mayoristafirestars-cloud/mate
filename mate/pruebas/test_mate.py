@@ -27,6 +27,12 @@ def sin_red_ni_clave(monkeypatch):
     # ...ni anota en el registro de errores de uso de verdad (tampoco las que corren mate.py
     # como programa aparte: heredan esta variable)
     monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    # ...ni cambia según con qué se lanzaron las pruebas ('py -m pytest' o 'python -m
+    # pytest'): acá nadie averigua quién lanzó a Mate, y los mate.py que se corren como
+    # programa aparte heredan la forma fijada a mano. Las pruebas que miran la forma 'py' o
+    # 'mate' la ponen ellas.
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "")
+    monkeypatch.setenv("MATE_ORDEN", "python")
 
 
 def correr(fuente, traza=False):
@@ -2019,11 +2025,12 @@ GRADUALES = sorted(p.name for p in (RAIZ / "ejemplos").glob("[0-9][0-9]_*.mate")
 
 def test_estan_los_seis_ejemplos_graduales():  # (y el 7.º, la IA; el 8.º, aprende; el 9.º, Python...)
     assert [n[:2] for n in GRADUALES] == ["01", "02", "03", "04", "05", "06", "07", "08", "09",
-                                          "10", "11"]
-    assert GRADUALES[0] == "01_hola.mate" and GRADUALES[-3] == "09_con_python.mate"
-    assert GRADUALES[-4] == "08_agente_que_aprende.mate"
-    assert GRADUALES[-2] == "10_mostrador_mayorista.mate"
-    assert GRADUALES[-1] == "11_mostrador_con_frenos.mate"
+                                          "10", "11", "12"]
+    assert GRADUALES[0] == "01_hola.mate" and GRADUALES[-4] == "09_con_python.mate"
+    assert GRADUALES[-5] == "08_agente_que_aprende.mate"
+    assert GRADUALES[-3] == "10_mostrador_mayorista.mate"
+    assert GRADUALES[-2] == "11_mostrador_con_frenos.mate"
+    assert GRADUALES[-1] == "12_mostrador_con_reglas.mate"
     for nombre in GRADUALES:  # están comentados: al menos un comentario cada cuatro renglones
         renglones = [r.strip() for r in (RAIZ / "ejemplos" / nombre).read_text(
             encoding="utf-8").splitlines() if r.strip()]
@@ -3522,17 +3529,38 @@ def test_la_orden_consola(capsys, monkeypatch):
     assert "¿quisiste decir 'consola'?" in capsys.readouterr().err
 
 
-# Mejora 89: versión 0.3 (después 0.4: agentes que recuerdan y aprenden; y ahora 0.5: más
-# rápido y con puente a Python)
+# Mejora 89: versión 0.3 (después 0.4: agentes que recuerdan y aprenden; 0.5: más rápido y
+# con puente a Python; y ahora 0.6: el mostrador con reglas, 'nuevo mostrador' y 'ensayar')
 
-def test_version_0_5_y_el_readme_lo_dice(capsys):
-    assert mate.VERSION == "0.5"
+def test_version_0_6_y_el_readme_lo_dice(capsys):
+    assert mate.VERSION == "0.6"
     leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
-    assert "Versión 0.5." in leeme and "## Límites de la versión 0.5" in leeme
-    assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.5", "")
-    assert "desde la versión 0.2 hasta la 0.5" in leeme and "versión 0.3" not in leeme
+    assert "Versión 0.6." in leeme and "## Límites de la versión 0.6" in leeme
+    assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.6", "")
+    assert "desde la versión 0.2 hasta la 0.6" in leeme and "versión 0.3" not in leeme
+    # el número viejo no quedó en ningún título ni enlace que hable de "esta versión"
+    assert "Versión 0.5." not in leeme and "Límites de la versión 0.5" not in leeme
+    assert "hasta la 0.5 (" not in leeme
+    assert "[Qué cambió en la 0.6](#qué-cambió-en-la-06)" in leeme
+    assert "[Límites de la versión 0.6](#límites-de-la-versión-06)" in leeme
+    titulos = re.findall(r"(?m)^## (.+)$", leeme)
+    assert titulos.index("Qué cambió en la 0.6") + 1 == titulos.index("Qué cambió en la 0.5")
+    # lo de la 0.6 está en su sección, y sus enlaces llevan a títulos que existen
+    novedades = leeme.split("## Qué cambió en la 0.6")[1].split("\n## ")[0]
+    for frase in ["12_mostrador_con_reglas.mate", "`nuevo mostrador mi_negocio`", "`ensayar ",
+                  "`py mate\\mate.py ...`", "títulos está repetido", "un precio o un stock",
+                  "igual\nque en la 0.5", "mejoras 121 a 123"]:
+        assert frase in novedades, frase
+    anclas = re.findall(r"\]\(#([^)]+)\)", novedades)
+    assert len(anclas) >= 7
+    for ancla in anclas:
+        assert any(ancla == re.sub(r"[^\w\- ]", "", t.lower()).replace(" ", "-")
+                   for t in re.findall(r"(?m)^#{2,3} (.+)$", leeme)), ancla
     assert mate.main(["--version"]) == 0
-    assert capsys.readouterr().out.startswith("Mate 0.5 ")
+    assert capsys.readouterr().out.startswith("Mate 0.6 ")
+    # la página de presentación dice el mismo número
+    pagina = (RAIZ.parent / "docs" / "index.html").read_text(encoding="utf-8")
+    assert '<span class="marca">Mate 0.6</span>' in pagina and "Mate 0.5" not in pagina
 
 
 # Mejora 90: el tope para que Mate siga siendo chico
@@ -6234,7 +6262,9 @@ def test_el_ejemplo_del_agente_que_aprende(tmp_path, capsys, ia):
     import shutil
     original = RAIZ / "ejemplos" / "08_agente_que_aprende.mate"
     en_la_carpeta = archivos_de(RAIZ / "ejemplos")
-    assert not [a for a in en_la_carpeta if a.endswith((".json", ".txt", ".tmp"))]
+    # (casos.txt es de Mate: los casos de muestra de la orden 'ensayar', 0.6)
+    assert not [a for a in en_la_carpeta if a.endswith((".json", ".txt", ".tmp"))
+                and a != "casos.txt"]
     codigo, salida, _ = orden_mate(capsys, "probar", original)
     assert codigo == 0 and "4 de 4 pruebas pasaron" in salida and ia.pedidos == []
     assert archivos_de(RAIZ / "ejemplos") == en_la_carpeta  # 'probar' no deja nada
@@ -6689,7 +6719,7 @@ def test_informe_resume_el_registro(tmp_path, con_registro):
     renglones = out.splitlines()
     assert renglones[0] == "Informe de errores de uso de Mate"
     assert re.fullmatch(r"Hay 6 error\(es\) de uso anotado\(s\), del \d\d/\d\d/\d{4} \d\d:\d\d "
-                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.5\)\.", renglones[1])
+                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.6\)\.", renglones[1])
     assert renglones[3:6] == [
         "Los más frecuentes:",
         "    4 veces  antes de correr: no existe '<nombre>'",
@@ -7288,7 +7318,8 @@ def test_una_opcion_parecida_a_borrar_se_sugiere(tmp_path, capsys):
     codigo, _, err = orden_mate(capsys, "correr", programa, "--olvidr")
     assert err == "no conozco la opción --olvidr, ¿quisiste decir --olvidar?\n"
     codigo, _, err = orden_mate(capsys, "correr", programa, "--xyz")
-    assert codigo == 2 and err.rstrip().endswith("--sin-registro, --borrar, --guardar")
+    # (--veces, de la orden 'ensayar', se sumó a la lista en la 0.6)
+    assert codigo == 2 and err.rstrip().endswith("--sin-registro, --veces, --borrar, --guardar")
 
 
 def test_un_renglon_danado_no_rompe_las_tildes_de_los_demas(tmp_path, con_registro):
@@ -9430,7 +9461,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
         "Qué cambió y puede frenar un programa viejo")
     primer_pantallazo = leeme[:leeme.index("## Por dónde empezar")]
     for frase in ["Mate es un lenguaje de programación chico, con palabras en castellano",
-                  "Versión 0.5", "Add python.exe to PATH", "instalar.bat", "mate --version",
+                  "Versión 0.6", "Add python.exe to PATH", "instalar.bat", "mate --version",
                   "No toca el PATH ni el registro", ".\\mate\\instalar.bat quitar",
                   "Todavía no se probó en una Windows de verdad", "python mate\\mate.py curso"]:
         assert frase in primer_pantallazo, frase
@@ -9468,7 +9499,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
     ayuda = mate.texto_de_ayuda()
     assert "  curso  " in ayuda and "  curso 1  " in ayuda
     assert max(len(r) for r in ayuda.splitlines()) <= 100
-    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.5"
+    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.6"
 
 
 # ───────────────────── Correcciones de la revisión de la 0.5 (mejora 120) ─────────────────────
@@ -10235,3 +10266,1666 @@ def test_contrato_distingue_pasos_con_falso_y_cero():
         mostrar(a.clase, b.clase)
     """)
     assert salida == ["logico numero"]
+
+
+# ───────── 0.6: el mostrador con reglas en el programa, y los comandos con 'py' ─────────
+
+def test_el_ejemplo_12_resuelve_los_pedidos_sin_consultar_a_la_ia(tmp_path, capsys, monkeypatch):
+    import io
+    import shutil
+    nombre = "12_mostrador_con_reglas.mate"
+    ruta = str(shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre))
+    shutil.copy(RAIZ / "ejemplos" / "precios.csv", tmp_path)
+    assert mate.main(["verificar", ruta]) == 0
+    assert mate.main(["probar", ruta]) == 0
+    salida = capsys.readouterr().out
+    assert "22 de 22 pruebas pasaron" in salida
+    assert "✓ los dos pedidos que una IA contestó mal: total exacto, envío bien y sin IA" in salida
+    assert sorted(p.name for p in tmp_path.iterdir()) == [nombre, "precios.csv"]  # probar no deja nada
+    # corrido de verdad, con el teclado: el pedido lo contesta el programa aunque la IA
+    # simulada "diga" otra cosa, y solo la consulta que no es un pedido llega a la IA
+    (tmp_path / "ia.txt").write_text("* => El total es $ 10,80 y no hacemos envíos.\n",
+                                     encoding="utf-8")
+    monkeypatch.setattr("sys.stdin", io.StringIO(
+        "quiero 12 azucar con envio\nme mandas 5 yerbas?\nhola\nchau\n"))
+    assert mate.main(["correr", ruta, f"--ia-simulada={tmp_path / 'ia.txt'}",
+                      f"--traza={tmp_path / 'traza.txt'}"]) == 0
+    salida = capsys.readouterr().out
+    assert "total $ 117.606,00. Con envío: sí, va con envío." in salida
+    assert "total $ 175.000,00. Sin envío: hacemos envíos desde 10 unidades y pedís 5." in salida
+    assert "En esta charla atendí 3 consulta(s)." in salida
+    # el total inventado no le llega al cliente: lo para el freno de precios
+    assert "10,80" not in salida
+    assert "Eso te lo confirma una persona. Ya te paso con alguien." in salida
+    traza = (tmp_path / "traza.txt").read_text(encoding="utf-8-sig")
+    assert traza.count("Consulta") >= 1 and "12 azucar" not in traza and "5 yerbas" not in traza
+
+
+def test_el_ejemplo_12_no_confirma_un_envio_negado_y_revisa_la_planilla(tmp_path, capsys,
+                                                                      monkeypatch):
+    import io
+    import shutil
+    nombre = "12_mostrador_con_reglas.mate"
+    ruta = str(shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre))
+    planilla = tmp_path / "precios.csv"
+    shutil.copy(RAIZ / "ejemplos" / "precios.csv", planilla)
+
+    def charla(*renglones):
+        monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(renglones) + "\nchau\n"))
+        assert mate.main(["correr", ruta, "--ia-simulada", f"--traza={tmp_path / 'traza.txt'}"]) == 0
+        return [r.split("Mostrador: ", 1)[1] for r in capsys.readouterr().out.splitlines()
+                if "Cliente: Mostrador: " in r]
+
+    # las frases que encontraron el revisor y el agente de pruebas: con 10 o más habría
+    # envío, pero el cliente dijo que no; va solo el total
+    negadas = ["12 yerbas, no me lo mandes", "12 yerbas, no necesito envio",
+               "12 yerbas no hace falta que lo manden", "no quiero envio, 12 azucar",
+               "12 azucar, no hace falta envio", "10 arroz no me lo mandes",
+               # tercera vuelta: el 'no' después de la palabra de envío, o lejos, o dicho
+               # de otra forma
+               "12 azucar, el envio no hace falta", "12 yerbas, envio no",
+               "12 yerbas, el envio no lo necesito", "12 yerbas, mandarlo no hace falta",
+               "12 yerbas, con envio no, gracias", "12 yerbas, nada de envio",
+               "12 yerbas jamas me las mandes", "12 yerbas ni se te ocurra mandarlas",
+               "12 yerbas, no hace falta que me las vengan a traer hasta casa",
+               "12 yerbas envio no gracias", "12 yerbas, mandarlas no hace falta",
+               "12 yerbas. envio? no, gracias", "12 yerbas, olvidate del envio",
+               "12 yerbas, el envio dejalo", "12 yerbas, que nadie me las mande",
+               "12 yerbas, jamas pedi envio"]
+    respuestas = charla(*negadas)
+    assert len(respuestas) == len(negadas)
+    for dicho, respuesta in zip(negadas, respuestas):
+        assert re.search(r"total \$ [\d.]+,00\.$", respuesta), (dicho, respuesta)
+        assert "nvío" not in respuesta, (dicho, respuesta)
+    # ...y nada de eso pasó por la IA
+    assert "Consulta" not in (tmp_path / "traza.txt").read_text(encoding="utf-8-sig")
+    # un 'no' que quedó del otro lado de una coma es de otra cosa: el envío se pidió
+    pedidas = ["no, 12 yerbas con envio", "no voy a poder ir, mandame 12 yerbas",
+               "12 yerbas, no las retiro, mandamelas", "12 yerbas con envio, nada mas",
+               "12 azucar me la mandas o tengo que retirar?"]
+    respuestas = charla(*pedidas)
+    assert len(respuestas) == len(pedidas)
+    for dicho, respuesta in zip(pedidas, respuestas):
+        assert respuesta.endswith(",00. Con envío: sí, va con envío."), (dicho, respuesta)
+    assert "Consulta" not in (tmp_path / "traza.txt").read_text(encoding="utf-8-sig")
+    # lo demás que cambió en la segunda vuelta
+    respuestas = charla("1,000 yerbas", "2 docenas de yerba", "necesito 3 arroz y que me lo traigan",
+                        "12 azucar me la mandas o tengo que retirar?", "no quiero 3 yerbas")
+    assert respuestas[0].endswith("Va por unidades enteras: decime cuántos querés.")
+    assert respuestas[1].endswith("a $ 35.000,00 cada uno. Decime cuántos querés.")
+    assert "Sin envío: hacemos envíos desde 10 unidades y pedís 3." in respuestas[2]
+    assert respuestas[3].endswith("total $ 117.606,00. Con envío: sí, va con envío.")
+    assert "total" not in respuestas[4]  # (no se cotiza: fue a la IA)
+    assert (tmp_path / "traza.txt").read_text(encoding="utf-8-sig").count("no quiero 3 yerbas") >= 1
+    # un producto que es la primera palabra de otro se puede pedir
+    planilla.write_text("producto;presentacion;precio;stock\nPan;bolsa;500;3\n"
+                        "Pan rallado;bolsa;700;10\n", encoding="utf-8")
+    assert charla("2 pan", "2 panes", "2 pan rallado") == [
+        "2 x Pan (bolsa) a $ 500,00 cada uno: total $ 1.000,00.",
+        "2 x Pan (bolsa) a $ 500,00 cada uno: total $ 1.000,00.",
+        "2 x Pan rallado (bolsa) a $ 700,00 cada uno: total $ 1.400,00."]
+    # el plural de una palabra terminada en 'ce', y un producto que empieza como 'mandar'
+    planilla.write_text("producto;presentacion;precio;stock\nPan;bolsa;500;30\n"
+                        "Pan dulce;caja;800;30\nMandioca;bolsa;500;30\n", encoding="utf-8")
+    assert charla("2 panes dulces", "12 mandiocas", "12 mandiocas con envio") == [
+        "2 x Pan dulce (caja) a $ 800,00 cada uno: total $ 1.600,00.",
+        "12 x Mandioca (bolsa) a $ 500,00 cada uno: total $ 6.000,00.",
+        "12 x Mandioca (bolsa) a $ 500,00 cada uno: total $ 6.000,00. Con envío: sí, va con envío."]
+    # una planilla sin la columna stock: lo dice al arrancar, en castellano, y no atiende
+    planilla.write_text("producto;presentacion;precio\nPan;bolsa;500\n", encoding="utf-8")
+    monkeypatch.setattr("sys.stdin", io.StringIO("2 pan\nchau\n"))
+    assert mate.main(["correr", ruta, "--ia-simulada"]) == 0
+    capturado = capsys.readouterr()
+    assert capturado.out == ("Mostrador: así no puedo atender. A la planilla precios.csv le "
+                             "falta la columna 'stock'. El primer renglón de precios.csv tiene "
+                             "que decir: producto;presentacion;precio;stock\n")
+    assert capturado.err == ""
+
+
+def test_orden_segun_como_se_llamo_a_mate():
+    # la orden instalada gana siempre; fuera de Windows no cambia nada
+    assert mate.orden_segun("mate", "py", True) == "mate"
+    assert mate.orden_segun(" MATE ", "", False) == "mate"
+    for avisada in ("", "py", "python", "cualquier cosa"):
+        for lanzador in ("", "py"):
+            assert mate.orden_segun(avisada, lanzador, False) == "python3 mate/mate.py"
+    # en Windows: 'py' si se sabe que lo lanzó py.exe; si no se sabe, como hasta ahora
+    assert mate.orden_segun("", "py", True) == "py mate\\mate.py"
+    assert mate.orden_segun("", "", True) == "python mate\\mate.py"
+    assert mate.orden_segun(None, "", True) == "python mate\\mate.py"
+    assert mate.orden_segun("cualquier cosa", "", True) == "python mate\\mate.py"
+    # ...y se puede fijar a mano con MATE_ORDEN
+    assert mate.orden_segun("py", "", True) == "py mate\\mate.py"
+    assert mate.orden_segun("Python", "py", True) == "python mate\\mate.py"
+
+
+def test_lanzador_entre_los_programas_que_estan_andando():
+    powershell, py, python, venv = 100, 200, 300, 400
+    # py mate\mate.py: powershell -> py.exe -> python.exe (este)
+    assert mate.lanzador_entre({powershell: (1, "powershell.exe"), py: (powershell, "py.exe"),
+                                python: (py, "python.exe")}, python) == "py"
+    # con un entorno virtual hay un python.exe en el medio
+    assert mate.lanzador_entre({py: (powershell, "py.exe"), venv: (py, "python.exe"),
+                                python: (venv, "python3.12.exe")}, python) == "py"
+    # python mate\mate.py: no hay py.exe
+    assert mate.lanzador_entre({powershell: (1, "powershell.exe"),
+                                python: (powershell, "python.exe")}, python) == ""
+    # un py.exe más arriba, del otro lado de otro programa, no cuenta
+    assert mate.lanzador_entre({py: (1, "py.exe"), powershell: (py, "powershell.exe"),
+                                python: (powershell, "python.exe")}, python) == ""
+    # un programa que se llama parecido no es el lanzador
+    assert mate.lanzador_entre({py: (1, "happy.exe"), python: (py, "python.exe")}, python) == ""
+    # listas incompletas o con vueltas: no se sabe, y no se cuelga
+    assert mate.lanzador_entre({}, python) == ""
+    assert mate.lanzador_entre({python: (py, "python.exe")}, python) == ""
+    assert mate.lanzador_entre({python: (python, "python.exe")}, python) == ""
+    assert mate.lanzador_entre({python: (venv, "python.exe"), venv: (python, "python.exe")},
+                               python) == ""
+
+
+def test_fuera_de_windows_no_se_averigua_quien_lanzo_a_mate(monkeypatch):
+    def no_tiene_que_llamarse():
+        raise AssertionError("fuera de Windows no se mira la lista de programas")
+
+    monkeypatch.setattr(mate, "_lanzador_en_windows", no_tiene_que_llamarse)
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", None)
+    monkeypatch.delenv("MATE_ORDEN", raising=False)
+    if mate.os.name != "nt":
+        assert mate.quien_me_lanzo() == ""
+        assert mate.como_se_llama() == "python3 mate/mate.py"
+    # en Windows, si averiguarlo falla por lo que sea, queda como hasta ahora
+    monkeypatch.setattr(mate.os, "name", "nt")
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", None)
+    assert mate.quien_me_lanzo() == ""
+    assert mate.como_se_llama() == "python mate\\mate.py"
+    # con la orden instalada ni se averigua
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", None)
+    monkeypatch.setenv("MATE_ORDEN", "mate")
+    assert mate.como_se_llama() == "mate" and mate._QUIEN_ME_LANZO is None
+
+
+def test_las_pruebas_no_dependen_de_con_que_se_lanzaron(tmp_path, monkeypatch):
+    # el arreglo automático de arriba deja fija la forma. Un mate.py corrido como programa
+    # aparte, en una "Windows" donde lo lanzó py.exe ('py -m pytest', el caso del dueño),
+    # sugiere 'python' porque hereda la forma fijada; sin eso diría 'py'
+    aparte = tmp_path / "aparte.py"
+    aparte.write_text(
+        "import os, sys\n"
+        f"sys.path.insert(0, {str(RAIZ)!r})\n"
+        "import mate\n"
+        "mate.os.name = 'nt'\n"
+        "mate._lanzador_en_windows = lambda: 'py'\n"
+        "print(mate.como_se_llama())\n", encoding="utf-8")
+    heredado = dict(os.environ)
+    assert heredado["MATE_ORDEN"] == "python"
+    r = subprocess.run([sys.executable, str(aparte)], capture_output=True, text=True,
+                       env=heredado)
+    assert r.stdout.strip() == "python mate\\mate.py", r.stderr
+    del heredado["MATE_ORDEN"]
+    r = subprocess.run([sys.executable, str(aparte)], capture_output=True, text=True,
+                       env=heredado)
+    assert r.stdout.strip() == "py mate\\mate.py", r.stderr
+
+    # ...y acá adentro nadie mira la lista de programas, ni con la variable ni sin ella
+    def no_tiene_que_llamarse():
+        raise AssertionError("una prueba quiso averiguar quién lanzó a Mate")
+
+    monkeypatch.setattr(mate, "_lanzador_en_windows", no_tiene_que_llamarse)
+    monkeypatch.setattr(mate.os, "name", "nt")
+    assert mate.quien_me_lanzo() == ""
+    assert mate.como_se_llama() == "python mate\\mate.py"
+    monkeypatch.delenv("MATE_ORDEN")
+    assert mate.como_se_llama() == "python mate\\mate.py"
+
+
+def test_lanzado_con_py_los_comandos_sugeridos_dicen_py(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(RAIZ.parent)
+    monkeypatch.delenv("MATE_ORDEN", raising=False)
+    de_siempre = {"guia": mate.texto_de_guia(), "ayuda": mate.texto_de_ayuda()}
+    sistema = mate.os.name
+    monkeypatch.setattr(mate.os, "name", "nt")  # (como en la computadora del dueño)
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
+    assert mate.como_se_llama() == "py mate\\mate.py"
+    # un error que sugiere un comando
+    assert mate.main(["curso", "99"]) == 2
+    assert "Para ver la lista:  py mate\\mate.py curso" in capsys.readouterr().err
+    # la lista del curso y una clase, parado al lado de la carpeta mate
+    assert mate.main(["curso"]) == 0
+    salida = capsys.readouterr().out
+    assert "\n  py mate\\mate.py curso 1\n" in salida and "\n  py mate\\mate.py correr " in salida
+    assert "python" not in salida
+    assert mate.main(["curso", "1"]) == 0
+    salida = capsys.readouterr().out
+    assert "    py mate\\mate.py correr mate\\curso\\clase_01_hola.mate\n" in salida
+    assert "python mate" not in salida
+    # la guía y el ejemplo de la ayuda
+    guia = mate.texto_de_guia()
+    assert "  py mate\\mate.py correr archivo.mate" in guia and "python mate\\mate.py" not in guia
+    assert "  py mate\\mate.py correr mate\\ejemplos\\hola.mate" in mate.texto_de_ayuda()
+    # desde otra carpeta, la clase lleva 'py' y la ruta completa de mate.py
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["curso", "1"]) == 0
+    salida = capsys.readouterr().out
+    assert f"    py {RAIZ / 'mate.py'} correr {CURSO / 'clase_01_hola.mate'}\n" in salida
+    assert "python " not in salida
+    # MATE_ORDEN=py lo fija a mano, aunque no se sepa quién lo lanzó
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "")
+    assert mate.como_se_llama() == "python mate\\mate.py"
+    monkeypatch.setenv("MATE_ORDEN", "py")
+    assert mate.como_se_llama() == "py mate\\mate.py"
+    # con la orden instalada sigue siendo 'mate'
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
+    monkeypatch.setenv("MATE_ORDEN", "mate")
+    assert mate.como_se_llama() == "mate"
+    # y si no se sabe, los textos quedan como estaban
+    monkeypatch.setattr(mate.os, "name", sistema)
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "")
+    monkeypatch.delenv("MATE_ORDEN", raising=False)
+    assert mate.texto_de_guia() == de_siempre["guia"]
+    assert mate.texto_de_ayuda() == de_siempre["ayuda"]
+
+
+def test_los_textos_fijos_aclaran_lo_de_py_y_que_va_en_cada_lugar():
+    manual = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "**Si en tu computadora Python se llama con `py`**" in manual
+    assert "escribí `py` en lugar de `python` en todos los comandos" in manual
+    assert "### Qué va en una lección, qué en un freno y qué en el programa" in manual
+    assert '`$env:MATE_ORDEN = "py"`' in manual  # (la salida manual, si no se da cuenta)
+    que_va = manual.split("### Qué va en una lección")[1].split("\n## ")[0]
+    assert "mandame una docena\" va a la IA" not in que_va  # (eso lo contesta el programa)
+    for frase in ['"no me lo\n  mandes"', '"2 pan" es el Pan', "le falta una\ncolumna",
+                  "`probar` marca fallas hasta que adaptes esas pruebas"]:
+        assert frase in que_va, frase
+    for frase in ["**En el programa**", "**En un freno**", "**En una lección**",
+                  "12_mostrador_con_reglas.mate"]:
+        assert frase in manual.split("### Qué va en una lección")[1], frase
+    curso = (CURSO / "README.md").read_text(encoding="utf-8")
+    assert '**Si dice que `python` "no se reconoce", probá con `py`**' in curso
+    assert "12_mostrador_con_reglas.mate" in (CURSO / "clase_12_mostrador.md").read_text(
+        encoding="utf-8")
+    pagina = (RAIZ.parent / "docs" / "index.html").read_text(encoding="utf-8")
+    assert 'probá con <code>py</code></strong>' in pagina
+    assert "py mate\\mate.py correr archivo.mate" in mate.texto_de_guia()
+    ayuda = mate.texto_de_ayuda()
+    assert "va py en lugar de python" in ayuda and "van EN EL PROGRAMA" in ayuda
+    assert max(len(r) for r in ayuda.splitlines()) <= 100
+    assert "**121. " in (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+
+
+
+# ───────── 0.6: la orden 'nuevo mostrador' y los títulos repetidos en una planilla ─────────
+
+def crear_mostrador(tmp_path, capsys, monkeypatch, nombre="mi_negocio"):
+    """Parado en tmp_path, corre 'nuevo mostrador <nombre>'. Devuelve (código, salida, error)."""
+    monkeypatch.chdir(tmp_path)
+    capsys.readouterr()
+    codigo = mate.main(["nuevo", "mostrador", nombre])
+    capturado = capsys.readouterr()
+    return codigo, capturado.out, capturado.err
+
+
+def charla_con(ruta, capsys, monkeypatch, *renglones):
+    """Lo que contesta el mostrador a cada renglón, corrido con el teclado y la IA simulada."""
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(renglones) + "\nchau\n"))
+    capsys.readouterr()
+    assert mate.main(["correr", ruta, "--ia-simulada", "--olvidar"]) == 0
+    return [r.split("Mostrador: ", 1)[1] for r in capsys.readouterr().out.splitlines()
+            if "Cliente: Mostrador: " in r]
+
+
+PLANILLA_CON_SIN = ("producto;presentacion;precio;stock\n"
+                    "Yerba mate;bolsón;35.000;40\n"
+                    "Yerba sin palo;bolsón;40.000;40\n"
+                    "Galletitas sin sal;caja;500;50\n"
+                    "Arroz no se pasa;bolsa;300;50\n"
+                    "Azúcar;bolsa de 10 kg;9.800,50;25\n")
+# (lo que dice el cliente, y cómo tiene que terminar la respuesta: nunca "Con envío: sí")
+SIN_ENVIO_CON_PRODUCTOS_SIN = [
+    ("12 yerba mate sin envio", "12 x Yerba mate (bolsón) a $ 35.000,00 cada uno: total $ 420.000,00."),
+    ("12 yerba sin palo sin flete",
+     "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00."),
+    ("12 yerba sin palo, no me lo mandes",
+     "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00."),
+    ("12 galletitas sin envio", "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 galletitas sin sal sin envio",
+     "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 galletitas no me las mandes",
+     "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 galletitas, nada de envio", "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 galletitas ni se te ocurra mandarlas",
+     "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."),
+    ("12 arroz no me lo mandes", "12 x Arroz no se pasa (bolsa) a $ 300,00 cada uno: total $ 3.600,00."),
+    ("12 arroz no se pasa sin envio",
+     "12 x Arroz no se pasa (bolsa) a $ 300,00 cada uno: total $ 3.600,00."),
+    # la planilla tiene dos yerbas y no dijo cuál: pregunta (antes cotizaba la "sin palo")
+    ("12 yerbas sin envio",
+     "Tengo más de uno: Yerba mate (bolsón); Yerba sin palo (bolsón). Decime cuál, con el nombre "
+     "completo."),
+    ("12 azucar sin envio", "12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."),
+]
+# (y el "sin" o el "no" que SÍ son del nombre no apagan un envío pedido)
+CON_ENVIO_CON_PRODUCTOS_SIN = [
+    ("12 yerba sin palo con envio", "total $ 480.000,00. Con envío: sí, va con envío."),
+    ("mandame 12 galletitas sin sal", "total $ 6.000,00. Con envío: sí, va con envío."),
+    ("12 arroz no se pasa con envio", "total $ 3.600,00. Con envío: sí, va con envío."),
+    ("me mandas 12 yerba mate?", "total $ 420.000,00. Con envío: sí, va con envío."),
+    ("5 galletitas sin sal a domicilio", "Sin envío: hacemos envíos desde 10 unidades y pedís 5. "
+                                         "Podés retirarlo en el local o sumar 5 más."),
+]
+
+
+def test_el_ejemplo_12_no_confirma_un_envio_negado_si_el_producto_tiene_sin_en_el_nombre(
+        tmp_path, capsys, monkeypatch):
+    # P22: con "Yerba sin palo" o "Galletitas sin sal" en la planilla, el "sin" de "sin
+    # envío" se iba de la frase junto con el nombre del producto y contestaba "Con envío: sí"
+    import shutil
+    nombre = "12_mostrador_con_reglas.mate"
+    ruta = str(shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre))
+    (tmp_path / "precios.csv").write_text(PLANILLA_CON_SIN, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    dicho = charla_con(ruta, capsys, monkeypatch, *[d for d, _ in SIN_ENVIO_CON_PRODUCTOS_SIN])
+    assert len(dicho) == len(SIN_ENVIO_CON_PRODUCTOS_SIN)
+    for (pregunta, esperado), respuesta in zip(SIN_ENVIO_CON_PRODUCTOS_SIN, dicho):
+        assert respuesta == esperado, pregunta
+        assert "nvío" not in respuesta, pregunta
+    dicho = charla_con(ruta, capsys, monkeypatch, *[d for d, _ in CON_ENVIO_CON_PRODUCTOS_SIN])
+    assert len(dicho) == len(CON_ENVIO_CON_PRODUCTOS_SIN)
+    for (pregunta, final), respuesta in zip(CON_ENVIO_CON_PRODUCTOS_SIN, dicho):
+        assert respuesta.endswith(final), (pregunta, respuesta)
+    # con una sola yerba en la planilla, "yerbas" a secas es esa, y sin envío
+    (tmp_path / "precios.csv").write_text(
+        "producto;presentacion;precio;stock\nYerba sin palo;bolsón;40.000;40\n", encoding="utf-8")
+    assert charla_con(ruta, capsys, monkeypatch, "12 yerbas sin envio", "12 yerbas no me las mandes",
+                      "12 yerbas con envio") == [
+        "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00.",
+        "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00.",
+        "12 x Yerba sin palo (bolsón) a $ 40.000,00 cada uno: total $ 480.000,00. "
+        "Con envío: sí, va con envío."]
+
+
+# (la planilla, y los avisos que tiene que dar: uno por cada precio o stock mal cargado)
+PLANILLAS_MAL_CARGADAS = [
+    ("Yerba mate;bolsón;35.000;40\nAzúcar;bolsa;;25\n",
+     ["el precio de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista)."]),
+    ("Yerba mate;bolsón;consultar;40\n",
+     ["el precio de 'Yerba mate' no es un número: dice 'consultar' (es el producto número 1 de "
+      "la lista)."]),
+    ("Yerba mate;bolsón;35.000;40\nAzúcar;bolsa;9.800,50;\nHarina;bolsa;14.500;poco\n",
+     ["el stock de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista).",
+      "el stock de 'Harina' no es un número: dice 'poco' (es el producto número 3 de la lista)."]),
+    ("Yerba mate;bolsón;;\n",
+     ["el precio de 'Yerba mate' no es un número: está vacío (es el producto número 1 de la lista).",
+      "el stock de 'Yerba mate' no es un número: está vacío (es el producto número 1 de la lista)."]),
+    # (un precio con dos comas no es un número: queda como texto)
+    ("Yerba mate;bolsón;35,000,00;40\n",
+     ["el precio de 'Yerba mate' no es un número: dice '35,000,00' (es el producto número 1 de "
+      "la lista)."]),
+]
+COMO_SE_ARREGLA_LA_PLANILLA = (
+    " El precio y el stock van solo con números (un precio se escribe 9.800,50; si de algo no "
+    "hay stock, poné 0). Arreglalo en la planilla, guardala y volvé a arrancar el mostrador.\n")
+
+
+def planilla_mal_cargada_avisa_y_no_atiende(ruta, planilla, capsys, monkeypatch, tmp_path, *extra):
+    """Corre el mostrador con cada planilla mal cargada y con un cliente que saluda (lo que
+    antes cortaba el programa con 'pesos() espera numero'): tiene que avisar y no atender."""
+    import io
+    for filas, avisos in PLANILLAS_MAL_CARGADAS:
+        planilla.write_text("producto;presentacion;precio;stock\n" + filas, encoding="utf-8")
+        monkeypatch.setattr("sys.stdin", io.StringIO("hola\n2 yerbas\nchau\n"))
+        capsys.readouterr()
+        assert mate.main(["correr", ruta, *extra]) == 0
+        capturado = capsys.readouterr()
+        esperado = ("Mostrador: así no puedo atender. "
+                    + " ".join(f"En {planilla.name}, {aviso}" for aviso in avisos)
+                    + COMO_SE_ARREGLA_LA_PLANILLA)
+        assert capturado.out == esperado, filas
+        # ni un error técnico, ni una pregunta al cliente, ni archivos nuevos
+        assert capturado.err == "" and "pesos()" not in capturado.out, filas
+    assert not [a.name for a in tmp_path.iterdir() if "memoria" in a.name or "bitacora" in a.name]
+
+
+def test_el_ejemplo_12_avisa_al_arrancar_un_precio_o_stock_que_no_es_un_numero(tmp_path, capsys,
+                                                                             monkeypatch):
+    # P29: con un precio vacío el mostrador arrancaba como si nada y se cortaba en la primera
+    # consulta que iba a la IA ("hola") con un error técnico
+    import shutil
+    nombre = "12_mostrador_con_reglas.mate"
+    ruta = str(shutil.copy(RAIZ / "ejemplos" / nombre, tmp_path / nombre))
+    planilla = tmp_path / "precios.csv"
+    monkeypatch.chdir(tmp_path)
+    planilla_mal_cargada_avisa_y_no_atiende(ruta, planilla, capsys, monkeypatch, tmp_path,
+                                            "--ia-simulada")
+    # sin --ia-simulada tampoco llega a consultar a nadie (no hace falta clave ni red)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("MATE_IA_PROPIA", raising=False)
+    planilla_mal_cargada_avisa_y_no_atiende(ruta, planilla, capsys, monkeypatch, tmp_path)
+    # con muchos renglones mal muestra cinco y dice cuántos más hay
+    planilla.write_text("producto;presentacion;precio;stock\n" + "".join(
+        f"Cosa {n};caja;a confirmar;1\n" for n in range(1, 9)), encoding="utf-8")
+    assert mate.main(["correr", ruta, "--ia-simulada"]) == 0
+    salida = capsys.readouterr().out
+    assert "el precio de 'Cosa 5'" in salida and "el precio de 'Cosa 6'" not in salida
+    assert " Y hay 3 más así. El precio y el stock van solo con números" in salida
+    # un stock en 0 y un precio con $ están bien: atiende
+    planilla.write_text("producto;presentacion;precio;stock\nPan;bolsa;$ 500;0\n", encoding="utf-8")
+    assert charla_con(ruta, capsys, monkeypatch, "2 pan") == ["De Pan ahora no hay stock."]
+
+
+def test_nuevo_mostrador_crea_el_programa_y_la_planilla_listos_para_usar(tmp_path, capsys,
+                                                                       monkeypatch):
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert (codigo, err) == (0, "")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mi_negocio.mate", "mi_negocio_casos.txt",
+                                                         "mi_negocio_precios.csv"]
+    # los pasos que siguen, con los comandos enteros (la orden lleva la ruta de mate.py
+    # vista desde la carpeta donde se creó: se pueden copiar tal cual)
+    orden = f"python3 {RAIZ / 'mate.py'}" if mate.os.name != "nt" else f"python {RAIZ / 'mate.py'}"
+    for comando in (f"{orden} probar mi_negocio.mate",
+                    f"{orden} correr mi_negocio.mate --ia-simulada",
+                    "notepad mi_negocio_precios.csv", f"{orden} correr mi_negocio.mate\n",
+                    f"{orden} ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada\n"):
+        assert f"       {comando}" in salida, comando
+    assert "Listo. Creé tres archivos en" in salida and "Traceback" not in salida
+    # la planilla es la de muestra de los ejemplos, tal cual; el programa lleva la marca
+    # que lee el Bloc de notas y nombra su planilla, no precios.csv
+    assert (tmp_path / "mi_negocio_precios.csv").read_bytes() == (
+        RAIZ / "ejemplos" / "precios.csv").read_bytes()
+    crudo = (tmp_path / "mi_negocio.mate").read_bytes()
+    assert crudo.startswith(b"\xef\xbb\xbf# mi_negocio.mate: el mostrador de tu negocio.")
+    programa = crudo.decode("utf-8-sig").replace("\r\n", "\n")
+    assert 'leer_tabla("mi_negocio_precios.csv")' in programa
+    assert '"precios.csv"' not in programa and "«" not in programa
+    assert f"#          {orden} probar mi_negocio.mate\n" in programa
+    # sin tocarlos, los dos pasan 'verificar' y 'probar', y 'probar' no deja nada
+    assert mate.main(["verificar", "mi_negocio.mate"]) == 0
+    assert mate.main(["probar", "mi_negocio.mate"]) == 0
+    salida = capsys.readouterr().out
+    assert "mi_negocio.mate: sin errores" in salida and "7 de 7 pruebas pasaron" in salida
+    assert "✓ tu planilla está bien cargada" in salida
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mi_negocio.mate", "mi_negocio_casos.txt",
+                                                         "mi_negocio_precios.csv"]
+    # y atiende: los dos pedidos del ejemplo 12, con el total y el envío que da el programa
+    dicho = charla_con("mi_negocio.mate", capsys, monkeypatch,
+                       "quiero 12 azucar con envio", "me mandas 5 yerbas?")
+    assert dicho[0].endswith("total $ 117.606,00. Con envío: sí, va con envío.")
+    assert "total $ 175.000,00. Sin envío: hacemos envíos desde 10 unidades y pedís 5." in dicho[1]
+
+
+def test_nuevo_mostrador_copia_la_logica_del_ejemplo_12_sin_cambiarla():
+    # lo que va entre el encabezado y las pruebas es el ejemplo, con otro nombre de planilla:
+    # un arreglo en el ejemplo llega a los mostradores que se creen después
+    ejemplo = (RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
+    cuerpo = ejemplo[ejemplo.index("# La regla del envío:"):ejemplo.index("# ── Las pruebas")]
+    assert "funcion responder_pedido(" in cuerpo and 'leer_tabla("precios.csv")' in cuerpo
+    archivos = mate.archivos_del_mostrador("x", "mate", fin_de_renglon="\n")
+    assert list(archivos) == ["x.mate", "x_precios.csv", "x_casos.txt"]
+    programa = archivos["x.mate"].decode("utf-8-sig")
+    assert cuerpo.replace("precios.csv", "x_precios.csv") in programa
+    assert "#          mate correr x.mate --ia-simulada\n" in programa
+    # las pruebas del ejemplo, que nombran los productos de muestra, no se copian
+    assert "los dos pedidos que una IA contestó mal" not in programa
+
+
+def test_nuevo_mostrador_no_pisa_nada_y_lo_dice(tmp_path, capsys, monkeypatch):
+    # el programa ya está: no lo toca y tampoco crea la planilla
+    (tmp_path / "mi_negocio.mate").write_text("# lo mío\n", encoding="utf-8")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert (codigo, salida) == (1, "")
+    assert "no creé nada: en esta carpeta ya hay mi_negocio.mate, y no piso archivos" in err
+    assert "nuevo mostrador mi_negocio_2" in err
+    assert (tmp_path / "mi_negocio.mate").read_text(encoding="utf-8") == "# lo mío\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["mi_negocio.mate"]
+    # está solo la planilla: no la toca y tampoco crea el programa
+    (tmp_path / "mi_negocio.mate").unlink()
+    (tmp_path / "mi_negocio_precios.csv").write_text("producto;precio\nPan;1\n", encoding="utf-8")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert (codigo, salida) == (1, "") and "ya hay mi_negocio_precios.csv, y no piso" in err
+    assert (tmp_path / "mi_negocio_precios.csv").read_text(
+        encoding="utf-8") == "producto;precio\nPan;1\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["mi_negocio_precios.csv"]
+    # si están los dos, nombra los dos; y con .mate al final del nombre es lo mismo
+    (tmp_path / "mi_negocio.mate").write_text("# lo mío\n", encoding="utf-8")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "mi_negocio.mate")
+    assert codigo == 1 and "ya hay mi_negocio.mate y mi_negocio_precios.csv, y no piso" in err
+    assert (tmp_path / "mi_negocio.mate").read_text(encoding="utf-8") == "# lo mío\n"
+    # la memoria de un programa viejo con ese nombre tampoco se hereda sin avisar, ni el
+    # programa que el Bloc de notas guardó con .txt
+    for viejo in ("otro.memoria.json", "otro.bitacora.txt", "otro.mate.txt"):
+        (tmp_path / viejo).write_text("{}", encoding="utf-8")
+        codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "otro")
+        assert codigo == 1 and f"ya hay {viejo}, y no piso archivos" in err
+        (tmp_path / viejo).unlink()
+    # y los casos para 'ensayar' que alguien ya escribió, tampoco
+    (tmp_path / "otro_casos.txt").write_text("hola\n", encoding="utf-8")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "otro")
+    assert codigo == 1 and "ya hay otro_casos.txt, y no piso archivos" in err
+    assert (tmp_path / "otro_casos.txt").read_text(encoding="utf-8") == "hola\n"
+    (tmp_path / "otro_casos.txt").unlink()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mi_negocio.mate",
+                                                         "mi_negocio_precios.csv"]
+    # con otro nombre, al lado, sí
+    assert crear_mostrador(tmp_path, capsys, monkeypatch, "otro")[0] == 0
+    assert (tmp_path / "otro.mate").is_file() and (tmp_path / "otro_precios.csv").is_file()
+    assert (tmp_path / "otro_casos.txt").is_file()
+
+
+def test_nuevo_mostrador_no_deja_nada_a_medias(tmp_path, capsys, monkeypatch):
+    # la planilla "aparece" justo cuando se la va a crear: se borra el programa recién
+    # creado (y nada más) y se avisa
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "ajeno.txt").write_text("no se toca", encoding="utf-8")
+    de_verdad = open
+
+    def abrir(ruta, modo="r", *a, **k):
+        if str(ruta).endswith("_precios.csv") and "x" in modo:
+            raise FileExistsError(ruta)
+        return de_verdad(ruta, modo, *a, **k)
+
+    with monkeypatch.context() as solo_aca:
+        solo_aca.setattr("builtins.open", abrir)
+        assert mate.main(["nuevo", "mostrador", "mi_negocio"]) == 1
+    capturado = capsys.readouterr()
+    assert capturado.out == "" and "no creé nada: recién apareció mi_negocio_precios.csv" in capturado.err
+    assert [p.name for p in tmp_path.iterdir()] == ["ajeno.txt"]
+
+    # y si en la carpeta no se puede escribir, lo dice en castellano y tampoco deja nada
+    def sin_permiso(ruta, modo="r", *a, **k):
+        if str(ruta).endswith("_precios.csv") and "x" in modo:
+            raise PermissionError(13, "Permission denied", ruta)
+        return de_verdad(ruta, modo, *a, **k)
+
+    with monkeypatch.context() as solo_aca:
+        solo_aca.setattr("builtins.open", sin_permiso)
+        assert mate.main(["nuevo", "mostrador", "mi_negocio"]) == 1
+    capturado = capsys.readouterr()
+    assert capturado.out == "" and "no pude crear mi_negocio_precios.csv en" in capturado.err
+    assert "Permission" not in capturado.err and "Traceback" not in capturado.err
+    assert [p.name for p in tmp_path.iterdir()] == ["ajeno.txt"]
+
+
+def test_el_mostrador_creado_sigue_andando_con_otros_productos_y_otra_regla(tmp_path, capsys,
+                                                                          monkeypatch):
+    assert crear_mostrador(tmp_path, capsys, monkeypatch, "ferreteria")[0] == 0
+    planilla = tmp_path / "ferreteria_precios.csv"
+    planilla.write_bytes("producto;presentacion;precio;stock\r\n"
+                         "Tornillo 6 mm;caja de 100;4.500;30\r\n"
+                         "Martillo;unidad;12.000,50;5\r\n".encode("utf-8-sig"))
+    assert mate.main(["verificar", "ferreteria.mate"]) == 0
+    assert mate.main(["probar", "ferreteria.mate"]) == 0
+    assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+    dicho = charla_con("ferreteria.mate", capsys, monkeypatch,
+                       "quiero 12 tornillos con envio", "3 martillos", "9 martillos")
+    assert dicho == [
+        "12 x Tornillo 6 mm (caja de 100) a $ 4.500,00 cada uno: total $ 54.000,00. "
+        "Con envío: sí, va con envío.",
+        "3 x Martillo (unidad) a $ 12.000,50 cada uno: total $ 36.001,50.",
+        "De Martillo quedan 5; no llego a 9."]
+    # el número del envío también se puede cambiar sin tocar las pruebas
+    programa = tmp_path / "ferreteria.mate"
+    original = programa.read_bytes()
+    for unidades in (1, 3, 24):
+        cambiado = original.replace(b"sea unidades_para_envio = 10",
+                                    f"sea unidades_para_envio = {unidades}".encode())
+        assert cambiado != original
+        programa.write_bytes(cambiado)
+        assert mate.main(["probar", "ferreteria.mate"]) == 0
+        assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+    # y la prueba que mira la planilla dice qué está mal cargado (acá, un stock vacío)
+    planilla.write_bytes("producto;presentacion;precio;stock\r\nTornillo;caja;4.500;\r\n".encode())
+    assert mate.main(["probar", "ferreteria.mate"]) == 1
+    salida = capsys.readouterr().out
+    assert "✗ tu planilla está bien cargada" in salida and "6 de 7 pruebas pasaron" in salida
+    assert "En ferreteria_precios.csv, el stock de 'Tornillo' no es un número" in salida
+
+
+def test_el_mostrador_creado_hereda_los_arreglos_del_ejemplo_12(tmp_path, capsys, monkeypatch):
+    # P22 y P29 se arreglaron en el ejemplo 12: un mostrador creado después los trae
+    assert crear_mostrador(tmp_path, capsys, monkeypatch, "almacen")[0] == 0
+    planilla = tmp_path / "almacen_precios.csv"
+    planilla.write_text(PLANILLA_CON_SIN, encoding="utf-8")
+    assert mate.main(["probar", "almacen.mate"]) == 0
+    assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+    dicho = charla_con("almacen.mate", capsys, monkeypatch,
+                       *[d for d, _ in SIN_ENVIO_CON_PRODUCTOS_SIN])
+    assert dicho == [esperado for _, esperado in SIN_ENVIO_CON_PRODUCTOS_SIN]
+    dicho = charla_con("almacen.mate", capsys, monkeypatch,
+                       *[d for d, _ in CON_ENVIO_CON_PRODUCTOS_SIN])
+    assert len(dicho) == len(CON_ENVIO_CON_PRODUCTOS_SIN)
+    for (pregunta, final), respuesta in zip(CON_ENVIO_CON_PRODUCTOS_SIN, dicho):
+        assert respuesta.endswith(final), (pregunta, respuesta)
+    # la planilla mal cargada: avisa con el nombre de SU planilla y no atiende
+    for sobra in tmp_path.glob("almacen.mate.*"):
+        sobra.unlink()
+    planilla_mal_cargada_avisa_y_no_atiende("almacen.mate", planilla, capsys, monkeypatch,
+                                            tmp_path, "--ia-simulada")
+    # ...y 'probar' dice lo mismo, una sola vez (antes el aviso salía repetido)
+    planilla.write_text("producto;presentacion;precio;stock\nYerba;bolsón;;40\n", encoding="utf-8")
+    assert mate.main(["probar", "almacen.mate"]) == 1
+    salida = capsys.readouterr().out
+    assert "✗ tu planilla está bien cargada" in salida and "6 de 7 pruebas pasaron" in salida
+    aviso = "En almacen_precios.csv, el precio de 'Yerba' no es un número: está vacío"
+    assert salida.count("error: " + aviso) == 1 and "se esperaba nada" not in salida
+    # 'ensayar' con esa planilla no da nada por pasado: muestra el aviso y no ensaya
+    codigo, salida, err = orden_mate(capsys, "ensayar", "almacen.mate", "almacen_casos.txt",
+                                     "--ia-simulada")
+    assert codigo == 2 and aviso in salida and "casos pasaron" not in salida
+    assert "terminó sin pedir nada por teclado" in err and "pesos()" not in salida + err
+
+
+def test_nuevo_mostrador_avisa_que_los_casos_son_para_la_planilla_de_muestra(tmp_path, capsys,
+                                                                           monkeypatch):
+    # P68: el dueño cambia la planilla (paso 3), ensaya (paso 5) y le fallan los casos de
+    # los productos que sacó, sin que nadie le haya dicho que eran de muestra
+    codigo, salida, _ = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert codigo == 0
+    paso_5 = salida.split("  5. Ensayarlo:")[1].split("\n\n")[0]
+    assert ("     Ojo: esos casos son de muestra, escritos para la planilla de muestra. Si\n"
+            "     cambiaste los productos (paso 3), cambiá también los casos, o van a fallar\n"
+            "     los que nombran un producto que ya no está. Para abrirlos:\n"
+            "       notepad mi_negocio_casos.txt") in paso_5
+    assert max(len(r) for r in paso_5.splitlines() if "mate.py" not in r) <= 90
+    # el encabezado del archivo de casos lo dice arriba de todo, antes de cómo se usa
+    casos = (tmp_path / "mi_negocio_casos.txt").read_bytes().decode("utf-8-sig").replace("\r\n", "\n")
+    encabezado = casos[:casos.index("# Cómo se escribe")]
+    assert ("# OJO: los casos que vienen acá son de muestra, escritos para la planilla de muestra\n"
+            "# (yerba, azúcar, fideos). Si cambiás los productos de mi_negocio_precios.csv, cambiá\n"
+            "# también estos casos: si no, fallan los que nombran un producto que ya no está.\n"
+            ) in encabezado
+    assert encabezado.index("# OJO:") < encabezado.index("# Cómo se usa")
+    assert all(r.startswith("#") and len(r) <= 90 for r in encabezado.splitlines()
+               if "mate.py" not in r)
+    # el aviso es una nota: los casos siguen siendo los cinco de muestra y siguen pasando
+    assert len(mate.casos_de_archivo("mi_negocio_casos.txt")) == 5
+    codigo, salida, _ = orden_mate(capsys, "ensayar", "mi_negocio.mate", "mi_negocio_casos.txt",
+                                   "--ia-simulada")
+    assert codigo == 0 and "5 de 5 casos pasaron" in salida
+    # el programa creado también lo dice, al lado de la orden de ensayar, y cuenta que la
+    # planilla se revisa al arrancar
+    programa = (tmp_path / "mi_negocio.mate").read_bytes().decode("utf-8-sig").replace("\r\n", "\n")
+    arriba = programa[:programa.index("# La regla del envío:")]
+    assert ("#   OJO: los casos que vienen en mi_negocio_casos.txt son de muestra, escritos para "
+            "la planilla de\n#   muestra (yerba, azúcar, fideos).") in arriba
+    assert "un precio o un stock vacío o con letras, el mostrador no atiende" in arriba
+    # y el manual: el paso 5 como sale en pantalla, y el punto de 'Lo que hay que saber'
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "     Ojo: esos casos son de muestra, escritos para la planilla de muestra. Si\n" in readme
+    assert "**Los casos de muestra son para la planilla de muestra.**" in readme
+    assert "**Un precio o un stock vacío o con letras no llega al cliente.**" in readme
+    assert "(\"Yerba sin palo\", \"Galletitas sin sal\")" in readme
+
+
+def test_el_mostrador_creado_se_puede_abrir_con_el_bloc_de_notas_de_windows(tmp_path, capsys,
+                                                                          monkeypatch):
+    # en Windows sale con los fines de renglón de Windows; Mate lo lee igual
+    monkeypatch.chdir(tmp_path)
+    archivos = mate.archivos_del_mostrador("tienda", "py mate\\mate.py", fin_de_renglon="\r\n")
+    for nombre, contenido in archivos.items():
+        (tmp_path / nombre).write_bytes(contenido)
+    crudo = archivos["tienda.mate"]
+    assert crudo.count(b"\r\n") == crudo.count(b"\n") > 600
+    assert "#          py mate\\mate.py probar tienda.mate\r\n".encode() in crudo
+    assert mate.main(["verificar", "tienda.mate"]) == 0
+    assert mate.main(["probar", "tienda.mate"]) == 0
+    assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+
+
+def test_nuevo_mostrador_sugiere_los_comandos_con_la_orden_de_esa_computadora(tmp_path, capsys,
+                                                                            monkeypatch):
+    # con la orden instalada: 'mate', sin ruta
+    monkeypatch.setenv("MATE_ORDEN", "mate")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "uno")
+    assert codigo == 0 and "\n       mate probar uno.mate\n" in salida
+    assert "\n       mate correr uno.mate --ia-simulada\n" in salida and "python" not in salida
+    assert "#          mate probar uno.mate" in (tmp_path / "uno.mate").read_text(encoding="utf-8-sig")
+    # lanzado con 'py' en Windows (como el dueño): 'py' y la ruta de mate.py
+    monkeypatch.delenv("MATE_ORDEN")
+    monkeypatch.setattr(mate.os, "name", "nt")
+    monkeypatch.setattr(mate, "_QUIEN_ME_LANZO", "py")
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch, "dos")
+    assert codigo == 0 and f"\n       py {RAIZ / 'mate.py'} probar dos.mate\n" in salida
+    assert "python" not in salida
+    # parado al lado de la carpeta mate, la ruta es la corta
+    monkeypatch.chdir(RAIZ.parent)
+    assert mate.orden_para_esta_carpeta() == "py " + os.path.join("mate", "mate.py")
+    # y los errores también sugieren con esa forma
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", "mostrador"]) == 2
+    assert f"Por ejemplo:  py {RAIZ / 'mate.py'} nuevo mostrador mi_negocio" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("args,frase", [
+    ([], "después de 'nuevo' va qué crear y con qué nombre"),
+    (["mi_negocio"], "después de 'nuevo' va qué crear y con qué nombre"),
+    (["mostrador"], "a 'nuevo mostrador' le falta el nombre"),
+    (["mostrador", "mi", "negocio"], "nuevo mostrador mi_negocio"),
+    (["mostrador", "..\\otro"], "va solo el nombre, sin carpeta"),
+    (["mostrador", "sub/otro"], "va solo el nombre, sin carpeta"),
+    (["mostrador", "C:otro"], "va solo el nombre, sin carpeta"),
+    (["mostrador", "mi.negocio"], "'mi.negocio' no sirve como nombre"),
+    (["mostrador", "_raro"], "no sirve como nombre"),
+    (["mostrador", "a" * 61], "no sirve como nombre"),
+    (["mostrador", "curso"], "es una orden de Mate o un nombre que Windows se reserva"),
+    (["mostrador", "NUL"], "es una orden de Mate o un nombre que Windows se reserva"),
+    (["mostrador", "com1.mate"], "es una orden de Mate o un nombre que Windows se reserva"),
+])
+def test_nuevo_mostrador_mal_escrito_explica_y_no_crea_nada(args, frase, tmp_path, capsys,
+                                                          monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", *args]) == 2
+    capturado = capsys.readouterr()
+    assert capturado.out == "" and frase in capturado.err and "Traceback" not in capturado.err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_nuevo_es_una_orden_sabida_y_no_tapa_un_programa_que_se_llama_nuevo(tmp_path, capsys,
+                                                                          monkeypatch):
+    assert "nuevo" in mate.ORDENES_SABIDAS
+    assert mate.orden_usada(["nuevo", "mostrador", "mi_negocio"]) == "nuevo"
+    ayuda = mate.texto_de_ayuda()
+    assert "  nuevo mostrador mi_negocio   crea en esta carpeta un mostrador propio" in ayuda
+    assert mate.main(["ayuda", "nuevo"]) == 0 and "nuevo mostrador mi_negocio" in capsys.readouterr().out
+    # quien se equivoca al tipear: 'nuebo' sugiere 'nuevo'
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuebo", "mostrador", "x"]) == 2
+    assert "¿quisiste decir 'nuevo'?" in capsys.readouterr().err
+    # un programa que ya se llamaba nuevo.mate se sigue corriendo con 'nuevo' sola
+    (tmp_path / "nuevo.mate").write_text('mostrar("soy el de siempre")\n', encoding="utf-8")
+    assert mate.main(["nuevo"]) == 0
+    assert capsys.readouterr().out == "soy el de siempre\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["nuevo.mate"]
+
+
+def test_nuevo_mostrador_sin_los_ejemplos_de_mate_lo_explica(tmp_path, capsys, monkeypatch):
+    # alguien copió solo mate.py: no hay de dónde armar el mostrador
+    with pytest.raises(mate.ErrorMate) as info:
+        mate.archivos_del_mostrador("x", "mate", carpeta_de_mate=tmp_path)
+    assert "bajá Mate de nuevo con todas sus carpetas" in info.value.mensaje
+    # o cambió el ejemplo y ya no tiene los dos títulos que marcan qué parte se copia
+    (tmp_path / "ejemplos").mkdir()
+    (tmp_path / "ejemplos" / "12_mostrador_con_reglas.mate").write_text(
+        'mostrar("otra cosa")\n', encoding="utf-8")
+    (tmp_path / "ejemplos" / "precios.csv").write_text("producto;precio\n", encoding="utf-8")
+    (tmp_path / "ejemplos" / "casos.txt").write_text("hola\n", encoding="utf-8")
+    with pytest.raises(mate.ErrorMate) as info:
+        mate.archivos_del_mostrador("x", "mate", carpeta_de_mate=tmp_path)
+    assert "no tiene la forma que espero" in info.value.mensaje
+    # por la orden: un aviso en castellano, código 1 y nada creado
+    monkeypatch.setattr(mate, "CARPETA_DE_EJEMPLOS", "no_esta")
+    donde = tmp_path / "vacia"
+    donde.mkdir()
+    codigo, salida, err = crear_mostrador(donde, capsys, monkeypatch)
+    assert (codigo, salida) == (1, "") and "para crear un mostrador hacen falta" in err
+    assert "Traceback" not in err and list(donde.iterdir()) == []
+
+
+@pytest.mark.parametrize("crudo,frases", [
+    # los títulos otra vez más abajo (pasa al pegar una lista debajo de otra): dice qué
+    # renglón del archivo borrar
+    (b"producto;precio;stock\nPan;900;4\nproducto;precio;stock\nLeche;1.200;3\n",
+     ["el renglón 3 de 'lista.csv' repite los títulos de las columnas (producto;precio;stock)",
+      "que ya están en el renglón 1", "borrá el renglón 3 entero", "guardá de nuevo"]),
+    # con otra mayúscula, con tilde, con los ;; que deja Excel, y contando los renglones
+    # en blanco y el aviso 'sep=' de Excel
+    ("sep=;\n\nproducto;presentación;precio\nPan;bolsa;900\n\nPRODUCTO;Presentacion;Precio;;\n"
+     .encode("utf-8"),
+     ["el renglón 6 de 'lista.csv' repite los títulos", "que ya están en el renglón 3",
+      "borrá el renglón 6 entero"]),
+    # separado por comas, y al final del archivo
+    (b"producto,precio\r\nPan,900\r\nLeche,1200\r\nproducto,precio\r\n",
+     ["el renglón 4 de 'lista.csv' repite los títulos de las columnas (producto,precio)"]),
+])
+def test_leer_tabla_avisa_si_los_titulos_estan_repetidos_mas_abajo(crudo, frases, tmp_path,
+                                                                  capsys):
+    (tmp_path / "lista.csv").write_bytes(crudo)
+    codigo, salida, err = por_main(tmp_path, capsys, 'mostrar(leer_tabla("lista.csv"))')
+    assert (codigo, salida) == (1, "")
+    assert "programa.mate:1: error: leer_tabla(): " in err and "Traceback" not in err
+    for frase in frases:
+        assert frase in err, frase
+
+
+def test_leer_tabla_no_confunde_un_dato_con_los_titulos(tmp_path, capsys):
+    # con una sola columna, un dato igual al título es un dato; y una fila que se parece a
+    # los títulos pero no es igual, también
+    (tmp_path / "lista.csv").write_bytes(b"palabra\nhola\npalabra\n")
+    codigo, salida, err = por_main(tmp_path, capsys, 'mostrar(largo(leer_tabla("lista.csv")))')
+    assert (codigo, salida, err) == (0, "2\n", "")
+    (tmp_path / "lista.csv").write_bytes(b"producto;precio\nproducto;900\nPan;precio\n")
+    codigo, salida, err = por_main(tmp_path, capsys, 'mostrar(largo(leer_tabla("lista.csv")))')
+    assert (codigo, salida, err) == (0, "2\n", "")
+    # el error se puede atajar, como los demás de leer_tabla
+    (tmp_path / "lista.csv").write_bytes(b"producto;precio\nPan;900\nproducto;precio\n")
+    codigo, salida, err = por_main(tmp_path, capsys, """
+        intentar {
+            mostrar(leer_tabla("lista.csv"))
+        } si falla motivo {
+            mostrar(tiene(motivo, "borrá el renglón 3 entero"))
+        }
+    """)
+    assert (codigo, salida, err) == (0, "verdadero\n", "")
+
+
+def test_el_mostrador_creado_dice_que_renglon_borrar_si_los_titulos_estan_repetidos(
+        tmp_path, capsys, monkeypatch):
+    # lo que le pasó al dueño: copió la lista y quedó el renglón de títulos dos veces
+    assert crear_mostrador(tmp_path, capsys, monkeypatch)[0] == 0
+    planilla = tmp_path / "mi_negocio_precios.csv"
+    planilla.write_bytes(planilla.read_bytes() + "producto;presentacion;precio;stock\r\n"
+                         "Pan rallado;bolsa de 5 kg;4.000;9\r\n".encode())
+    for orden in ("correr", "probar"):
+        assert mate.main([orden, "mi_negocio.mate", "--ia-simulada"]) == 1
+        capturado = capsys.readouterr()
+        assert capturado.out == ""
+        assert ("el renglón 8 de 'mi_negocio_precios.csv' repite los títulos de las columnas "
+                "(producto;presentacion;precio;stock), que ya están en el renglón 1") in capturado.err
+        assert "borrá el renglón 8 entero" in capturado.err
+    # borrado ese renglón, anda con el producto que venía abajo
+    planilla.write_bytes(planilla.read_bytes().replace(
+        b"\r\nproducto;presentacion;precio;stock\r\nPan", b"\r\nPan"))
+    assert mate.main(["probar", "mi_negocio.mate"]) == 0
+    assert "7 de 7 pruebas pasaron" in capsys.readouterr().out
+    assert charla_con("mi_negocio.mate", capsys, monkeypatch, "2 panes")[0].startswith(
+        "2 x Pan rallado (bolsa de 5 kg) a $ 4.000,00 cada uno: total $ 8.000,00.")
+
+
+def test_nuevo_mostrador_y_los_titulos_repetidos_estan_documentados():
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "### Un mostrador propio: `nuevo mostrador`" in readme
+    assert "| `nuevo mostrador mi_negocio` | crea en la carpeta donde estás" in readme
+    assert "**Nunca pisa un archivo.**" in readme and "repetido más abajo" in readme
+    mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+    ficha = mejoras.split("\n**122. `nuevo mostrador`")[1].split("\n\n")[0]
+    assert "Dónde vive la plantilla" in ficha and "Estado: hecha" in ficha
+    assert "nuevo mostrador mi_negocio" in (RAIZ / "curso" / "clase_12_mostrador.md").read_text(
+        encoding="utf-8")
+    assert "'nuevo mostrador mi_negocio'" in (
+        RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
+
+
+# ───────── 0.6: la orden 'ensayar' (un programa contra una lista de casos) ─────────
+
+MOSTRADOR_PARA_ENSAYAR = '''
+mensaje Consulta { pregunta: texto }
+agente Mostrador {
+    estado recordado atendidas = 0
+    frenos {
+        prohibido: ["descuento"]
+        reserva: "Eso te lo confirma una persona."
+        consultas_por_dia: 100
+    }
+    al recibir Consulta como c {
+        atendidas += 1
+        responder consultar_ia("Atendés un almacén.", c.pregunta, "No sé.")
+    }
+}
+mostrar("Abrimos.")
+mientras verdadero {
+    sea dicho = leer("Cliente:", "chau")
+    si dicho == "chau" { romper }
+    si tiene(dicho, "horario") {
+        mostrar("Mostrador: abrimos de 8 a 12.")
+        continuar
+    }
+    agregar_a_archivo("atendidas.txt", dicho)
+    mostrar("Mostrador: " + preguntar Consulta { pregunta: dicho } a Mostrador)
+}
+mostrar("Hasta luego.")
+'''
+
+CASOS_PARA_ENSAYAR = """# lo que preguntan los clientes
+que horario tienen?
+    tiene que decir: de 8 a 12
+
+tenes cafe?
+tienen café?
+    tiene que decir: no lo trabajamos | no tenemos
+    no puede decir: descuento
+"""
+
+
+def para_ensayar(tmp_path, monkeypatch, casos=CASOS_PARA_ENSAYAR, programa=MOSTRADOR_PARA_ENSAYAR):
+    """Deja en tmp_path el programa y sus casos, y se para ahí."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "m.mate").write_text(programa, encoding="utf-8")
+    (tmp_path / "casos.txt").write_text(casos, encoding="utf-8")
+
+
+def test_el_archivo_de_casos_se_escribe_con_el_bloc_de_notas(tmp_path):
+    archivo = tmp_path / "casos.txt"
+    # como lo deja el Bloc de notas: con la marca del principio y renglones de Windows
+    archivo.write_bytes(("﻿" + CASOS_PARA_ENSAYAR).replace("\n", "\r\n").encode("utf-8"))
+    casos = mate.casos_de_archivo(str(archivo))
+    assert [(c["renglon"], c["pregunta"]) for c in casos] == [
+        (2, "que horario tienen?"), (5, "tenes cafe?"), (6, "tienen café?")]
+    assert casos[0]["reglas"] == [(True, ("de 8 a 12",))]
+    # varias formas de preguntar lo mismo comparten las reglas que tienen debajo
+    assert casos[1]["reglas"] == casos[2]["reglas"] == [
+        (True, ("no lo trabajamos", "no tenemos")), (False, ("descuento",))]
+    # guardado como ANSI (Windows-1252) también se lee, y valen otras formas de escribir la regla
+    archivo.write_bytes("¿Tenés café?\nDEBE DECIR : no\nNo tiene que decir: sí , claro\n"
+                        "no debe decir:fiado\n".encode("cp1252"))
+    (caso,) = mate.casos_de_archivo(str(archivo))
+    assert caso["pregunta"] == "¿Tenés café?"
+    assert caso["reglas"] == [(True, ("no",)), (False, ("sí , claro",)), (False, ("fiado",))]
+    assert mate.regla_escrita(caso["reglas"][1]) == 'no puede decir "sí , claro"'
+    assert mate.regla_escrita((True, ("a", "b"))) == 'tiene que decir "a" o "b"'
+
+
+@pytest.mark.parametrize("texto,frase", [
+    ("tiene que decir: hola\n", "casos.txt:1: esta regla no tiene una pregunta arriba"),
+    ("# nota\n\nhola\n", "casos.txt:3: a esta pregunta le falta decir qué se espera"),
+    ("hola\n  tiene que decir: buen día\nchau\n", "casos.txt:3: a esta pregunta le falta"),
+    ("hola\ntiene que decir buen día\n", "casos.txt:2: este renglón parece una regla, pero no "
+                                          "la entiendo (le faltan los dos puntos)"),
+    ("hola\npuede decir: buen día\n", "casos.txt:2: este renglón parece una regla"),
+    ("hola\nno puede decir:  |  \n", "casos.txt:2: a esta regla le falta el texto"),
+    ('hola\nno puede decir: ""\n', "casos.txt:2: a esta regla le falta el texto"),
+    # una regla mal tipeada no se toma como una pregunta más: se avisa en SU renglón
+    ("hola\n tiene que decir: a\n\nno puede desir: b\n tiene que decir: c\n",
+     "casos.txt:4: este renglón parece una regla, pero no la entiendo"),
+    ("hola\ntiene q decir: sin envio\n", "casos.txt:2: este renglón parece una regla"),
+    ("hola\ndeberia decir: sin envio\n", "casos.txt:2: este renglón parece una regla"),
+    ("hola\n- no puede dezir: fiado\n", "casos.txt:2: este renglón parece una regla"),
+    # comillas a medias: así como está la regla no se cumpliría nunca (o siempre)
+    ('hola\ntiene que decir: "a" y "b"\n', "casos.txt:2: esta regla tiene comillas que no"),
+    ('hola\nno puede decir: "fiado\n', "casos.txt:2: esta regla tiene comillas que no"),
+    ('hola\nno puede decir: "a" o b\n', "casos.txt:2: esta regla tiene comillas que no"),
+    ("# solo notas\n\n", "no tiene ninguna pregunta"),
+    ("hola\n" * 201 + "tiene que decir: x\n", "tiene 201 preguntas y el tope es 200"),
+])
+def test_un_archivo_de_casos_mal_escrito_dice_el_renglon(texto, frase, tmp_path, capsys,
+                                                         monkeypatch):
+    para_ensayar(tmp_path, monkeypatch, casos=texto)
+    with pytest.raises(mate.ErrorMate) as info:
+        mate.casos_de_archivo("casos.txt")
+    assert frase in info.value.mensaje
+    # por la orden: el mismo aviso, código 2, y el programa ni se corre
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, salida) == (2, "") and frase in err and "Traceback" not in err
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+
+
+def test_las_reglas_de_un_caso_no_miran_mayusculas_ni_tildes():
+    reglas = [(True, ("sin envío",)), (False, ("va con envio", "DESCUENTO"))]
+    assert mate.reglas_incumplidas("Total $ 5. SIN   ENVIO: son pocas.", reglas) == []
+    assert mate.reglas_incumplidas("Sí, va con envío.", reglas) == reglas
+    assert mate.reglas_incumplidas("sin envío, y con descuento", reglas) == [reglas[1]]
+    # con opciones: 'tiene que decir' se cumple con cualquiera
+    assert mate.reglas_incumplidas("no queda", [(True, ("no hay stock", "no queda"))]) == []
+    assert mate.reglas_incumplidas("", [(True, ("algo",))]) == [(True, ("algo",))]
+
+
+def test_ensayar_los_casos_de_muestra_con_el_ejemplo_12(capsys):
+    # los cinco casos reales del dueño, contra el ejemplo tal cual está: pasan sin gastar
+    casos = mate.casos_de_archivo(str(RAIZ / "ejemplos" / "casos.txt"))
+    assert [c["pregunta"] for c in casos] == [
+        "me mandas 5 yerbas?", "me alcanzas 8 yerbas?", "necesito que me lleven 3 azucar a casa",
+        "quiero 12 fideos con envio", "tenes cafe?"]
+    antes = archivos_de(RAIZ / "ejemplos")
+    codigo, salida, err = orden_mate(
+        capsys, "ensayar", RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate",
+        RAIZ / "ejemplos" / "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (0, "")
+    renglones = salida.splitlines()
+    assert renglones[0] == "Ensayo de 12_mostrador_con_reglas.mate con casos.txt: 5 pregunta(s)."
+    assert renglones[1] == "Contesta la IA simulada: no sale a la red y no gasta nada."
+    assert renglones[2].startswith("Va a hacer hasta 5 consulta(s) a la IA")
+    assert [r for r in renglones if r.startswith("  ✓ ")] == [
+        "  ✓ " + c["pregunta"] for c in casos]
+    # cuatro los contesta el programa solo; "tenes cafe?" es la única que va a la IA
+    assert renglones[-1] == "5 de 5 casos pasaron. Consultas a la IA: 1 (simuladas: no se pagan)."
+    assert max(len(r) for r in renglones) <= 100
+    assert archivos_de(RAIZ / "ejemplos") == antes  # no dejó memoria, bitácora ni nada
+
+
+def test_ensayar_lo_que_crea_nuevo_mostrador_sin_tocarlo(tmp_path, capsys, monkeypatch):
+    codigo, salida, _ = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert codigo == 0
+    orden = f"python3 {RAIZ / 'mate.py'}" if mate.os.name != "nt" else f"python {RAIZ / 'mate.py'}"
+    comando = f"{orden} ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada"
+    assert f"       {comando}\n" in salida
+    # los casos salen para el Bloc de notas y con el comando de ESTE mostrador arriba
+    crudo = (tmp_path / "mi_negocio_casos.txt").read_bytes()
+    assert crudo.startswith("﻿# Casos para ensayar mi_negocio.mate:".encode("utf-8"))
+    casos = crudo.decode("utf-8-sig").replace("\r\n", "\n")
+    assert f"#     {comando}\n" in casos and "12_mostrador_con_reglas" not in casos
+    de_muestra = (RAIZ / "ejemplos" / "casos.txt").read_text(encoding="utf-8-sig")
+    assert casos.endswith(de_muestra[de_muestra.index("# Cómo se escribe"):])
+    assert f"#          {comando}\n" in (tmp_path / "mi_negocio.mate").read_text(
+        encoding="utf-8-sig").replace("\r\n", "\n")
+    antes = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    codigo, salida, err = orden_mate(capsys, "ensayar", "mi_negocio.mate",
+                                     "mi_negocio_casos.txt", "--ia-simulada", "--veces=3")
+    assert (codigo, err) == (0, "")
+    assert "con mi_negocio_casos.txt: 5 pregunta(s), 3 veces cada una." in salida
+    assert "Va a hacer hasta 15 consulta(s) a la IA" in salida
+    assert "  ✓ quiero 12 fideos con envio: pasó 3 de 3\n" in salida
+    assert "5 de 5 casos pasaron las 3 veces. Consultas a la IA: 3 (simuladas" in salida
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == antes
+    # con los fines de renglón de Windows también se leen
+    archivos = mate.archivos_del_mostrador("x", "py mate\\mate.py", fin_de_renglon="\r\n")
+    assert archivos["x_casos.txt"].count(b"\r\n") == archivos["x_casos.txt"].count(b"\n") > 30
+    assert "#     py mate\\mate.py ensayar x.mate x_casos.txt --ia-simulada\r\n".encode() in (
+        archivos["x_casos.txt"])
+    (tmp_path / "x_casos.txt").write_bytes(archivos["x_casos.txt"])
+    assert len(mate.casos_de_archivo("x_casos.txt")) == 5
+
+
+def test_ensayar_muestra_cada_caso_que_fallo_y_lo_deja_propuesto(tmp_path, capsys, monkeypatch,
+                                                                 ia):
+    para_ensayar(tmp_path, monkeypatch)
+
+    def ensayar():
+        ia.respuestas = [dice("Sí, tenemos café."), dice("No, eso no lo trabajamos.")]
+        return orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+
+    codigo, salida, err = ensayar()
+    assert (codigo, err) == (1, "")
+    assert "  ✓ que horario tienen?\n" in salida and "  ✓ tienen café?\n" in salida
+    # del que falló: la pregunta (con su renglón), la respuesta y la regla incumplida
+    assert ("  ✗ tenes cafe?   (renglón 5 de casos.txt)\n"
+            "      Contestó: Mostrador: Sí, tenemos café.\n"
+            '      No cumple: tiene que decir "no lo trabajamos" o "no tenemos"\n') in salida
+    assert "No cumple: no puede decir" not in salida  # (esa regla sí la cumplió)
+    assert "\n2 de 3 casos pasaron. Consultas a la IA: 2.\n" in salida
+    assert "quedó 1 lección(es) propuesta(s). Ningún agente las usa" in salida
+    assert f"\n  python3 {RAIZ / 'mate.py'} propuestas m.mate\n" in salida or mate.os.name == "nt"
+    # lo único que quedó es la propuesta: ni estado, ni cuenta de consultas, ni bitácora, ni
+    # el archivo que el programa "anota"
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate", "m.memoria.json"]
+    ficha = memoria_de(tmp_path, "m")["agentes"]["Mostrador"]
+    assert ficha["estado"] == {} and ficha["lecciones"] == [] and "gasto" not in ficha
+    (propuesta,) = ficha["propuestas"]
+    assert propuesta["texto"] == ('Cuando te pregunten algo como "tenes cafe?", tu respuesta '
+                                  'tiene que decir "no lo trabajamos" o "no tenemos".')
+    assert propuesta["motivo"] == ("falló un caso del ensayo (casos.txt, renglón 5). Contestó: "
+                                   '"Mostrador: Sí, tenemos café."')
+    # es una propuesta como las demás: se ve con 'propuestas' y se aprueba igual
+    codigo, salida, _ = orden_mate(capsys, "propuestas", "m.mate")
+    assert codigo == 0 and "1. Para Mostrador: Cuando te pregunten algo como" in salida
+    # (y 'propuestas' da la orden para aprobarla lista para copiar desde ESTA carpeta)
+    assert (f"Para aprobar una:    python3 {RAIZ / 'mate.py'} propuestas m.mate aprobar 1\n"
+            in salida or mate.os.name == "nt")
+    # ensayar de nuevo no la repite
+    crudo = (tmp_path / "m.memoria.json").read_bytes()
+    codigo, salida, _ = ensayar()
+    assert codigo == 1 and "ya estaban propuestas, sin aprobar. Para verlas:" in salida
+    assert (tmp_path / "m.memoria.json").read_bytes() == crudo
+    assert orden_mate(capsys, "propuestas", "m.mate", "aprobar", "1")[0] == 0
+    # aprobada, y el caso vuelve a fallar: no manda a 'propuestas' (ahí ya no está), dice
+    # que la lección no alcanzó y qué se puede hacer
+    crudo = (tmp_path / "m.memoria.json").read_bytes()
+    codigo, salida, _ = ensayar()
+    assert codigo == 1
+    assert "Mostrador ensaya con las lecciones que ya tiene aprobadas (1)." in salida
+    assert ("Mostrador ya tiene aprobada la lección de un caso que volvió a fallar: no "
+            "alcanzó.\n") in salida
+    assert "'corregir'" in salida and "o a un freno" in salida
+    assert " lecciones m.mate\n" in salida
+    assert " propuestas m.mate" not in salida and "borrador" not in salida
+    assert (tmp_path / "m.memoria.json").read_bytes() == crudo
+    assert "propuestas" not in memoria_de(tmp_path, "m")["agentes"]["Mostrador"]
+    # (el ancho se mide con la ruta de mate.py acortada: si no, la prueba depende de en qué
+    # carpeta esté Mate)
+    assert f"  python3 {RAIZ / 'mate.py'} lecciones m.mate\n" in salida or mate.os.name == "nt"
+    medible = salida.replace(str(RAIZ / "mate.py"), "mate/mate.py")
+    assert max(len(r) for r in medible.splitlines()) <= 100
+
+
+def test_ensayar_con_ia_simulada_no_deja_lecciones_propuestas(tmp_path, capsys, monkeypatch):
+    # la respuesta simulada es un texto preparado: una lección no lo cambia, así que el
+    # caso falla y se muestra, pero no queda propuesta (ni se crea el archivo de memoria)
+    para_ensayar(tmp_path, monkeypatch)
+    (tmp_path / "r.txt").write_text("tenes cafe => Sí, tenemos café.\n"
+                                    "* => No, eso no lo trabajamos.\n", encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt",
+                                     "--ia-simulada=r.txt")
+    assert (codigo, err) == (1, "")
+    assert ("  ✗ tenes cafe?   (renglón 5 de casos.txt)\n"
+            "      Contestó: Mostrador: Sí, tenemos café.\n"
+            '      No cumple: tiene que decir "no lo trabajamos" o "no tenemos"\n'
+            "      Eso lo contestó la IA simulada, con un texto preparado: una lección no lo "
+            "cambia.\n") in salida
+    assert "\n2 de 3 casos pasaron. Consultas a la IA: 2 (simuladas: no se pagan).\n" in salida
+    assert "Con --ia-simulada no quedan lecciones propuestas." in salida
+    assert "ensayá sin --ia-simulada" in salida and "quedó" not in salida
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate", "r.txt"]
+    assert max(len(r) for r in salida.splitlines()) <= 100
+
+
+def test_ensayar_dice_cuando_una_leccion_no_sirve_o_salto_un_freno(tmp_path, capsys, monkeypatch,
+                                                                   ia):
+    # la respuesta la dio el programa, sin IA: no hay lección que la cambie, y no se propone
+    para_ensayar(tmp_path, monkeypatch, casos="que horario tienen?\n tiene que decir: de 9 a 18\n")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "")
+    assert "      Contestó: Mostrador: abrimos de 8 a 12.\n" in salida
+    assert "Esta respuesta la dio el programa, sin consultar a la IA: una lección no la" in salida
+    assert "0 de 1 casos pasaron. No hizo falta consultar a la IA." in salida
+    assert "propuesta" not in salida and archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+    # la IA dijo algo prohibido las dos veces: salió la reserva, y el informe lo cuenta
+    (tmp_path / "casos.txt").write_text("hay rebajas?\n tiene que decir: no hacemos\n",
+                                        encoding="utf-8")
+    ia.respuestas = [dice("Sí, te hago un descuento.")]
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--veces=2")
+    assert (codigo, err) == (1, "")
+    assert "      Contestó (la vez 1): Mostrador: Eso te lo confirma una persona.\n" in salida
+    # los dos intentos dijeron lo mismo: el renglón del freno sale una vez, y el resumen
+    # cuenta preguntas (una), no corridas (dos)
+    assert salida.count("      Saltó un freno de Mostrador: ") == 1
+    assert 'La IA había dicho: "Sí, te hago un descuento."' in salida
+    assert "Consultas a la IA: 4." in salida
+    assert "En 1 pregunta(s) saltó un freno" in salida
+    # queda la propuesta del caso, y no la que deja un freno cuando se corre de verdad
+    (propuesta,) = memoria_de(tmp_path, "m")["agentes"]["Mostrador"]["propuestas"]
+    assert propuesta["texto"].startswith('Cuando te pregunten algo como "hay rebajas?"')
+    # una consulta hecha por el programa, sin agente: no hay a quién dejarle la lección
+    (tmp_path / "otra").mkdir()
+    para_ensayar(tmp_path / "otra", monkeypatch, casos="hola\n tiene que decir: buen día\n",
+                 programa='sea d = leer("Cliente:")\n'
+                          'mostrar(consultar_ia("Sos amable.", d, "Hola."))\n')
+    codigo, salida, _ = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert codigo == 1 and "la hizo el programa, no un agente" in salida
+    assert archivos_de(tmp_path / "otra") == ["casos.txt", "m.mate"]
+
+
+def test_ensayar_no_cambia_la_memoria_del_programa(tmp_path, capsys, monkeypatch, ia):
+    import io
+    para_ensayar(tmp_path, monkeypatch)
+    # el programa ya corrió de verdad: tiene estado recordado, una lección, la cuenta del
+    # día, su bitácora y el archivo donde anota
+    assert orden_mate(capsys, "corregir", "m.mate", "Mostrador", "Tratá de usted.")[0] == 0
+    monkeypatch.setattr("sys.stdin", io.StringIO("hola\nhay rebajas?\nchau\n"))
+    (tmp_path / "r.txt").write_text("rebajas => Hay descuento.\n* => No lo trabajamos.\n",
+                                    encoding="utf-8")
+    assert orden_mate(capsys, "correr", "m.mate", "--ia-simulada=r.txt")[0] == 0
+    ficha = memoria_de(tmp_path, "m")["agentes"]["Mostrador"]
+    assert ficha["estado"] == {"atendidas": 2} and len(ficha["propuestas"]) == 1
+    antes = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    assert sorted(antes) == ["atendidas.txt", "casos.txt", "m.bitacora.txt", "m.mate",
+                             "m.memoria.json", "r.txt"]
+    # ensayo en el que pasan todos: no cambia ni un byte de ningún archivo
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt",
+                                     "--ia-simulada=r.txt", "--veces=4")
+    assert (codigo, err) == (0, "") and "3 de 3 casos pasaron las 4 veces" in salida
+    assert "Mostrador ensaya con las lecciones que ya tiene aprobadas (1)." in salida
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == antes
+    # ensayo con un caso que falla: se agrega la propuesta y nada más
+    (tmp_path / "casos.txt").write_text("hay rebajas?\n no puede decir: una persona\n",
+                                        encoding="utf-8")
+    ia.respuestas = [dice("Hay descuento.")]  # (con la IA de verdad: la simulada no propone)
+    codigo, salida, _ = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert codigo == 1 and "quedó 1 lección(es) propuesta(s)" in salida
+    despues = memoria_de(tmp_path, "m")["agentes"]["Mostrador"]
+    assert len(despues["propuestas"]) == 2 and despues["propuestas"][0] == ficha["propuestas"][0]
+    assert {k: v for k, v in despues.items() if k != "propuestas"} == {
+        k: v for k, v in ficha.items() if k != "propuestas"}
+    for nombre in ("atendidas.txt", "m.bitacora.txt", "m.mate", "r.txt"):
+        assert (tmp_path / nombre).read_bytes() == antes[nombre]
+    # una memoria que no se entiende no se pisa: no ensaya y lo dice
+    (tmp_path / "m.memoria.json").write_text("{esto no es json", encoding="utf-8")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, salida) == (2, "") and "no entiendo el archivo de memoria" in err
+    assert (tmp_path / "m.memoria.json").read_text(encoding="utf-8") == "{esto no es json"
+
+
+def test_ensayar_con_claude_avisa_antes_y_manda_las_lecciones(tmp_path, capsys, monkeypatch, ia):
+    para_ensayar(tmp_path, monkeypatch)
+    assert orden_mate(capsys, "corregir", "m.mate", "Mostrador", "El café no lo trabajamos.")[0] == 0
+    crudo = (tmp_path / "m.memoria.json").read_bytes()
+    ia.respuestas = [dice("No, café no lo trabajamos.")]
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--veces=2")
+    assert (codigo, err) == (0, "")
+    renglones = salida.splitlines()
+    assert renglones[0] == "Ensayo de m.mate con casos.txt: 3 pregunta(s), 2 veces cada una."
+    # antes de la primera consulta dice quién contesta, que se paga y cuántas pueden ser
+    assert renglones[1] == "Contesta Claude (claude-opus-5-5): cada consulta se paga."
+    assert renglones[2].startswith("Va a hacer hasta 6 consulta(s) a la IA: una por cada pregunta")
+    assert "  ✓ tenes cafe?: pasó 2 de 2" in renglones
+    assert renglones[-2:] == [
+        "3 de 3 casos pasaron las 2 veces. Consultas a la IA: 4.",
+        "Las consultas de un ensayo no entran en la cuenta del día ni en la bitácora."]
+    assert "Cada pregunta se le escribe al programa donde pide:  \"Cliente:\"" in renglones
+    # la del horario la contestó el programa: fueron 4 pedidos de verdad, con la lección
+    assert len(ia.pedidos) == 4
+    assert all("El café no lo trabajamos." in p["cuerpo"]["system"] for p in ia.pedidos)
+    assert [p["cuerpo"]["messages"][0]["content"] for p in ia.pedidos] == [
+        "tenes cafe?", "tenes cafe?", "tienen café?", "tienen café?"]
+    # las consultas del ensayo no entran en la cuenta del día: la memoria queda igual
+    assert (tmp_path / "m.memoria.json").read_bytes() == crudo
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate", "m.memoria.json"]
+    assert CLAVE_DE_MENTIRA not in salida + crudo.decode("utf-8")
+
+
+def test_ensayar_informa_paso_4_de_5_cuando_la_ia_no_contesta_siempre_igual(tmp_path, capsys,
+                                                                           monkeypatch, ia):
+    para_ensayar(tmp_path, monkeypatch, casos="tenes cafe?\n tiene que decir: no lo trabajamos\n")
+    ia.respuestas = [dice("No lo trabajamos."), dice("No lo trabajamos."), dice("Sí, hay café."),
+                     dice("No lo trabajamos.")]
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--veces=5")
+    assert (codigo, err) == (1, "")
+    assert ("  ✗ tenes cafe?: pasó 4 de 5   (renglón 1 de casos.txt)\n"
+            "      Contestó (la vez 3): Mostrador: Sí, hay café.\n"
+            '      No cumple: tiene que decir "no lo trabajamos"\n') in salida
+    assert "\n0 de 1 casos pasaron las 5 veces. Consultas a la IA: 5.\n" in salida
+    # una sola propuesta por caso, aunque haya fallado más de una vez
+    assert len(memoria_de(tmp_path, "m")["agentes"]["Mostrador"]["propuestas"]) == 1
+    assert CLAVE_DE_MENTIRA not in salida + (tmp_path / "m.memoria.json").read_text(encoding="utf-8")
+
+
+def test_ensayar_respeta_los_topes_de_consultas_en_el_ensayo_entero(tmp_path, capsys,
+                                                                    monkeypatch, ia):
+    # el tope por día del agente: las consultas del ensayo se suman entre un caso y otro
+    para_ensayar(tmp_path, monkeypatch,
+                 casos="uno?\ndos?\ntres?\n no puede decir: una persona\n",
+                 programa=MOSTRADOR_PARA_ENSAYAR.replace("consultas_por_dia: 100",
+                                                         "consultas_por_dia: 2"))
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, err) == (1, "") and len(ia.pedidos) == 2
+    # a la tercera el agente ya está en su tope y no consulta: ese caso no pasa ni falla,
+    # queda sin comprobar (no se vio qué contesta la IA), y el ensayo no termina en 0
+    assert ("  ✓ uno?\n  ✓ dos?\n  ? tres?: no se pudo comprobar   (renglón 3 de casos.txt)\n"
+            "      No se consultó a la IA: tope de gasto: ya hizo 2 consulta(s) a la IA hoy"
+            ) in salida
+    assert ('      Sin la IA, el programa contestó: "Mostrador: Eso te lo confirma una '
+            'persona."\n') in salida
+    # ...pero en el archivo no queda la cuenta; y como a esa pregunta la IA no la llegó a
+    # contestar, tampoco queda una lección propuesta
+    assert "propuesta(s)" not in salida
+    assert ("\n2 de 3 casos pasaron. Consultas a la IA: 2.\n"
+            "1 caso(s) no se pudieron comprobar porque la IA no contestó: no cuentan como\n"
+            "pasados.") in salida
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+    # el tope de consultas de verdad por corrida vale para el ensayo entero, y lo corta
+    para_ensayar(tmp_path, monkeypatch, casos="uno?\ndos?\ntres?\ncuatro?\n tiene que decir: yerba\n")
+    monkeypatch.setattr(mate, "MAX_CONSULTAS_IA", 3)
+    ia.pedidos.clear()
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, err) == (1, "") and len(ia.pedidos) == 3
+    assert "Ojo: Mate corta el ensayo a las 3 consultas de verdad" in salida
+    assert "  ✓ tres?\n  ✗ cuatro?   (renglón 4 de casos.txt)\n" in salida
+    assert "El ensayo se cortó ahí" in salida and "ya le hizo 3 consultas a la IA" in salida
+    assert "\n3 de 4 casos pasaron. Consultas a la IA: 3.\n" in salida
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]  # (un corte no es una lección)
+    # con --sin-limite sigue
+    ia.pedidos.clear()
+    codigo, salida, _ = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--sin-limite")
+    assert codigo == 0 and len(ia.pedidos) == 4 and "Ojo: Mate corta" not in salida
+
+
+def test_ensayar_cuando_la_ia_no_contesta_no_propone_lecciones(tmp_path, capsys, monkeypatch, ia):
+    import urllib.error
+    # el mostrador ataja la falla y contesta otra cosa (como el ejemplo 12): el caso falla,
+    # pero no por algo que la IA haya dicho, así que no queda ninguna lección propuesta
+    para_ensayar(tmp_path, monkeypatch, casos="tenes cafe?\n tiene que decir: no lo trabajamos\n",
+                 programa=MOSTRADOR_PARA_ENSAYAR.replace(
+                     'responder consultar_ia("Atendés un almacén.", c.pregunta, "No sé.")',
+                     'intentar { responder consultar_ia("Atendés un almacén.", c.pregunta) } '
+                     'si falla e { responder "Ahora no puedo contestar." }'))
+    ia.respuestas = [urllib.error.URLError("sin red")]
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, err) == (1, "")
+    assert ("  ? tenes cafe?: no se pudo comprobar   (renglón 1 de casos.txt)\n"
+            "      La IA no contestó: no pude conectarme con la IA") in salida
+    assert ('      Sin la IA, el programa contestó: "Mostrador: Ahora no puedo contestar."\n'
+            ) in salida
+    assert "propuesta(s)" not in salida
+    # era la primera consulta del ensayo: se corta ahí, sin seguir gastando tiempo
+    assert ("El ensayo se cortó ahí y no siguió con los casos que faltaban:\n"
+            "  la primera consulta a la IA no tuvo respuesta: arreglá eso y ensayá de nuevo.\n"
+            "0 de 1 casos pasaron.\n"
+            "1 caso(s) no se pudieron comprobar porque la IA no contestó") in salida
+    assert CLAVE_DE_MENTIRA not in salida and archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+
+
+def test_ensayar_con_un_modelo_propio(tmp_path, modelo_propio):
+    import subprocess
+    (tmp_path / "m.mate").write_text(MOSTRADOR_PARA_ENSAYAR, encoding="utf-8")
+    (tmp_path / "casos.txt").write_text(CASOS_PARA_ENSAYAR, encoding="utf-8")
+    modelo_propio["dice"] = ["No, no tenemos.", "Sí, y con descuento.", "Sí, con descuento."]
+    entorno = {k: v for k, v in os.environ.items()
+               if k not in ("ANTHROPIC_API_KEY", "MATE_MODELO", "MATE_IA_PROPIA",
+                            "MATE_IA_PROPIA_CLAVE") and not k.lower().endswith("_proxy")}
+    entorno.update({"MATE_SIN_REGISTRO": "1", "PYTHONIOENCODING": "utf-8", "MATE_MODELO": "qwen2.5:3b",
+                    "MATE_IA_PROPIA": modelo_propio["url"],
+                    "MATE_IA_PROPIA_CLAVE": "clave-de-mentira-123"})
+    corrida = subprocess.run(
+        [sys.executable, str(RAIZ / "mate.py"), "ensayar", "m.mate", "casos.txt"],
+        capture_output=True, text=True, encoding="utf-8", env=entorno, cwd=str(tmp_path))
+    assert (corrida.returncode, corrida.stderr) == (1, "")
+    assert f"Contesta tu modelo propio (qwen2.5:3b), en {modelo_propio['url']}.\n" in corrida.stdout
+    assert "  ✓ que horario tienen?\n  ✓ tenes cafe?\n  ✗ tienen café?   (renglón 6" in corrida.stdout
+    assert "      Contestó: Mostrador: Eso te lo confirma una persona.\n" in corrida.stdout
+    assert "2 de 3 casos pasaron. Consultas a la IA: 3.\n" in corrida.stdout
+    # al modelo le llegaron las preguntas de los casos (la del horario no: la contestó el
+    # programa), con la clave en el encabezado y en ningún otro lado
+    assert len(modelo_propio["pedidos"]) == 3
+    assert modelo_propio["pedidos"][0][0]["messages"][-1]["content"] == "tenes cafe?"
+    assert modelo_propio["pedidos"][0][1] == "Bearer clave-de-mentira-123"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["casos.txt", "m.mate", "m.memoria.json"]
+    assert "clave-de-mentira" not in corrida.stdout + (tmp_path / "m.memoria.json").read_text(
+        encoding="utf-8")
+
+
+def mate_con_modelo_propio(carpeta, entorno_extra, *argumentos):
+    """Mate en otro proceso, parado en esa carpeta y sin más IA que la que diga el entorno."""
+    import subprocess
+    entorno = {k: v for k, v in os.environ.items()
+               if k not in ("ANTHROPIC_API_KEY", "MATE_MODELO", "MATE_IA_PROPIA",
+                            "MATE_IA_PROPIA_CLAVE") and not k.lower().endswith("_proxy")}
+    entorno.update({"MATE_SIN_REGISTRO": "1", "PYTHONIOENCODING": "utf-8"}, **entorno_extra)
+    return subprocess.run(
+        [sys.executable, str(RAIZ / "mate.py"), *argumentos],
+        capture_output=True, text=True, encoding="utf-8", env=entorno, cwd=str(carpeta))
+
+
+def test_ensayar_con_el_modelo_que_no_contesta_no_da_los_casos_por_pasados(tmp_path,
+                                                                          modelo_propio):
+    # Lo que le puede pasar al dueño: Ollama apagado, o MATE_MODELO mal escrito (404). El
+    # mostrador creado ataja la falla y contesta con la lista, y "tenes cafe?" solo tiene
+    # reglas 'no puede decir': antes eso daba "5 de 5 casos pasaron" y código 0.
+    import socket
+    assert mate_con_modelo_propio(tmp_path, {}, "nuevo", "mostrador", "mi_negocio").returncode == 0
+    al_crear = archivos_de(tmp_path)
+    libre = socket.socket()
+    libre.bind(("127.0.0.1", 0))
+    apagado = f"http://127.0.0.1:{libre.getsockname()[1]}/v1/chat/completions"
+    libre.close()
+    modelo_propio["codigo"] = 404
+    for direccion, motivo in ((modelo_propio["url"], "La IA no contestó (la vez 1): "),
+                              (apagado, "no pude conectarme con tu modelo en 127.0.0.1:")):
+        corrida = mate_con_modelo_propio(
+            tmp_path, {"MATE_IA_PROPIA": direccion, "MATE_MODELO": "qwen2.5:3b",
+                       "MATE_IA_PROPIA_CLAVE": "clave-de-mentira-123"},
+            "ensayar", "mi_negocio.mate", "mi_negocio_casos.txt", "--veces=2")
+        salida = corrida.stdout
+        assert (corrida.returncode, corrida.stderr) == (1, "")
+        assert "5 de 5" not in salida and "✓ tenes cafe?" not in salida
+        assert "  ? tenes cafe?: pasó 0 de 2, y 1 sin comprobar   (renglón 43 de" in salida
+        assert motivo in salida and salida.count("La IA no contestó (la vez 1): ") == 1
+        assert "      Sin la IA, el programa contestó: " in salida
+        # era la primera consulta: corta ahí (no sigue repitiendo la misma falla)
+        assert ("El ensayo se cortó ahí y no siguió con los casos que faltaban:\n"
+                "  la primera consulta a la IA no tuvo respuesta: arreglá eso y ensayá de nuevo.\n"
+                "4 de 5 casos pasaron las 2 veces.\n"
+                "1 caso(s) no se pudieron comprobar porque la IA no contestó: no cuentan como\n"
+                "pasados.") in salida
+        assert "propuesta" not in salida and "clave-de-mentira" not in salida
+        assert max(len(r) for r in salida.splitlines()) <= 100
+        assert archivos_de(tmp_path) == al_crear  # ni memoria ni bitácora
+    assert len(modelo_propio["pedidos"]) == 1  # (el 404; al apagado no le llegó nada)
+    # con el modelo andando, el mismo ensayo pasa
+    modelo_propio["codigo"], modelo_propio["dice"] = 200, ["No, café no lo trabajamos."]
+    corrida = mate_con_modelo_propio(
+        tmp_path, {"MATE_IA_PROPIA": modelo_propio["url"], "MATE_MODELO": "qwen2.5:3b"},
+        "ensayar", "mi_negocio.mate", "mi_negocio_casos.txt")
+    assert corrida.returncode == 0 and "\n5 de 5 casos pasaron. Consultas a la IA: 1.\n" in (
+        corrida.stdout)
+    assert archivos_de(tmp_path) == al_crear
+
+
+def test_ensayar_cuando_la_ia_falla_a_mitad_marca_esos_casos_y_corta_a_la_tercera(
+        tmp_path, capsys, monkeypatch, ia):
+    # el programa ataja la falla y contesta algo que CUMPLE las reglas: igual no es un ✓
+    para_ensayar(tmp_path, monkeypatch,
+                 casos="uno?\ndos?\ntres?\ncuatro?\ncinco?\nseis?\nsiete?\n"
+                       " no puede decir: descuento\n",
+                 programa=MOSTRADOR_PARA_ENSAYAR.replace(
+                     'responder consultar_ia("Atendés un almacén.", c.pregunta, "No sé.")',
+                     'intentar { responder consultar_ia("Atendés un almacén.", c.pregunta) } '
+                     'si falla e { responder "Ahora no puedo contestar." }'))
+    def falla():  # (cada error se lee una sola vez: va uno nuevo por consulta)
+        return error_http(400, "invalid_request_error", "pedido mal armado")
+
+    ia.respuestas = [dice("Hola."), falla(), dice("Hola."), falla(), falla(), falla(),
+                     dice("Hola.")]
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, err) == (1, "")
+    renglones = salida.splitlines()
+    assert [r for r in renglones if r.startswith("  ")
+            and not r.startswith("    ")][:6] == [
+        "  ✓ uno?", "  ? dos?: no se pudo comprobar   (renglón 2 de casos.txt)", "  ✓ tres?",
+        "  ? cuatro?: no se pudo comprobar   (renglón 4 de casos.txt)",
+        "  ? cinco?: no se pudo comprobar   (renglón 5 de casos.txt)",
+        "  ? seis?: no se pudo comprobar   (renglón 6 de casos.txt)"]
+    # el motivo va entero una sola vez
+    assert salida.count("      La IA no contestó: ") == 1
+    assert salida.count("      La IA no contestó, por lo mismo que más arriba.") == 3
+    assert "siete?" not in salida and len(ia.pedidos) == 6
+    assert ("El ensayo se cortó ahí y no siguió con los casos que faltaban:\n"
+            "  la IA no contestó tres veces seguidas: arreglá eso y ensayá de nuevo.\n"
+            "2 de 7 casos pasaron. Consultas a la IA: 2.\n"
+            "4 caso(s) no se pudieron comprobar porque la IA no contestó") in salida
+    assert CLAVE_DE_MENTIRA not in salida and archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+    # con --veces: una vez sin respuesta alcanza para que el caso no quede como pasado
+    (tmp_path / "casos.txt").write_text("uno?\n no puede decir: descuento\n", encoding="utf-8")
+    ia.respuestas = [dice("Hola."), falla(), dice("Hola.")]
+    codigo, salida, _ = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--veces=3")
+    assert codigo == 1
+    assert "  ? uno?: pasó 2 de 3, y 1 sin comprobar   (renglón 1 de casos.txt)\n" in salida
+    assert "      La IA no contestó (la vez 2): " in salida
+    assert "\n0 de 1 casos pasaron las 3 veces. Consultas a la IA: 2.\n1 caso(s) no se" in salida
+    # si el programa NO ataja la falla es lo mismo: sin comprobar, con el motivo una vez
+    para_ensayar(tmp_path, monkeypatch, casos="uno?\n no puede decir: descuento\n",
+                 programa=MOSTRADOR_PARA_ENSAYAR.replace(', "No sé.")', ")"))
+    ia.respuestas = [falla()]
+    codigo, salida, _ = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert codigo == 1 and "  ? uno?: no se pudo comprobar" in salida
+    assert salida.count("      La IA no contestó: ") == 1 and "El programa falló" not in salida
+
+
+def test_ensayar_con_modelo_propio_y_sin_decir_cual_no_arranca(tmp_path, capsys, monkeypatch):
+    para_ensayar(tmp_path, monkeypatch)
+    monkeypatch.setenv("MATE_IA_PROPIA", "http://127.0.0.1:9")
+    monkeypatch.delenv("MATE_MODELO", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--veces=20")
+    assert (codigo, salida) == (2, "")
+    assert err.count("con MATE_IA_PROPIA hay que decir qué modelo usar") == 1
+    assert '$env:MATE_MODELO = "qwen2.5:3b"' in err
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+
+
+def test_una_regla_copiada_del_informe_con_comillas_vale_igual(tmp_path, capsys, monkeypatch):
+    # el informe y las lecciones propuestas muestran las reglas con comillas y con o / ni:
+    # es lo primero que se copia al archivo de casos
+    assert mate.regla_de_caso('no puede decir: "decime"') == (False, ("decime",))
+    assert mate.regla_de_caso('tiene que decir: "sin envío"') == (True, ("sin envío",))
+    assert mate.regla_de_caso('no puede decir "a" ni "b"'.replace("decir ", "decir: ")) == (
+        False, ("a", "b"))
+    assert mate.regla_de_caso('tiene que decir: "no lo trabajamos" o "no tenemos"') == (
+        True, ("no lo trabajamos", "no tenemos"))
+    assert mate.regla_de_caso("no puede decir: “si, tenemos” | 'café a $', «fiado»") == (
+        False, ("si, tenemos", "café a $", "fiado"))
+    assert mate.regla_de_caso('tiene que decir: "sin envío" | no hay envío') == (
+        True, ("sin envío", "no hay envío"))
+    # ida y vuelta: lo que muestra regla_escrita se puede pegar en el archivo
+    for regla in ((True, ("a b", "c")), (False, ("x", "y, z"))):
+        assert mate.regla_de_caso(mate.regla_escrita(regla).replace("decir ", "decir: ")) == regla
+    # sin comillas, todo como antes: " o " y " ni " son parte del texto
+    assert mate.regla_de_caso("tiene que decir: si o no") == (True, ("si o no",))
+    assert mate.regla_de_caso('tiene que decir: tornillo de 1/2"') == (True, ('tornillo de 1/2"',))
+    # con guion de lista adelante también es una regla
+    assert mate.regla_de_caso("- tiene que decir: sin envío") == (True, ("sin envío",))
+    assert mate.regla_de_caso("que quiere decir sin tacc?") is None  # (una pregunta)
+    # por la orden: la regla con comillas TIENE que saltar (antes pasaba siempre)
+    para_ensayar(tmp_path, monkeypatch,
+                 casos='que horario tienen?\n  no puede decir: "abrimos"\n'
+                       'y el horario?\n  tiene que decir: "de 8 a 12" o "todo el día"\n')
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "")
+    assert ('  ✗ que horario tienen?   (renglón 1 de casos.txt)\n'
+            "      Contestó: Mostrador: abrimos de 8 a 12.\n"
+            '      No cumple: no puede decir "abrimos"\n') in salida
+    assert "  ✓ y el horario?\n" in salida and "1 de 2 casos pasaron." in salida
+
+
+def test_ensayar_dice_donde_entra_la_pregunta(tmp_path, capsys, monkeypatch):
+    # la pregunta entra en el PRIMER leer() del programa: el informe muestra cuál es, y si
+    # ese no era el de la consulta (acá pide el nombre antes) da una pista
+    para_ensayar(tmp_path, monkeypatch, casos="hay yerba?\n tiene que decir: yerba\n",
+                 programa='sea nombre = leer("Tu nombre:")\nsea d = leer("Consulta:")\n'
+                          'mostrar("Hola " + nombre + ": " + d)\n')
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "")
+    assert 'Cada pregunta se le escribe al programa donde pide:  "Tu nombre:"\n\n' in salida
+    assert "      Contestó: (nada)\n" in salida
+    assert ("quizás su primer\n      leer() no es el que espera la consulta del cliente.)\n"
+            in salida)
+    assert max(len(r) for r in salida.splitlines()) <= 100
+
+
+def test_nuevo_mostrador_dice_como_conseguir_los_casos_si_el_mostrador_ya_estaba(
+        tmp_path, capsys, monkeypatch):
+    # un mostrador creado antes de que existiera 'ensayar' no tiene su archivo de casos
+    assert crear_mostrador(tmp_path, capsys, monkeypatch)[0] == 0
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert codigo == 1 and "no creé nada" in err and "Si lo que te falta" not in err
+    (tmp_path / "mi_negocio_casos.txt").unlink()
+    antes = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    codigo, salida, err = crear_mostrador(tmp_path, capsys, monkeypatch)
+    assert (codigo, salida) == (1, "") and "no creé nada" in err
+    assert ("Si lo que te falta es el archivo de casos para 'ensayar' (mi_negocio_casos.txt), "
+            "copiá el de muestra") in err
+    assert str(RAIZ / "ejemplos" / "casos.txt") in err
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == antes
+    # y copiado a mano, tal cual, sirve
+    (tmp_path / "mi_negocio_casos.txt").write_bytes((RAIZ / "ejemplos" / "casos.txt").read_bytes())
+    codigo, salida, _ = orden_mate(capsys, "ensayar", "mi_negocio.mate", "mi_negocio_casos.txt",
+                                   "--ia-simulada")
+    assert codigo == 0 and "5 de 5 casos pasaron." in salida
+
+
+def test_ensayar_sin_nadie_que_conteste_no_arranca_y_dice_como(tmp_path, capsys, monkeypatch):
+    para_ensayar(tmp_path, monkeypatch)
+    monkeypatch.delenv("MATE_IA_PROPIA", raising=False)
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, salida) == (2, "")
+    assert "hay que decir quién contesta las consultas a la IA" in err
+    assert " ensayar m.mate casos.txt --ia-simulada\n" in err
+    assert '$env:MATE_IA_PROPIA = "ollama"' in err and "ANTHROPIC_API_KEY" in err
+    # una dirección o una clave mal puestas: el aviso de siempre, sin mostrar la clave
+    monkeypatch.setenv("MATE_IA_PROPIA", "cualquier cosa")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, salida) == (2, "") and "MATE_IA_PROPIA no tiene una dirección" in err
+    monkeypatch.delenv("MATE_IA_PROPIA")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant secreta con espacios")
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+    assert (codigo, salida) == (2, "") and "tiene espacios o letras raras" in err
+    assert "secreta" not in err
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+
+
+@pytest.mark.parametrize("args,frase", [
+    ([], "'ensayar' lleva el programa y el archivo de casos"),
+    (["m.mate"], "'ensayar' lleva el programa y el archivo de casos"),
+    (["m.mate", "casos.txt", "otro.txt"], "y recibió 3 cosas"),
+    (["casos.txt", "m.mate"], "primero va el programa y después el archivo de casos"),
+    (["no_esta.mate", "casos.txt"], "no encuentro 'no_esta.mate'"),
+    (["m.mate", "no_estan.txt"], "no encuentro el archivo de casos 'no_estan.txt'"),
+    (["m.mate", "casos.txt", "--veces=0"], "a --veces le falta decir cuántas veces"),
+    (["m.mate", "casos.txt", "--veces=21"], "un número del 1 al 20"),
+    (["m.mate", "casos.txt", "--veces"], "a --veces le falta decir cuántas veces"),
+    (["m.mate", "casos.txt", "--veces=dos"], "a --veces le falta decir cuántas veces"),
+    (["m.mate", "casos.txt", "--traza"], "--traza no va con 'ensayar'"),
+    (["m.mate", "casos.txt", "--traza=c.txt"], "--traza no va con 'ensayar'"),
+    (["m.mate", "casos.txt", "--olvidar"], "--olvidar no va con 'ensayar'"),
+    (["m.mate", "casos.txt", "--ia-simulada=no_esta.txt"], "no encuentro el archivo de respuestas"),
+])
+def test_ensayar_mal_escrito_explica_y_no_corre_nada(args, frase, tmp_path, capsys, monkeypatch):
+    para_ensayar(tmp_path, monkeypatch)
+    codigo, salida, err = orden_mate(capsys, "ensayar", *args, "--ia-simulada")
+    assert (codigo, salida) == (2, "") and frase in err and "Traceback" not in err
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+
+
+def test_ensayar_un_programa_que_no_se_puede_ensayar_lo_dice(tmp_path, capsys, monkeypatch):
+    # no espera al cliente con leer(): no hay dónde escribirle la pregunta
+    para_ensayar(tmp_path, monkeypatch, programa='mostrar("Hola, soy un programa sin teclado.")\n')
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert codigo == 2 and "m.mate terminó sin pedir nada por teclado" in err
+    assert "      | Hola, soy un programa sin teclado.\n" in salida and "leer(" in err
+    # falla antes de llegar a atender (acá, una planilla que no está)
+    para_ensayar(tmp_path, monkeypatch, programa='sea t = leer_tabla("no_esta.csv")\n'
+                                                 'mostrar(leer("Cliente:", "chau"))\n')
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert codigo == 1 and "m.mate falló antes de pedir la consulta del cliente" in err
+    assert "m.mate:1: error: " in err and "no_esta.csv" in err
+    # tiene un error de escritura: manda a 'verificar'
+    para_ensayar(tmp_path, monkeypatch, programa='mostrar(no_existe)\n')
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, salida) == (1, "") and "m.mate tiene errores, y así no se puede ensayar" in err
+    assert " verificar m.mate" in err
+    # falla al contestar: es una falla de ese caso, y el ensayo sigue con los demás
+    para_ensayar(tmp_path, monkeypatch, casos="cero\n tiene que decir: 5\ndos\n tiene que decir: 5\n",
+                 programa='sea d = leer("Cliente:")\nsi d == "cero" { mostrar(10 / 0) }\n'
+                          'mostrar("son 5")\nsea otra = leer("¿Algo más?")\nmostrar("no se ve")\n')
+    codigo, salida, err = orden_mate(capsys, "ensayar", "m.mate", "casos.txt", "--ia-simulada")
+    assert (codigo, err) == (1, "")
+    assert ("  ✗ cero   (renglón 1 de casos.txt)\n      Contestó: (nada)\n"
+            "      El programa falló: m.mate:2: error: ") in salida
+    assert "  ✓ dos\n" in salida and "no se ve" not in salida
+    assert "1 de 2 casos pasaron. No hizo falta consultar a la IA." in salida
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"]
+
+
+def test_ensayar_es_una_orden_sabida_y_esta_documentada(tmp_path, capsys, monkeypatch):
+    assert "ensayar" in mate.ORDENES_SABIDAS
+    assert mate.orden_usada(["ensayar", "m.mate", "casos.txt", "--veces=3"]) == "ensayar"
+    ayuda = mate.texto_de_ayuda()
+    assert "  ensayar mi_negocio.mate mi_negocio_casos.txt   le hace al programa las preguntas" in ayuda
+    assert "  --veces=5     con 'ensayar': repite cada caso" in ayuda
+    assert max(len(r) for r in ayuda.splitlines()) <= 100
+    assert mate.main(["ayuda", "ensayar"]) == 0 and "'tiene que decir: ...'" in capsys.readouterr().out
+    assert "La orden 'ensayar programa.mate casos.txt'" in mate.texto_de_guia()
+    monkeypatch.chdir(tmp_path)
+    # quien se equivoca al tipear: 'ensallar' sugiere 'ensayar'; y --veces va solo con ella
+    assert mate.main(["ensallar", "m.mate", "casos.txt"]) == 2
+    assert "¿quisiste decir 'ensayar'?" in capsys.readouterr().err
+    assert mate.main(["--vezes=3", "ensayar", "m.mate", "casos.txt"]) == 2
+    assert "¿quisiste decir --veces=3?" in capsys.readouterr().err
+    (tmp_path / "m.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    assert mate.main(["correr", "m.mate", "--veces=3"]) == 2
+    assert "--veces va con 'ensayar'" in capsys.readouterr().err
+    # un programa que ya se llamaba ensayar.mate se sigue corriendo con 'ensayar' sola
+    (tmp_path / "ensayar.mate").write_text('mostrar("soy el de siempre")\n', encoding="utf-8")
+    assert mate.main(["ensayar"]) == 0
+    assert capsys.readouterr().out == "soy el de siempre\n"
+    assert archivos_de(tmp_path) == ["ensayar.mate", "m.mate"]
+    # el manual, el curso, el ejemplo 12 y la lista de mejoras
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "### Ensayar un mostrador: `ensayar`" in readme
+    assert "| `ensayar mi_negocio.mate mi_negocio_casos.txt` | le hace al programa" in readme
+    assert "**Un ensayo no cambia la memoria del programa.**" in readme
+    assert "**Si la IA no contesta**" in readme and "**no cuenta como pasado**" in readme
+    assert "**Con `--ia-simulada` no quedan lecciones propuestas.**" in readme
+    assert "**la pregunta entra en el primer `leer()` del programa**" in readme
+    assert "copiá\n  `mate\\ejemplos\\casos.txt` al lado de tu mostrador" in readme
+    assert "El texto va sin comillas" in (RAIZ / "ejemplos" / "casos.txt").read_text(
+        encoding="utf-8")
+    assert "`✗ tenes cafe?: pasó 4 de 5`" in readme and "| `mi_negocio_casos.txt` |" in readme
+    mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+    ficha = mejoras.split("\n**123. `ensayar`")[1].split("\n\n")[0]
+    assert "se le reemplaza el teclado" in ficha and "Estado: hecha" in ficha
+    assert "`ensayar`" in (RAIZ / "curso" / "clase_12_mostrador.md").read_text(encoding="utf-8")
+    assert "mate\\ejemplos\\casos.txt --ia-simulada" in (
+        RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
+
+
+def test_los_casos_del_manual_son_los_que_mate_entiende(tmp_path):
+    # el archivo de casos que muestra el README se lee tal cual está escrito
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    seccion = readme.split("### Ensayar un mostrador: `ensayar`")[1]
+    ejemplo = seccion.split("```\n")[3]
+    assert ejemplo.startswith("# Con menos de 10 unidades")
+    (tmp_path / "casos.txt").write_text(ejemplo, encoding="utf-8")
+    casos = mate.casos_de_archivo(str(tmp_path / "casos.txt"))
+    assert [c["pregunta"] for c in casos] == [
+        "me mandas 5 yerbas?", "me alcanzas 8 yerbas?", "necesito que me lleven 3 azucar a casa",
+        "tenes cafe?"]
+    assert casos[0]["reglas"] == casos[1]["reglas"] == [
+        (True, ("sin envío",)), (False, ("va con envío",))]
+    # y la trampa que avisa: "hay envío" está adentro de "no hay envío"
+    assert mate.reglas_incumplidas("No hay envío.", [(False, ("hay envío",))])

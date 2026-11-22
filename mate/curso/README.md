@@ -22,6 +22,11 @@ programa completo, el comando para correrlo, lo que tiene que salir, el error m�
 
    Tiene que mostrar la lista de clases.
 
+**Si dice que `python` "no se reconoce", probá con `py`**: `py mate\mate.py curso`. Hay
+computadoras donde Python se llama así. Si anda, en todos los comandos del curso escribí `py`
+donde dice `python`. Y si abrís las clases con `py mate\mate.py curso 1`, Mate ya te las
+muestra con `py`.
+
 Si instalaste la orden corta con `instalar.bat`, en todos los comandos del curso podés
 escribir `mate` en lugar de `python mate\mate.py`. Por ejemplo: `mate curso 1`.
 

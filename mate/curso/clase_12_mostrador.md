@@ -506,6 +506,19 @@ Terminaste el curso. Para seguir:
 - `python mate\mate.py ayuda` muestra todas las órdenes, y `python mate\mate.py ayuda si`
   (o cualquier otra palabra) explica esa palabra con un ejemplo.
 - En `mate\ejemplos` hay programas más largos, comentados renglón por renglón.
+- El que sigue a este es `mate\ejemplos\12_mostrador_con_reglas.mate`: el mismo mostrador,
+  pero cuando el cliente pide una cantidad ("quiero 12 azucar con envio") el total, el stock
+  y la regla del envío los resuelve el programa, sin consultar a la IA. Es lo que conviene
+  cuando hay plata de por medio: una IA hace mal las cuentas.
+- Para armar ese mostrador para tu negocio no hace falta copiar archivos: parado en la
+  carpeta donde lo quieras tener, la orden `nuevo mostrador mi_negocio` (después de
+  `python mate\mate.py`, como las demás) crea el programa y su planilla de precios de
+  muestra, y te dice los pasos que siguen. No pisa archivos que ya estén.
+- Para saber si una lección funcionó sin tipear las preguntas una por una está la orden
+  `ensayar`: anotás en un archivo de texto lo que pregunta un cliente y, debajo, renglones
+  como `tiene que decir: sin envío` o `no puede decir: descuento`; Mate le hace esas
+  preguntas al mostrador y te dice cuáles contestó bien. `nuevo mostrador` te deja un
+  archivo de casos de muestra, y el README lo explica en "Ensayar un mostrador".
 - `mate\README.md` tiene todo Mate, tema por tema.
 - `python mate\mate.py guia` imprime una página con todo el lenguaje para pegarle a un
   asistente de IA (Claude, por ejemplo) antes de pedirle que te escriba un programa.

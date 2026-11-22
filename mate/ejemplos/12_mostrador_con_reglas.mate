@@ -1,0 +1,1013 @@
+# Paso 12: un mostrador donde LA PLATA Y LAS REGLAS LAS RESUELVE EL PROGRAMA, no la IA.
+#
+# Por qué existe: una IA (más todavía un modelo chico) hace mal las cuentas y a veces se
+# saltea una regla. A un cliente que pidió "12 fideos con envío" un modelo le contestó que
+# no había envíos y que el total era $ 10,80. Eso no se arregla con una lección.
+#
+# La idea: cada cosa va en su lugar.
+#   - EN EL PROGRAMA (este archivo): lo que tiene que dar SIEMPRE igual. La cuenta, el stock
+#     y la regla del envío. Cuando el cliente pide una CANTIDAD de un PRODUCTO, contesta el
+#     programa solo, sin consultar a la IA: no gasta y no se puede equivocar.
+#   - EN LOS FRENOS: lo que la IA NO puede decir nunca (un precio que no está en la lista,
+#     un descuento). Mate lo revisa en cada respuesta.
+#   - EN UNA LECCIÓN (orden 'corregir'): el tono y las costumbres ("tratá de usted",
+#     "ofrecé también el azúcar"). Una lección es un consejo: la IA casi siempre lo sigue,
+#     pero no es una garantía. Por eso la plata no va ahí.
+# La IA queda para todo lo demás (saludar, contar qué hay), con frenos.
+#
+# PROBALO ASÍ, en PowerShell (no hace falta clave ni internet, y no gasta nada). Si en tu
+# computadora Python se llama con py, escribí py donde dice python:
+#
+#   1. Para charlar con el mostrador (probá: quiero 12 azucar con envio):
+#          python mate\mate.py correr mate\ejemplos\12_mostrador_con_reglas.mate --ia-simulada
+#   2. Para correr las pruebas de abajo:
+#          python mate\mate.py probar mate\ejemplos\12_mostrador_con_reglas.mate
+#   3. Para ensayarlo: Mate le hace las preguntas anotadas en casos.txt (está al lado; se
+#      abre con el Bloc de notas) y dice cuáles contestó bien. Va todo en un renglón:
+#          python mate\mate.py ensayar mate\ejemplos\12_mostrador_con_reglas.mate mate\ejemplos\casos.txt --ia-simulada
+#
+# Para adaptarlo: cambiá precios.csv (al lado de este archivo; tiene que tener las columnas
+# producto, presentacion, precio y stock) y el número de acá abajo. El cliente nombra cada
+# producto por la PRIMERA palabra de su nombre ("yerba", "azúcar"): conviene que sea la
+# que lo distingue.
+# Para tu negocio no hace falta copiar este archivo: la orden 'nuevo mostrador mi_negocio'
+# crea en tu carpeta un programa con esta misma lógica y su planilla. (Copia lo que hay
+# entre los títulos "La regla del envío" y "Las pruebas": si se cambian esos dos títulos,
+# hay que cambiarlos también en mate.py.)
+# OJO: las pruebas del final están escritas para la planilla de muestra (nombran la yerba,
+# el azúcar y sus precios). Si cambiás los productos, 'correr' anda igual, pero 'probar' va
+# a marcar fallas hasta que adaptes esas pruebas a tu lista.
+
+# La regla del envío: desde cuántas unidades se manda el pedido.
+sea unidades_para_envio = 10
+
+mensaje CargarLista { precios: lista }
+mensaje Consulta { pregunta: texto, sin_ia: texto }
+# (aviso solo viene si la IA no pudo contestar)
+mensaje Atencion { respuesta: texto, aviso: texto? }
+
+agente Mostrador {
+    # La lista de precios: una fila por producto, como la deja leer_tabla().
+    estado filas = []
+
+    # Lo que Mate le revisa a cada respuesta de la IA antes de que le llegue al cliente.
+    frenos {
+        # Los únicos importes que puede nombrar son los de la lista: así tampoco puede
+        # inventar un total (el total de un pedido lo dice el programa, más abajo).
+        precios: solo_precios(filas)
+        prohibido: ["descuento", "rebaja", "fiado"]
+        largo: 400
+        reserva: "Eso te lo confirma una persona. Ya te paso con alguien."
+        consultas_por_dia: 300
+    }
+
+    # Un agente no toca archivos: el programa lee la lista y se la manda en un mensaje.
+    al recibir CargarLista como c {
+        filas = c.precios
+    }
+
+    # Acá llega solo lo que el programa no resolvió por su cuenta.
+    al recibir Consulta como c {
+        sea instrucciones = """
+            Atendés el mostrador de un mayorista de almacén. Contestá en castellano
+            rioplatense, con amabilidad y en pocas palabras. Usá SOLO los precios de esta
+            lista; si piden algo que no está, decí que no lo trabajamos.
+            NO hagas cuentas ni digas totales, y NO confirmes ni rechaces envíos: de eso se
+            ocupa el sistema. Si te lo preguntan, pedí que escriban, con números, cuántas
+            unidades de qué producto quieren.
+            LISTA DE PRECIOS DE HOY:
+            {lista_en_texto(filas)}
+        """
+        intentar {
+            # El tercer valor es lo que "contesta la IA" con --ia-simulada.
+            responder Atencion { respuesta: consultar_ia(instrucciones, c.pregunta, c.sin_ia) }
+        } si falla motivo {
+            # Sin clave, sin internet o sin crédito: se contesta con lo que dice la lista.
+            responder Atencion { respuesta: c.sin_ia, aviso: motivo }
+        }
+    }
+}
+
+# La columna "precio" de la lista: [35000, 9800.5, ...]
+funcion solo_precios(tabla) {
+    var importes = []
+    para fila en tabla {
+        importes = agregar(importes, fila.precio)
+    }
+    devolver importes
+}
+
+# La lista como se la damos a leer a la IA: un renglón por producto.
+funcion lista_en_texto(tabla) {
+    var renglones = []
+    para fila en tabla {
+        renglones = agregar(renglones, "- {fila.producto} ({fila.presentacion}): {pesos(fila.precio)}")
+    }
+    devolver unir(renglones, "\n")
+}
+
+# ── Entender lo que escribió el cliente ──────────────────────────────────────────────
+
+# Las palabras de un texto, en minúsculas, sin tildes y sin signos: así "¿AZÚCAR?" y
+# "azucar" son lo mismo. El punto y la coma se quedan solo adentro de un número ("1.000",
+# "2,5"), y un número pegado a letras se separa ("10kg" queda "10" y "kg").
+funcion palabras_de(dicho) {
+    devolver quitar(palabras_y_cortes(dicho), "|")
+}
+
+# Lo mismo, pero donde había una coma, un punto o un signo de pregunta deja la marca "|":
+# sirve para saber dónde termina cada parte de la frase ("no, mandame 12" son dos partes).
+funcion palabras_y_cortes(dicho) {
+    var t = minusculas(dicho)
+    # Fuera las tildes.
+    para con, sin en { "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u" } {
+        t = reemplazar(t, con, sin)
+    }
+    # Después se mira letra por letra: qué se queda, qué se vuelve un espacio.
+    sea letras = "abcdefghijklmnñopqrstuvwxyz"
+    var limpio = ""
+    var anterior = " "
+    para i en rango(largo(t)) {
+        sea letra = t[i]
+        si es_cifra(letra) {
+            # (entre una letra y una cifra va un espacio: "x12" queda "x 12")
+            si tiene(letras, anterior) {
+                limpio += " "
+            }
+            limpio += letra
+        } sino si tiene(letras, letra) {
+            # (y entre una cifra y una letra también: "10kg" queda "10 kg")
+            si es_cifra(anterior) {
+                limpio += " "
+            }
+            limpio += letra
+        # Un punto o una coma ENTRE dos cifras es parte del número.
+        } sino si tiene(".,", letra) y es_cifra(anterior) y i + 1 < largo(t) y es_cifra(t[i + 1]) {
+            limpio += letra
+        # El signo de pesos queda como una palabra suelta: avisa que lo que sigue es plata.
+        } sino si letra == "$" {
+            limpio += " $ "
+        # Un signo de puntuación corta la frase: queda la marca.
+        } sino si tiene(",.;:?!()", letra) {
+            limpio += " | "
+        # Todo lo demás (signos, guiones, comillas) separa palabras.
+        } sino {
+            limpio += " "
+        }
+        anterior = letra
+    }
+    # (partir() deja un "" por cada espacio de más: se sacan)
+    devolver quitar(partir(limpio, " "), "")
+}
+
+# ¿Es una cifra, del 0 al 9?
+funcion es_cifra(letra) {
+    devolver tiene("0123456789", letra)
+}
+
+# ¿Es la misma palabra, en singular o en plural? ("yerbas" y "yerba", "fideo" y "fideos",
+# "arroces" y "arroz"). Se comparan palabras ENTERAS: "pan" no es "panceta".
+funcion misma_palabra(a, b) {
+    # Tal cual están escritas: "dulces" es "dulce" más "s".
+    si una_es_plural(a, b) {
+        devolver verdadero
+    }
+    # ("arroces" se compara como "arrozes": así es "arroz" más "es")
+    sea p = recortar(reemplazar(a + " ", "ces ", "zes "))
+    sea q = recortar(reemplazar(b + " ", "ces ", "zes "))
+    devolver una_es_plural(p, q)
+}
+
+# ¿Son iguales, o una es la otra con "s" o "es" al final?
+funcion una_es_plural(p, q) {
+    devolver p == q o p + "s" == q o p + "es" == q o q + "s" == p o q + "es" == p
+}
+
+# Las palabras que dicen que no ("sin envío", "ni loco", "tampoco me lo manden").
+funcion las_que_niegan() {
+    devolver ["sin", "ni", "tampoco", "nunca", "jamas", "nadie", "ningun", "ninguna",
+              "deja", "dejalo", "dejala", "dejalos", "dejalas"]
+}
+
+# ¿La palabra puede ser un "no"? (Si lo es de verdad, según lo que la rodea, lo dice niega().)
+funcion puede_negar(palabra) {
+    devolver palabra == "no" o palabra == "nada" o empieza_con(palabra, "olvid") o tiene(las_que_niegan(), palabra)
+}
+
+# ¿La palabra número i de la frase es la palabra número p del nombre del producto (en
+# singular o en plural)? Ojo con los nombres que traen un "sin" o un "no" ("Yerba sin
+# palo", "Galletitas sin sal"): ese "sin" vale como parte del nombre solo si atrás viene
+# la palabra que le sigue en el nombre ("sin palo"). Si no, lo dijo el cliente por otra
+# cosa ("12 yerbas sin envio") y no se puede perder.
+funcion dicha_del_nombre(frase, i, nombre, p) {
+    si no misma_palabra(frase[i], nombre[p]) {
+        devolver falso
+    }
+    si no puede_negar(nombre[p]) {
+        devolver verdadero
+    }
+    devolver p + 1 < largo(nombre) y i + 1 < largo(frase) y misma_palabra(frase[i + 1], nombre[p + 1])
+}
+
+# ¿La palabra número i de la frase es del nombre de alguno de los productos nombrados?
+# (nombres: una lista de palabras por producto)
+funcion es_del_nombre(nombres, frase, i) {
+    para nombre en nombres {
+        para p en rango(largo(nombre)) {
+            # ("yerbas" es del nombre "Yerba mate")
+            si dicha_del_nombre(frase, i, nombre, p) {
+                devolver verdadero
+            }
+        }
+    }
+    devolver falso
+}
+
+# El número que hay en una palabra, o nada si no es un número. "1.000" es mil (y no uno
+# coma cero), "2,5" es dos y medio, y "doce" es 12. ("un" y "una" no cuentan: casi
+# siempre son parte de la frase, como en "¿tenés una oferta?".)
+funcion numero_de(palabra) {
+    sea en_letras = { dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8,
+                      nueve: 9, diez: 10, once: 11, doce: 12 }
+    # Escrito con letras, hasta el doce.
+    si tiene(en_letras, palabra) {
+        devolver en_letras[palabra]
+    }
+    # Si no empieza con una cifra, no es un número.
+    si no es_cifra(palabra[0]) {
+        devolver nada
+    }
+    # Para numero(), "1.000" sería 1 coma 0. Acá el cliente habla de unidades: un punto
+    # con tres cifras atrás es el de los miles ("1.000", "1.000.000"), y se saca.
+    var escrito = palabra
+    sea grupos = partir(palabra, ".")
+    var de_miles = largo(grupos) > 1 y no tiene(palabra, ",")
+    para i en rango(1, largo(grupos)) {
+        si largo(grupos[i]) != 3 {
+            de_miles = falso
+        }
+    }
+    si de_miles {
+        escrito = unir(grupos, "")
+    }
+    # numero() falla si el texto no es un número: se ataja y se devuelve nada.
+    intentar {
+        devolver numero(escrito)
+    } si falla e {
+        devolver nada
+    }
+}
+
+# Lo que se puede saber de la frase sin consultar a nadie: qué productos de la lista
+# nombra, qué cantidades pide, si hay números que son otra cosa (un peso como "1 kg", plata
+# como "$ 5.000") y si pide envío.
+funcion entender(tabla, dicho) {
+    sea palabras = palabras_de(dicho)
+    # (la frase con las marcas "|": dice qué palabra viene atrás de cuál)
+    sea frase = palabras_y_cortes(dicho)
+    # 1. Los productos: los que tienen la primera palabra de su nombre en la frase.
+    var nombrados = []
+    var del_nombre = []
+    # (los nombres de los productos nombrados, cada uno como lista de palabras)
+    var nombres = []
+    para fila en tabla {
+        sea nombre = palabras_de(texto(fila.producto))
+        # ¿Alguna palabra de la frase es la primera del nombre (o su plural)?
+        var esta = falso
+        para palabra en palabras {
+            si largo(nombre) > 0 y misma_palabra(palabra, nombre[0]) {
+                esta = verdadero
+            }
+        }
+        si esta {
+            # Cuántas palabras del nombre dijo: sirve para desempatar "Harina 000" y
+            # "Harina 0000" (dos productos que empiezan igual).
+            var aciertos = 0
+            para p en rango(largo(nombre)) {
+                # (cada palabra del nombre vale una vez, en singular o en plural)
+                var dicha = falso
+                para i en rango(largo(frase)) {
+                    si dicha_del_nombre(frase, i, nombre, p) {
+                        dicha = verdadero
+                    }
+                }
+                si dicha {
+                    aciertos += 1
+                }
+            }
+            # entero: dijo TODAS las palabras del nombre ("pan" nombra entero a "Pan", pero
+            # no a "Pan rallado").
+            nombrados = agregar(nombrados, { fila: fila, clave: nombre[0], aciertos: aciertos,
+                                             entero: aciertos == largo(nombre) })
+            del_nombre = del_nombre + nombre
+            nombres = agregar(nombres, nombre)
+        }
+    }
+    # 2. Los números. Lo que sigue al número dice qué es: "12 yerbas" es una cantidad;
+    #    "1 kg" es un peso; "$ 5.000" o "5000 pesos" es plata; "000" es parte de un nombre.
+    sea medidas = ["kg", "kilo", "kilos", "k", "g", "gr", "grs", "gramos", "l", "lt", "lts",
+                   "litro", "litros", "ml", "cc", "cm", "m", "mts", "metros", "pesos", "hs",
+                   "h", "horas", "docena", "docenas", "par", "pares"]
+    var cantidades = []
+    var otros_numeros = falso
+    # (un número con coma, como "2,5" o "1,000", no sirve para contar unidades)
+    var con_coma = falso
+    para i en rango(largo(palabras)) {
+        sea palabra = palabras[i]
+        sea n = numero_de(palabra)
+        si n == nada {
+            # (no es un número: no hay nada que clasificar)
+            continuar
+        }
+        # Con el signo de pesos adelante es plata.
+        si i > 0 y palabras[i - 1] == "$" {
+            otros_numeros = verdadero
+        # Con una medida atrás es un peso, un volumen o una hora.
+        } sino si i + 1 < largo(palabras) y tiene(medidas, palabras[i + 1]) {
+            otros_numeros = verdadero
+        # Y si no es el número del nombre de un producto ("000"), es una cantidad.
+        } sino si no (tiene(del_nombre, palabra) y es_cifra(palabra[0])) {
+            cantidades = agregar(cantidades, n)
+            si tiene(palabra, ",") {
+                con_coma = verdadero
+            }
+        }
+    }
+    # 3. Lo que queda sacando los números y el nombre del producto (también en plural: en
+    #    "12 mandiocas" no hay ningún "mand..." de mandar). Ahí se busca si pide envío. Las
+    #    marcas "|" se dejan: dicen dónde corta la frase. Un "sin" o un "no" se sacan solo
+    #    si de verdad son del nombre: con "Yerba sin palo" en la lista, el "sin" de
+    #    "12 yerbas sin envio" es del cliente y se queda.
+    var sin_nombre = []
+    para i en rango(largo(frase)) {
+        sea palabra = frase[i]
+        si palabra == "|" o (numero_de(palabra) == nada y palabra != "$" y no es_del_nombre(nombres, frase, i)) {
+            sin_nombre = agregar(sin_nombre, palabra)
+        }
+    }
+    devolver { nombrados: nombrados, cantidades: cantidades, otros_numeros: otros_numeros,
+               con_coma: con_coma, envio: sobre_el_envio(sin_nombre),
+               otra_cosa: es_otra_cosa(sin_nombre) }
+}
+
+# ¿La palabra número i habla de mandar el pedido? Mira cómo EMPIEZA ("mandás", "mandan",
+# "envío", "envíos") o si es una de las que valen enteras ("lleven", "traigan", "a casa").
+funcion es_de_envio(palabras, i) {
+    sea palabra = palabras[i]
+    # "Te mando el pedido" lo dice el que compra: no pide envío. Y "me llevo 3" tampoco
+    # está: ahí se lo lleva el cliente.
+    si palabra == "mando" {
+        devolver falso
+    }
+    # Las que valen solo enteras ("llevan" sí, "llevo" no).
+    si tiene(["lleven", "llevan", "llevas", "traen", "traes", "traigan", "traiga", "traigas"], palabra) {
+        devolver verdadero
+    }
+    # "A casa" son dos palabras: se mira también la de antes.
+    si palabra == "casa" y i > 0 y palabras[i - 1] == "a" {
+        devolver verdadero
+    }
+    # Y las que valen por cómo empiezan: "envi" sirve para "envío", "envíos" y "envían".
+    para arranque en ["envi", "mand", "alcanz", "acerc", "flete", "reparto", "domicilio",
+                      "llevame", "llevar", "traeme", "traer"] {
+        si empieza_con(palabra, arranque) {
+            devolver verdadero
+        }
+    }
+    devolver falso
+}
+
+# ¿La palabra número i es un "no"? Valen "no", "sin", "ni", "tampoco", "nunca", "jamás",
+# "nada", "nadie", "ningún", y también "olvidate" y "dejalo" ("el envío dejalo"). En cambio
+# "no sé si mandan", "no tengo auto" y "no puedo ir" no niegan el envío: ahí el cliente
+# está preguntando. Y "nada más" es una despedida.
+funcion niega(palabras, i) {
+    sea palabra = palabras[i]
+    # (la palabra que sigue, y la otra; "|" si ahí se corta o se termina la frase)
+    var sigue = "|"
+    var despues = "|"
+    si i + 1 < largo(palabras) {
+        sigue = palabras[i + 1]
+        si i + 2 < largo(palabras) {
+            despues = palabras[i + 2]
+        }
+    }
+    # "Olvidate del envío", "olvidá el flete".
+    si empieza_con(palabra, "olvid") {
+        devolver verdadero
+    }
+    # "Nada de envío" es un no; "nada más" no.
+    si palabra == "nada" {
+        devolver sigue != "mas"
+    }
+    si palabra == "no" {
+        # "No tengo auto", "no puedo ir", "no llego": por eso pide que se lo manden.
+        si tiene(["sabia", "tengo", "puedo", "llego"], sigue) {
+            devolver falso
+        }
+        # "No sé", "no sé si mandan", "no sé cómo hacen": pregunta. Pero "no se molesten"
+        # y "no se te ocurra" sí son un no.
+        si sigue == "se" {
+            devolver no tiene(["|", "si", "como", "cuando", "donde", "que", "cuanto", "cual", "bien"], despues)
+        }
+        devolver verdadero
+    }
+    # Las demás valen siempre.
+    devolver tiene(las_que_niegan(), palabra)
+}
+
+# ¿Qué dice del envío? "si" si pide que se lo manden, "no" si dice que NO lo quiere ("sin
+# envío", "no me lo mandes", "el envío no hace falta") y "" si no habla de eso. Recibe las
+# palabras de la frase sin los números y sin el nombre del producto, con las marcas "|".
+# Ante la duda gana el NO: el programa no confirma un envío que capaz no pidieron.
+funcion sobre_el_envio(palabras) {
+    var dicho = ""
+    para i en rango(largo(palabras)) {
+        si es_de_envio(palabras, i) {
+            # Un "no" ANTES, en la misma parte de la frase, le da vuelta el sentido ("no
+            # hace falta que me lo vengan a traer"). Se mira para atrás hasta la coma, el
+            # punto o un "pero": en "no, mandame 12" el "no" es de otra cosa.
+            var j = i - 1
+            mientras j >= 0 y palabras[j] != "|" y palabras[j] != "pero" {
+                si niega(palabras, j) {
+                    devolver "no"
+                }
+                j = j - 1
+            }
+            # Y un "no" en las tres palabras de DESPUÉS, también ("el envío no hace
+            # falta", "¿envío? no, gracias"). Acá la coma no corta. "Sin" no cuenta para
+            # este lado: "mandame 12 sin falta" es un pedido.
+            var vistas = 0
+            var k = i + 1
+            mientras k < largo(palabras) y vistas < 3 {
+                si palabras[k] != "|" {
+                    si palabras[k] != "sin" y niega(palabras, k) {
+                        devolver "no"
+                    }
+                    vistas += 1
+                }
+                k += 1
+            }
+            dicho = "si"
+        }
+    }
+    devolver dicho
+}
+
+# ¿Es otra cosa que un pedido? Una devolución, una cancelación o un "no quiero 3 yerbas"
+# tienen producto y número, pero no son para cotizar: van a la IA (y de ahí a una persona).
+funcion es_otra_cosa(palabras) {
+    para i en rango(largo(palabras)) {
+        # "Devolver", "devuelvo", "devolución", "cancelar", "anulame"...
+        para arranque en ["devol", "devuelv", "cancel", "anul"] {
+            si empieza_con(palabras[i], arranque) {
+                devolver verdadero
+            }
+        }
+        # "No quiero..." cuenta, salvo que lo que no quiere sea el envío ("no quiero envío").
+        si palabras[i] == "no" y i + 1 < largo(palabras) y tiene(["quiero", "queria", "necesito", "preciso", "llevo"], palabras[i + 1]) {
+            # (se busca una palabra de envío en las cinco que siguen)
+            var por_el_envio = falso
+            para despues en rango(1, 6) {
+                si i + despues < largo(palabras) y es_de_envio(palabras, i + despues) {
+                    por_el_envio = verdadero
+                }
+            }
+            si no por_el_envio {
+                devolver verdadero
+            }
+        }
+    }
+    devolver falso
+}
+
+# De los productos nombrados, cuál es. Devuelve la fila; o un texto para el cliente si
+# nombró dos productos distintos, o uno que en la lista está repetido y no se sabe cuál.
+funcion elegir_producto(nombrados) {
+    var mejores = []
+    para uno en nombrados {
+        # Dos productos distintos en la misma frase: no se adivina qué número es de cuál.
+        si uno.clave != nombrados[0].clave {
+            devolver "Vamos de a un producto por vez, así no me equivoco con la cuenta: decime cuántas unidades de cuál querés."
+        }
+        # Entre los que empiezan igual, se queda con el que tiene más palabras dichas.
+        si largo(mejores) > 0 y uno.aciertos > mejores[0].aciertos {
+            mejores = []
+        }
+        si largo(mejores) == 0 o uno.aciertos == mejores[0].aciertos {
+            mejores = agregar(mejores, uno)
+        }
+    }
+    si largo(mejores) == 1 {
+        devolver mejores[0].fila
+    }
+    # Empate. Si a uno solo lo nombró ENTERO, es ese: con "Pan" y "Pan rallado" en la
+    # lista, "2 pan" es el Pan (para el otro hay que decir "pan rallado").
+    var enteros = []
+    para uno en mejores {
+        si uno.entero {
+            enteros = agregar(enteros, uno)
+        }
+    }
+    si largo(enteros) == 1 {
+        devolver enteros[0].fila
+    }
+    # Si no, se le muestran las opciones al cliente.
+    var opciones = []
+    para uno en mejores {
+        opciones = agregar(opciones, "{uno.fila.producto} ({uno.fila.presentacion})")
+    }
+    devolver "Tengo más de uno: {unir(opciones, "; ")}. Decime cuál, con el nombre completo."
+}
+
+# ── Las reglas del negocio ───────────────────────────────────────────────────────────
+
+# La regla, dicha para el cliente (el número se cambia arriba de todo).
+sea regla_del_envio = "Hacemos envíos desde {unidades_para_envio} unidades."
+
+# Si el cliente pidió una cantidad de un producto, la respuesta la arma el programa: la
+# cuenta, el stock y la regla del envío. También contesta él si falta un dato del pedido
+# o si preguntan por el envío. Si no es nada de eso, devuelve nada y contesta la IA.
+funcion responder_pedido(tabla, dicho) {
+    sea pedido = entender(tabla, dicho)
+    # Una devolución o un "no quiero" no se cotizan.
+    si pedido.otra_cosa {
+        devolver nada
+    }
+    sea hay_numeros = largo(pedido.cantidades) > 0 o pedido.otros_numeros
+    # Sin producto de la lista o sin ningún número no hay pedido: solo se contesta la
+    # regla del envío, si preguntaron por eso.
+    si largo(pedido.nombrados) == 0 o no hay_numeros {
+        si pedido.envio != "" {
+            devolver "{regla_del_envio} Decime cuántas unidades de qué producto de la lista querés y te digo el total."
+        }
+        devolver nada
+    }
+    # ¿Qué producto es? Si no queda claro, elegir_producto() da la pregunta para el cliente.
+    sea fila = elegir_producto(pedido.nombrados)
+    si tipo(fila) == "texto" {
+        devolver fila
+    }
+    # Una planilla con el precio o el stock mal cargados no se adivina.
+    si tipo(fila.precio) != "numero" o tipo(fila.stock) != "numero" {
+        devolver "De {fila.producto} no tengo bien anotado el precio o el stock: eso te lo confirma una persona."
+    }
+    sea como_se_vende = "{fila.producto} se vende por {fila.presentacion}, a {pesos(fila.precio)} cada uno."
+    # "1 kg de yerba": hay un número, pero no dice cuántos bolsones.
+    si largo(pedido.cantidades) == 0 {
+        devolver "{como_se_vende} Decime cuántos querés."
+    }
+    # "2 o 3 yerbas", o un teléfono al lado del pedido: no se elige por el cliente.
+    si largo(pedido.cantidades) > 1 {
+        devolver "Veo más de un número y no quiero equivocarme. {como_se_vende} Decime una sola cantidad."
+    }
+    sea cantidad = pedido.cantidades[0]
+    # "2,5 azucar", "1,000 yerbas", "0 yerbas": se vende por unidad entera.
+    si cantidad < 1 o cantidad != redondear(cantidad) o pedido.con_coma {
+        devolver "{como_se_vende} Va por unidades enteras: decime cuántos querés."
+    }
+    # El stock: no se vende lo que no hay.
+    si fila.stock <= 0 {
+        devolver "De {fila.producto} ahora no hay stock."
+    }
+    si cantidad > fila.stock {
+        devolver "De {fila.producto} quedan {fila.stock}; no llego a {cantidad}."
+    }
+    # La cuenta. La hace Mate, con todos los centavos.
+    var respuesta = "{cantidad} x {fila.producto} ({fila.presentacion}) a {pesos(fila.precio)} cada uno: total {pesos(cantidad * fila.precio)}."
+    # La regla del envío, solo si lo pidió. Si dijo que no lo quiere, no se habla de envío.
+    si pedido.envio == "si" {
+        si cantidad >= unidades_para_envio {
+            respuesta += " Con envío: sí, va con envío."
+        } sino {
+            respuesta += " Sin envío: hacemos envíos desde {unidades_para_envio} unidades y pedís {cantidad}. Podés retirarlo en el local o sumar {unidades_para_envio - cantidad} más."
+        }
+    }
+    devolver respuesta
+}
+
+# Lo que se contesta si la IA no está: el renglón de la lista, sin inventar nada.
+funcion buscar_en_lista(tabla, dicho) {
+    sea nombrados = entender(tabla, dicho).nombrados
+    si largo(nombrados) == 0 {
+        devolver "Decime el nombre del producto y cuántas unidades querés, y te digo el total."
+    }
+    sea fila = nombrados[0].fila
+    devolver "{fila.producto} ({fila.presentacion}): {pesos(fila.precio)}"
+}
+
+# Un comando de PowerShell pegado en la charla por error no es una consulta.
+funcion parece_comando(dicho) {
+    sea d = minusculas(dicho)
+    para arranque en ["py ", "python ", "mate ", "cd ", "notepad ", "ollama ", "$env:", "ps c:",
+                      "copy-item", "invoke-webrequest", "expand-archive", "get-", "remove-item"] {
+        si empieza_con(d, arranque) {
+            devolver verdadero
+        }
+    }
+    devolver falso
+}
+
+# Una consulta: primero prueba el programa; si no es un pedido con cantidad, va a la IA.
+funcion atender(tabla, dicho) {
+    # Si el programa tiene la respuesta, esa es: la IA ni se entera.
+    sea del_programa = responder_pedido(tabla, dicho)
+    si del_programa != nada {
+        devolver del_programa
+    }
+    # No era un pedido: va al agente, que consulta a la IA con sus frenos.
+    sea atencion = preguntar Consulta {
+        pregunta: dicho, sin_ia: buscar_en_lista(tabla, dicho),
+    } a Mostrador
+    si atencion.aviso != nada {
+        mostrar("   (la IA no contestó y busqué en la lista. El motivo: {atencion.aviso})")
+    }
+    devolver atencion.respuesta
+}
+
+# La charla por teclado: termina con chau. Devuelve cuántas consultas atendió.
+funcion charlar(tabla) {
+    var consultas = 0
+    mientras verdadero {
+        sea dicho = leer("Cliente:", "chau")
+        # Un Enter solo no es una consulta.
+        si dicho == "" {
+            continuar
+        }
+        si tiene(["chau", "salir", "listo", "nada más"], minusculas(dicho)) {
+            romper
+        }
+        si parece_comando(dicho) {
+            mostrar("   (Eso parece un comando de PowerShell, no una consulta: no lo tomé.")
+            mostrar("    Seguís dentro del mostrador. Para salir, escribí chau y apretá Enter.)")
+            continuar
+        }
+        mostrar("Mostrador: {atender(tabla, dicho)}")
+        consultas += 1
+    }
+    devolver consultas
+}
+
+# ── El programa ──────────────────────────────────────────────────────────────────────
+
+# ¿La planilla sirve para atender? Devuelve nada si está bien, o qué hay que arreglarle.
+# Se revisa ANTES de atender: mejor avisar al abrir que romperse con el primer cliente.
+funcion revisar_planilla(tabla) {
+    # (el renglón de títulos, tal cual hay que escribirlo en la planilla)
+    sea como_tiene_que_ser = "El primer renglón de precios.csv tiene que decir: producto;presentacion;precio;stock"
+    # Una planilla vacía, o con los títulos solos.
+    si largo(tabla) == 0 {
+        devolver "La planilla precios.csv no tiene ningún producto. {como_tiene_que_ser} y abajo va un renglón por producto."
+    }
+    # Las cuatro columnas que usa el programa (alcanza con mirar la primera fila).
+    para columna en ["producto", "presentacion", "precio", "stock"] {
+        si no tiene(tabla[0], columna) {
+            # ¿Está, pero escrita de otra forma ("Producto", "PRECIO", "Presentación")?
+            para titulo en tabla[0] {
+                si unir(palabras_de(titulo), " ") == columna {
+                    devolver "En la planilla precios.csv el título '{titulo}' tiene que estar escrito '{columna}': todo en minúsculas y sin tilde. {como_tiene_que_ser}"
+                }
+            }
+            devolver "A la planilla precios.csv le falta la columna '{columna}'. {como_tiene_que_ser}"
+        }
+    }
+    # Cada producto con su precio y su stock en números: con una celda vacía o con un
+    # texto ("consultar") no se puede hacer la cuenta ni armar la lista para la IA.
+    sea mal = celdas_mal_cargadas(tabla)
+    si largo(mal) > 0 {
+        var aviso = unir(porcion(mal, 0, 5), " ")
+        si largo(mal) > 5 {
+            aviso += " Y hay {largo(mal) - 5} más así."
+        }
+        devolver "{aviso} El precio y el stock van solo con números (un precio se escribe 9.800,50; si de algo no hay stock, poné 0). Arreglalo en la planilla, guardala y volvé a arrancar el mostrador."
+    }
+    devolver nada
+}
+
+# Los precios y los stocks de la planilla que no son un número: un aviso por cada uno, que
+# dice de qué producto es, en qué lugar de la lista está y qué tiene escrito.
+funcion celdas_mal_cargadas(tabla) {
+    var avisos = []
+    para i en rango(largo(tabla)) {
+        sea fila = tabla[i]
+        para columna en ["precio", "stock"] {
+            sea valor = fila[columna]
+            si tipo(valor) != "numero" {
+                var dice = "dice '{valor}'"
+                si texto(valor) == "" {
+                    dice = "está vacío"
+                }
+                avisos = agregar(avisos, "En precios.csv, el {columna} de '{fila.producto}' no es un número: {dice} (es el producto número {i + 1} de la lista).")
+            }
+        }
+    }
+    devolver avisos
+}
+
+# Los productos que conviene escribir de otra forma en la planilla: los que empiezan con
+# una palabra de una o dos letras. Al producto se lo reconoce por su primera palabra, y
+# una tan corta también se usa para otra cosa: con "Té" en la lista, "te pido 3 yerbas"
+# nombraría dos productos. No impide atender: es un aviso para quien arma la planilla.
+funcion nombres_muy_cortos(tabla) {
+    var cortos = []
+    para fila en tabla {
+        sea nombre = palabras_de(texto(fila.producto))
+        si largo(nombre) > 0 y largo(nombre[0]) < 3 {
+            cortos = agregar(cortos, texto(fila.producto))
+        }
+    }
+    devolver cortos
+}
+
+# Lee la planilla y la revisa. Si está bien, se la pasa al agente (para sus frenos) y se
+# pone a charlar; si no, dice qué hay que arreglar y no atiende.
+sea precios = leer_tabla("precios.csv")
+sea a_arreglar = revisar_planilla(precios)
+si a_arreglar != nada {
+    mostrar("Mostrador: así no puedo atender. {a_arreglar}")
+} sino {
+    enviar CargarLista { precios: precios } a Mostrador
+    mostrar("Mostrador: cargué {largo(precios)} productos. {regla_del_envio}")
+    para corto en nombres_muy_cortos(precios) {
+        mostrar("   (Ojo con '{corto}' en precios.csv: empieza con una palabra muy corta y se puede confundir con otra cosa que escriba el cliente. Conviene ponerle otra palabra adelante, por ejemplo 'Saquitos de té'.)")
+    }
+    mostrar("Escribí tu consulta y apretá Enter. Para terminar, escribí chau.")
+    sea atendidas = charlar(precios)
+    mostrar("Hasta luego. En esta charla atendí {atendidas} consulta(s).")
+}
+
+# ── Las pruebas ──────────────────────────────────────────────────────────────────────
+# En las pruebas la IA nunca es de verdad: simular_ia() fija lo que "contesta", y
+# consultas_ia() cuenta cuántas veces se la consultó (acá tiene que dar cero).
+
+prueba "la cuenta la hace el programa, no la IA" {
+    # Aunque la IA "quiera" contestar mal, nadie le pregunta.
+    simular_ia("Son $ 10,80.")
+    asegurar atender(precios, "quiero 12 azucar") == "12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "los dos pedidos que una IA contestó mal: total exacto, envío bien y sin IA" {
+    asegurar atender(precios, "quiero 12 azucar con envio") == "12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00. Con envío: sí, va con envío."
+    asegurar atender(precios, "me mandas 5 yerbas?") == "5 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 175.000,00. Sin envío: hacemos envíos desde 10 unidades y pedís 5. Podés retirarlo en el local o sumar 5 más."
+    # Ninguna de las dos consultó a la IA.
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "con 10 o más hay envío, se pida como se pida" {
+    # "con envío", "me mandás": son la misma pregunta.
+    asegurar termina_con(atender(precios, "quiero 12 yerbas con envio"), "Con envío: sí, va con envío.")
+    asegurar termina_con(atender(precios, "¿me mandás 10 arroz?"), "Con envío: sí, va con envío.")
+}
+
+prueba "con menos de 10 no hay envío, se pida como se pida" {
+    para dicho en ["me mandas 5 yerbas?", "necesito que me lleven 3 azucar a casa",
+                   "me alcanzas 8 yerbas?", "9 harina a domicilio"] {
+        asegurar tiene(atender(precios, dicho), "Sin envío: hacemos envíos desde 10 unidades")
+    }
+    asegurar tiene(atender(precios, "me mandas 5 yerbas?"), "sumar 5 más")
+    # "Que me lo traigan" también es pedir envío.
+    asegurar tiene(atender(precios, "necesito 3 arroz y que me lo traigan"), "Sin envío: hacemos envíos desde 10 unidades")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "si dice que NO quiere envío, no se le confirma un envío" {
+    # Con 12 habría envío, pero el cliente dijo que no: va solo el total.
+    para dicho en ["12 azucar, no me lo mandes", "no quiero envio, 12 azucar",
+                   "12 azucar, no hace falta envio", "12 azucar no hace falta que lo manden",
+                   "12 azucar, no necesito envio", "12 azucar y no lo envien",
+                   "12 azucar sin flete", "12 azucar, y tampoco me las traigan"] {
+        asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
+    }
+    # El "no" también puede venir DESPUÉS de la palabra de envío, o lejos de ella.
+    para dicho en ["12 azucar, el envio no hace falta", "12 azucar, envio no",
+                   "12 azucar, el envio no lo necesito", "12 azucar, mandarlo no hace falta",
+                   "12 azucar, con envio no, gracias", "12 azucar. envio? no, gracias",
+                   "12 azucar, no hace falta que me las vengan a traer hasta casa"] {
+        asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
+    }
+    # Y hay otras formas de decir que no.
+    para dicho en ["12 azucar, nada de envio", "12 azucar jamas me las mandes",
+                   "12 azucar ni se te ocurra mandarlas", "12 azucar, no se molesten en mandarlas",
+                   "12 azucar, olvidate del envio", "12 azucar, el envio dejalo",
+                   "12 azucar, que nadie me las mande"] {
+        asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
+    }
+    # "No sé si mandan" y "no tengo auto" no son un no: ahí está preguntando.
+    asegurar termina_con(atender(precios, "no se si hacen envios, quiero 12 azucar"), "Con envío: sí, va con envío.")
+    asegurar termina_con(atender(precios, "no tengo auto, me mandas 12 azucar?"), "Con envío: sí, va con envío.")
+    # "¿Me la mandás o la retiro?" es una pregunta por el envío: se contesta la regla.
+    asegurar termina_con(atender(precios, "12 azucar me la mandas o tengo que retirar?"), "Con envío: sí, va con envío.")
+    # "Te mando el pedido" lo dice el que compra: no pide envío.
+    asegurar termina_con(atender(precios, "te mando el pedido: 12 azucar"), "total $ 117.606,00.")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "un 'no' que es de otra cosa no apaga el envío, si hay una coma en el medio" {
+    # El "no" quedó en otra parte de la frase: el envío se pidió.
+    para dicho en ["no, 12 azucar con envio", "no voy a poder ir, mandame 12 azucar",
+                   "12 azucar, no las retiro, mandamelas", "no hay drama, mandame 12 azucar",
+                   "no quiero molestar pero mandame 12 azucar", "12 azucar con envio, nada mas",
+                   "mandame 12 azucar sin falta"] {
+        asegurar termina_con(atender(precios, dicho), "Con envío: sí, va con envío.")
+    }
+    # Sin la coma no se sabe de qué es el "no": ante la duda, solo el total.
+    para dicho en ["12 azucar si no es molestia me las mandan?", "me mandas 12 azucar o no?"] {
+        asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
+    }
+    # "No, quiero 12" es un pedido (el "no" contesta otra cosa); "no quiero 12", no.
+    asegurar termina_con(atender(precios, "no, quiero 12 azucar"), "total $ 117.606,00.")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "una devolución o un 'no quiero' no se cotizan: van a la IA" {
+    # responder_pedido() devuelve nada: el programa no contesta y atender() consulta a la IA.
+    para dicho en ["no quiero 3 yerbas", "quiero devolver 3 yerbas", "cancelame las 12 azucar",
+                   "te devuelvo 12 azucar, mandame el flete"] {
+        asegurar responder_pedido(precios, dicho) == nada
+    }
+    # ...pero "no quiero envío" es un pedido, sin envío.
+    asegurar responder_pedido(precios, "no quiero envio, 2 yerbas") == "2 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 70.000,00."
+}
+
+prueba "sin pedir envío no habla de envío" {
+    # La respuesta entera: cantidad, producto, presentación, precio y total.
+    asegurar atender(precios, "dame 2 yerbas") == "2 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 70.000,00."
+}
+
+prueba "no vende lo que no hay" {
+    # En la planilla, los fideos tienen stock 0 y de yerba hay 40.
+    asegurar atender(precios, "quiero 3 fideos") == "De Fideos secos ahora no hay stock."
+    asegurar atender(precios, "quiero 100 yerbas") == "De Yerba mate quedan 40; no llego a 100."
+}
+
+prueba "lo que no es un pedido con cantidad va a la IA, con frenos" {
+    enviar CargarLista { precios: precios } a Mostrador
+    simular_ia("¡Hola! Tenemos yerba, azúcar y harina.")
+    asegurar atender(precios, "hola, ¿qué tienen?") == "¡Hola! Tenemos yerba, azúcar y harina."
+    # Un precio que no está en la lista: salta el freno y llega la reserva.
+    simular_ia("El café sale $ 12.000.")
+    asegurar atender(precios, "¿y café?") == "Eso te lo confirma una persona. Ya te paso con alguien."
+}
+
+prueba "un comando pegado en la charla no cuenta como consulta" {
+    # (el cliente "teclea" tres renglones; el primero es un comando pegado por error)
+    simular_teclado(["py mate\\mate.py correr x.mate", "dame 2 yerbas", "chau"])
+    asegurar charlar(precios) == 1
+}
+
+prueba "un peso o un importe no son una cantidad" {
+    # "1 kg" habla del paquete, no de cuántos bolsones: el programa pregunta, no adivina.
+    asegurar atender(precios, "quiero 1 kg de yerba") == "Yerba mate se vende por bolsón de 10 paquetes de 1 kg, a $ 35.000,00 cada uno. Decime cuántos querés."
+    asegurar empieza_con(atender(precios, "tengo $ 50.000, ¿cuántas yerbas me llevo?"), "Yerba mate se vende por")
+    # ...y si además dice cuántos, vale esa cantidad.
+    asegurar empieza_con(atender(precios, "2 yerbas de 1 kg"), "2 x Yerba mate")
+    asegurar empieza_con(atender(precios, "quiero 3 bolsas de azucar de 10kg"), "3 x Azúcar")
+    asegurar empieza_con(atender(precios, "12 harina 000"), "12 x Harina 000")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "con dos productos o dos cantidades pregunta, no elige por el cliente" {
+    asegurar empieza_con(atender(precios, "quiero 2 yerbas y 3 azucar"), "Vamos de a un producto por vez")
+    asegurar empieza_con(atender(precios, "quiero 2 o 3 yerbas"), "Veo más de un número")
+    asegurar empieza_con(atender(precios, "12 yerbas, llamame al 4567-8901"), "Veo más de un número")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "los números con punto, con coma y en letras" {
+    # 1.000 es mil (no uno): no hay tantos.
+    asegurar atender(precios, "1.000 yerbas") == "De Yerba mate quedan 40; no llego a 1000."
+    para dicho en ["2,5 azucar", "2.5 azucar", "0 azucar", "1,000 azucar", "3,0 azucar"] {
+        asegurar termina_con(atender(precios, dicho), "Va por unidades enteras: decime cuántos querés.")
+    }
+    # El punto de los miles se saca; un punto con una sola cifra atrás es un decimal.
+    asegurar numero_de("1.000.000") == 1000000 y numero_de("1.5") == 1.5 y numero_de("yerba") == nada
+    # Una docena o un par no dicen cuántas unidades: pregunta.
+    asegurar termina_con(atender(precios, "2 docenas de yerba"), "Decime cuántos querés.")
+    asegurar empieza_con(atender(precios, "doce arroces"), "12 x Arroz largo fino")
+    asegurar empieza_con(atender(precios, "QUIERO 12 AZÚCAR."), "12 x Azúcar")
+    asegurar empieza_con(atender(precios, "yerba x12"), "12 x Yerba mate")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "el producto se nombra en singular o en plural, con la palabra entera" {
+    asegurar atender(precios, "3 fideo") == "De Fideos secos ahora no hay stock."
+    asegurar empieza_con(atender(precios, "8 aceites"), "8 x Aceite de girasol")
+    # "Pan" no es "panceta", ni "Sal" es "salame": con otra lista tampoco se confunde.
+    sea otra = [{ producto: "Pan rallado", presentacion: "bolsa de 5 kg", precio: 4000, stock: 9 },
+                { producto: "Harina 000", presentacion: "bolsa", precio: 100, stock: 9 },
+                { producto: "Harina 0000", presentacion: "bolsa", precio: 120, stock: 9 }]
+    asegurar responder_pedido(otra, "quiero 2 pancetas") == nada
+    asegurar empieza_con(responder_pedido(otra, "quiero 2 panes"), "2 x Pan rallado")
+    # Dos productos que empiezan igual: vale el que nombró entero; si no, pregunta cuál.
+    asegurar empieza_con(responder_pedido(otra, "3 harina 0000"), "3 x Harina 0000 (bolsa) a $ 120,00")
+    asegurar empieza_con(responder_pedido(otra, "3 harina"), "Tengo más de uno: Harina 000 (bolsa); Harina 0000 (bolsa).")
+}
+
+prueba "un producto que es la primera palabra de otro también se puede pedir" {
+    sea panes = [{ producto: "Pan", presentacion: "bolsa", precio: 500, stock: 9 },
+                 { producto: "Pan rallado", presentacion: "bolsa", precio: 700, stock: 9 }]
+    # "Pan" a secas es el Pan; para el otro hay que nombrarlo entero.
+    asegurar empieza_con(responder_pedido(panes, "2 pan"), "2 x Pan (bolsa) a $ 500,00")
+    asegurar empieza_con(responder_pedido(panes, "quiero 4 panes"), "4 x Pan (bolsa)")
+    asegurar empieza_con(responder_pedido(panes, "2 pan rallado"), "2 x Pan rallado (bolsa) a $ 700,00")
+    # (y en plural también)
+    asegurar empieza_con(responder_pedido(panes, "2 panes rallados"), "2 x Pan rallado (bolsa)")
+    # "Dulces" es el plural de "dulce" (no se confunde con el de "arroz", que es "arroces").
+    sea dulces = [{ producto: "Pan", presentacion: "bolsa", precio: 500, stock: 9 },
+                  { producto: "Pan dulce", presentacion: "caja", precio: 800, stock: 9 }]
+    asegurar empieza_con(responder_pedido(dulces, "2 panes dulces"), "2 x Pan dulce (caja) a $ 800,00")
+    asegurar misma_palabra("dulces", "dulce") y misma_palabra("arroz", "arroces") y no misma_palabra("pan", "panceta")
+}
+
+prueba "el nombre del producto, aunque esté en plural, no se toma por un pedido de envío" {
+    # "Mandiocas" empieza como "mandar", pero es el producto.
+    sea verduleria = [{ producto: "Mandioca", presentacion: "bolsa", precio: 500, stock: 30 }]
+    asegurar responder_pedido(verduleria, "12 mandiocas") == "12 x Mandioca (bolsa) a $ 500,00 cada uno: total $ 6.000,00."
+    asegurar responder_pedido(verduleria, "12 mandioca") == "12 x Mandioca (bolsa) a $ 500,00 cada uno: total $ 6.000,00."
+    asegurar termina_con(responder_pedido(verduleria, "12 mandiocas con envio"), "Con envío: sí, va con envío.")
+}
+
+prueba "la regla del envío la dice el programa, también sin pedido" {
+    asegurar atender(precios, "¿hacen envíos?") == "Hacemos envíos desde 10 unidades. Decime cuántas unidades de qué producto de la lista querés y te digo el total."
+    # "Sin envío" y "lo retiro" es que no lo pide.
+    para dicho en ["12 azucar sin envio", "12 azucar, lo retiro yo"] {
+        asegurar termina_con(atender(precios, dicho), "total $ 117.606,00.")
+    }
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "una planilla mal cargada no se adivina" {
+    sea rota = [{ producto: "Yerba mate", presentacion: "bolsón", precio: "consultar", stock: "" }]
+    asegurar responder_pedido(rota, "2 yerbas") == "De Yerba mate no tengo bien anotado el precio o el stock: eso te lo confirma una persona."
+}
+
+prueba "si a la planilla le falta una columna, avisa antes de atender" {
+    # La planilla de muestra está bien.
+    asegurar revisar_planilla(precios) == nada
+    # Sin la columna stock: dice cuál falta y cómo tiene que ser el primer renglón.
+    sea sin_stock = [{ producto: "Pan", presentacion: "bolsa", precio: 500 }]
+    asegurar revisar_planilla(sin_stock) == "A la planilla precios.csv le falta la columna 'stock'. El primer renglón de precios.csv tiene que decir: producto;presentacion;precio;stock"
+    asegurar empieza_con(revisar_planilla([]), "La planilla precios.csv no tiene ningún producto.")
+    # Un título con mayúscula o con tilde: dice cuál es y cómo se escribe.
+    sea con_mayuscula = [{ Producto: "Pan", "Presentación": "bolsa", precio: 500, stock: 9 }]
+    asegurar empieza_con(revisar_planilla(con_mayuscula), "En la planilla precios.csv el título 'Producto' tiene que estar escrito 'producto': todo en minúsculas y sin tilde.")
+    # Un producto que empieza con una palabra de dos letras se avisa (no impide atender).
+    sea con_te = [{ producto: "Té en saquitos", presentacion: "caja", precio: 500, stock: 9 },
+                  { producto: "Sal fina", presentacion: "bolsa", precio: 300, stock: 9 }]
+    asegurar nombres_muy_cortos(con_te) == ["Té en saquitos"] y nombres_muy_cortos(precios) == []
+}
+
+prueba "un 'sin' o un 'no' en el nombre de un producto no tapa el 'sin envío' del cliente" {
+    sea almacen = [{ producto: "Yerba mate", presentacion: "bolsón", precio: 1000, stock: 100 },
+                   { producto: "Yerba sin palo", presentacion: "bolsón", precio: 2000, stock: 100 },
+                   { producto: "Galletitas sin sal", presentacion: "caja", precio: 500, stock: 100 },
+                   { producto: "Arroz no se pasa", presentacion: "bolsa", precio: 300, stock: 100 }]
+    # El "sin" es del cliente, no del producto: va solo el total, sin confirmar un envío.
+    asegurar responder_pedido(almacen, "12 yerba mate sin envio") == "12 x Yerba mate (bolsón) a $ 1.000,00 cada uno: total $ 12.000,00."
+    asegurar responder_pedido(almacen, "12 yerba sin palo sin flete") == "12 x Yerba sin palo (bolsón) a $ 2.000,00 cada uno: total $ 24.000,00."
+    para dicho en ["12 galletitas sin envio", "12 galletitas sin sal sin envio", "12 galletitas, no me las mandes",
+                   "12 galletitas sin sal, ni se te ocurra mandarlas", "12 galletitas nada de envio"] {
+        asegurar responder_pedido(almacen, dicho) == "12 x Galletitas sin sal (caja) a $ 500,00 cada uno: total $ 6.000,00."
+    }
+    para dicho en ["12 arroz no me lo mandes", "12 arroz no se pasa, no me lo mandes", "12 arroz sin envio"] {
+        asegurar responder_pedido(almacen, dicho) == "12 x Arroz no se pasa (bolsa) a $ 300,00 cada uno: total $ 3.600,00."
+    }
+    # "12 yerbas sin envio" no dice cuál de las dos yerbas: pregunta, y no habla de envío.
+    asegurar responder_pedido(almacen, "12 yerbas sin envio") == "Tengo más de uno: Yerba mate (bolsón); Yerba sin palo (bolsón). Decime cuál, con el nombre completo."
+    # Con una sola yerba en la lista no hay duda: es esa, y sin envío.
+    sea una_yerba = [{ producto: "Yerba sin palo", presentacion: "bolsón", precio: 2000, stock: 100 }]
+    para dicho en ["12 yerbas sin envio", "12 yerba sin palo, no me lo mandes", "12 yerbas no me las mandes"] {
+        asegurar responder_pedido(una_yerba, dicho) == "12 x Yerba sin palo (bolsón) a $ 2.000,00 cada uno: total $ 24.000,00."
+    }
+    # Y el "sin" que SÍ es del nombre no apaga un envío pedido.
+    asegurar termina_con(responder_pedido(almacen, "12 yerba sin palo con envio"), "total $ 24.000,00. Con envío: sí, va con envío.")
+    asegurar termina_con(responder_pedido(almacen, "mandame 12 galletitas sin sal"), "total $ 6.000,00. Con envío: sí, va con envío.")
+    asegurar termina_con(responder_pedido(almacen, "12 arroz no se pasa con envio"), "total $ 3.600,00. Con envío: sí, va con envío.")
+    asegurar termina_con(responder_pedido(almacen, "5 yerba sin palo con envio"), "Podés retirarlo en el local o sumar 5 más.")
+}
+
+prueba "un precio o un stock vacío o con texto se avisa antes de atender, diciendo de qué producto" {
+    # Lo que deja leer_tabla() cuando la celda está vacía ("") o tiene un texto.
+    sea rota = [{ producto: "Yerba mate", presentacion: "bolsón", precio: 35000, stock: 40 },
+                { producto: "Azúcar", presentacion: "bolsa", precio: "", stock: 25 },
+                { producto: "Harina", presentacion: "bolsa", precio: 14500, stock: "poco" }]
+    asegurar celdas_mal_cargadas(rota) == [
+        "En precios.csv, el precio de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista).",
+        "En precios.csv, el stock de 'Harina' no es un número: dice 'poco' (es el producto número 3 de la lista)."]
+    # revisar_planilla() lo junta con cómo se arregla: con eso el mostrador no atiende.
+    sea aviso = revisar_planilla(rota)
+    asegurar empieza_con(aviso, "En precios.csv, el precio de 'Azúcar' no es un número: está vacío (es el producto número 2 de la lista).")
+    asegurar tiene(aviso, "el stock de 'Harina' no es un número: dice 'poco' (es el producto número 3 de la lista).")
+    asegurar termina_con(aviso, "El precio y el stock van solo con números (un precio se escribe 9.800,50; si de algo no hay stock, poné 0). Arreglalo en la planilla, guardala y volvé a arrancar el mostrador.")
+    # Con muchos renglones mal muestra los cinco primeros y dice cuántos más hay.
+    var muchas = []
+    para n en rango(8) {
+        muchas = agregar(muchas, { producto: "Cosa {n}", presentacion: "caja", precio: "a confirmar", stock: 1 })
+    }
+    asegurar tiene(revisar_planilla(muchas), "el precio de 'Cosa 4'") y no tiene(revisar_planilla(muchas), "el precio de 'Cosa 5'")
+    asegurar tiene(revisar_planilla(muchas), " Y hay 3 más así. ")
+    # La planilla de muestra y un stock en 0 están bien.
+    asegurar celdas_mal_cargadas(precios) == []
+    asegurar revisar_planilla([{ producto: "Pan", presentacion: "bolsa", precio: 500, stock: 0 }]) == nada
+}

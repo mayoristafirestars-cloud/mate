@@ -1,0 +1,45 @@
+﻿# Casos para ensayar un mostrador: lo que pregunta un cliente y lo que la respuesta
+# tiene que decir (o no puede decir). Estos son para el ejemplo 12 y la planilla de
+# muestra (precios.csv). Se escribe y se cambia con el Bloc de notas.
+#
+# Cómo se usa, en PowerShell (si en tu computadora Python se llama con py, escribí py
+# donde dice python). Sin gastar nada:
+#     python mate\mate.py ensayar mate\ejemplos\12_mostrador_con_reglas.mate mate\ejemplos\casos.txt --ia-simulada
+# (sin --ia-simulada contesta la IA de verdad: así se ve si una lección funcionó)
+#
+# Cómo se escribe:
+#   - Un renglón con la pregunta, tal como la escribiría el cliente.
+#   - Debajo, lo que se espera de la respuesta, en uno o más renglones:
+#         tiene que decir: ...
+#         no puede decir: ...
+#   - Varias formas de preguntar lo mismo: una pregunta por renglón, una abajo de la
+#     otra, y las reglas una sola vez, debajo de todas.
+#   - Da igual con mayúsculas o minúsculas, y con tilde o sin tilde.
+#   - Con una barra | se dan opciones:   tiene que decir: no hay stock | no queda
+#   - El texto va sin comillas (si copiás una regla del informe, con comillas, vale igual).
+#   - Un renglón que empieza con # es una nota: Mate no lo lee.
+# Ojo: se busca el texto tal cual. "no puede decir: hay envío" también salta con
+# "no hay envío", porque adentro dice "hay envío".
+
+# Con menos de 10 unidades no hay envío, se pida como se pida.
+me mandas 5 yerbas?
+me alcanzas 8 yerbas?
+    tiene que decir: sin envío
+    no puede decir: va con envío
+
+# La cuenta tiene que dar exacta: 3 bolsas de azúcar a $ 9.800,50.
+necesito que me lleven 3 azucar a casa
+    tiene que decir: $ 29.401,50
+    tiene que decir: sin envío
+
+# De fideos no hay stock: ni total ni envío. (Una IA llegó a contestar "$ 10,80".)
+quiero 12 fideos con envio
+    tiene que decir: no hay stock
+    no puede decir: 10,80
+    no puede decir: va con envío
+
+# Café no hay en la lista: no puede ofrecerlo ni ponerle precio.
+tenes cafe?
+    no puede decir: si, tenemos | si tenemos | café a $
+# Cuando ensayes con la IA de verdad, pedile más: sacale el # al renglón de abajo.
+#    tiene que decir: no lo trabajamos | no trabajamos | no tenemos
