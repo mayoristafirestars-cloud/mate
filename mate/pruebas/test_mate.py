@@ -11131,7 +11131,11 @@ def test_ensayar_muestra_cada_caso_que_fallo_y_lo_deja_propuesto(tmp_path, capsy
     assert " propuestas m.mate" not in salida and "borrador" not in salida
     assert (tmp_path / "m.memoria.json").read_bytes() == crudo
     assert "propuestas" not in memoria_de(tmp_path, "m")["agentes"]["Mostrador"]
-    assert max(len(r) for r in salida.splitlines()) <= 100
+    # (el ancho se mide con la ruta de mate.py acortada: si no, la prueba depende de en qué
+    # carpeta esté Mate)
+    assert f"  python3 {RAIZ / 'mate.py'} lecciones m.mate\n" in salida or mate.os.name == "nt"
+    medible = salida.replace(str(RAIZ / "mate.py"), "mate/mate.py")
+    assert max(len(r) for r in medible.splitlines()) <= 100
 
 
 def test_ensayar_con_ia_simulada_no_deja_lecciones_propuestas(tmp_path, capsys, monkeypatch):
