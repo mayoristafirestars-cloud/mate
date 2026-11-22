@@ -1049,7 +1049,9 @@ avisa cuántos mensajes quedaron esperando.
 lado del programa: un archivo `.json` por mensaje (el "sobre": quién lo manda, para quién, a
 qué conversación pertenece, a cuál contesta y el mensaje como lo da `a_json`), la carpeta
 `rechazados` y un archivo `candado`. Esa carpeta la lleva Mate: `escribir_archivo` y
-`agregar_a_archivo` no escriben ahí. Lo que un programa ya atendió y lo que todavía tiene
+`agregar_a_archivo` no escriben ahí, y Mate nunca escribe a través de un acceso directo
+que alguien haya dejado adentro (ni en los archivos provisorios `.tmp` ni en el `candado`):
+lo saca y crea un archivo de verdad. Lo que un programa ya atendió y lo que todavía tiene
 que repartir queda anotado en su archivo de memoria (`deposito.memoria.json`, en la parte
 `"buzon"`), que `corregir`, `lecciones` y `--olvidar` no tocan. Esas dos funciones tampoco
 escriben en la memoria de un programa nombrado con `usar buzon` (la de otros programas de

@@ -3799,13 +3799,28 @@ def archivo_de(ruta, que):
     return f"{ruta}.{que}"
 
 
+def abrir_provisorio(provisorio, modo, **como):
+    """Abre un archivo provisorio NUEVO para escribir (modo "x" o "xb"). Si ya había algo
+    con ese nombre (uno viejo, o un acceso directo que alguien dejó ahí para que se escriba
+    en otro lado) lo saca primero: nunca se escribe a través de un acceso directo."""
+    for _ in range(3):
+        try:
+            if os.path.lexists(provisorio):
+                os.remove(provisorio)  # (de un acceso directo saca el acceso, no el archivo)
+            return open(provisorio, modo, **como)
+        except FileExistsError:  # apareció de nuevo justo ahora: se prueba otra vez
+            continue
+    raise FileExistsError(f"no pude crear {provisorio}")
+
+
 def escribir_entero(ruta, texto):
     """Escribe el archivo de una sola vez: primero en uno provisorio al lado y recién
     después lo pone en su lugar. Así nunca queda a medio escribir."""
     provisorio = ruta + ".tmp"
     try:
         # con la marca del principio, para que el Bloc de notas muestre bien las tildes
-        with open(provisorio, "w", encoding="utf-8-sig", errors="backslashreplace") as f:
+        with abrir_provisorio(provisorio, "x", encoding="utf-8-sig",
+                              errors="backslashreplace") as f:
             f.write(texto)
         os.replace(provisorio, ruta)
     except BaseException:
@@ -4144,8 +4159,12 @@ def leer_sobre(ruta):
 def tomar_candado(ruta):
     """El candado del buzón: lo tiene una sola ventana a la vez, y el sistema lo suelta si
     el programa muere. Devuelve el archivo abierto con el candado tomado, o None si lo
-    tiene otra ventana. No espera. (OSError si el archivo no se puede crear.)"""
-    f = open(ruta, "a+b")
+    tiene otra ventana. No espera. (OSError si el archivo no se puede crear.) Un 'candado'
+    que es un acceso directo no se sigue: se saca y se crea uno de verdad."""
+    if os.path.islink(ruta):
+        os.remove(ruta)
+    f = open(ruta, "a+b",
+             opener=lambda donde, como: os.open(donde, como | getattr(os, "O_NOFOLLOW", 0)))
     try:
         if os.name == "nt":
             import msvcrt
@@ -4287,7 +4306,7 @@ class Buzon:
             except UnicodeError:  # una letra rota: va escrita con su número
                 crudo = json.dumps(sobre, indent=2, allow_nan=False).encode("ascii")
             os.makedirs(destino, exist_ok=True)
-            with open(final + ".tmp", "wb") as f:
+            with abrir_provisorio(final + ".tmp", "xb") as f:
                 f.write(crudo)
             os.replace(final + ".tmp", final)
         except (OSError, ValueError, RecursionError):

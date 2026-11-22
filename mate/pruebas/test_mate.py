@@ -15845,3 +15845,109 @@ def test_buzon_la_vuelta_2_esta_documentada():
     assert "**Vuelta 2: lo que se corrigió.**" in ficha and "millonésimas de segundo" in ficha
     ayuda = " ".join(mate.ayuda_de("buzon").split())
     assert "lo que le llegó no se atiende: avisa cuántos quedaron" in ayuda
+
+
+def atajo_bz(donde, hacia):
+    """Un acceso directo (symlink) dejado en un buzón; donde no se pueden crear, se saltea."""
+    donde.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        donde.symlink_to(hacia)
+    except (OSError, NotImplementedError):
+        pytest.skip("acá no se pueden crear accesos directos")
+
+
+def negocio_bz(tmp_path, monkeypatch):
+    """Los programas del buzón en una carpeta propia, con un archivo importante AFUERA."""
+    negocio = tmp_path / "negocio"
+    negocio.mkdir()
+    carpeta_bz(negocio, monkeypatch)
+    importante = tmp_path / "importante.txt"
+    importante.write_text("no me toquen", encoding="utf-8")
+    return negocio, importante
+
+
+def test_buzon_el_motivo_de_un_rechazo_no_se_escribe_a_traves_de_un_acceso_directo(
+        tmp_path, capsys, monkeypatch):
+    negocio, importante = negocio_bz(tmp_path, monkeypatch)
+    buzon = negocio / "deposito.buzon"
+    malo = sobre_bz(1, {"tipo": "LoQueElijaElAtacante", "campos": {}},
+                    de={"programa": "nadie", "agente": "Nadie"})
+    dejar_bz(buzon, malo, "x1")
+    atajo_bz(buzon / "rechazados" / "x1.motivo.txt.tmp", importante)
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+    assert codigo == 0 and "no entregué un mensaje del buzón" in err
+    assert importante.read_text(encoding="utf-8") == "no me toquen"  # lo de afuera, intacto
+    # el motivo quedó donde va, como un archivo de verdad, y no quedó ningún provisorio
+    assert archivos_de(buzon / "rechazados") == ["x1.json", "x1.motivo.txt"]
+    motivo = buzon / "rechazados" / "x1.motivo.txt"
+    assert not motivo.is_symlink() and "LoQueElijaElAtacante" in motivo.read_text(
+        encoding="utf-8-sig")
+    # y lo mismo si el acceso directo no apunta a nada (no se crea nada afuera)
+    dejar_bz(buzon, malo, "x2")
+    atajo_bz(buzon / "rechazados" / "x2.motivo.txt.tmp", tmp_path / "creado.txt")
+    assert orden_mate(capsys, "correr", "deposito.mate")[0] == 0
+    assert not (tmp_path / "creado.txt").exists()
+    assert (buzon / "rechazados" / "x2.motivo.txt").is_file()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["importante.txt", "negocio"]
+
+
+def test_buzon_un_sobre_no_se_deja_a_traves_de_un_acceso_directo(tmp_path, capsys, monkeypatch):
+    import json
+    negocio, importante = negocio_bz(tmp_path, monkeypatch)
+    # Un pedido que no cumple el contrato: el aviso de falla vuelve al buzón de Ventas, con
+    # un nombre que se puede adivinar (<id>.falla.json). Ahí espera un acceso directo.
+    malo = sobre_bz(13, {"tipo": "Reservar", "campos": {
+        "pedido": "M-13", "producto": "yerba", "cantidad": 500}})
+    dejar_bz(negocio / "deposito.buzon", malo)
+    atajo_bz(negocio / "ventas.buzon" / f"{malo['id']}.falla.json.tmp", importante)
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+    assert codigo == 0 and "no pude dejar" not in err
+    assert importante.read_text(encoding="utf-8") == "no me toquen"
+    assert archivos_de(negocio / "ventas.buzon") == [f"{malo['id']}.falla.json"]
+    aviso = negocio / "ventas.buzon" / f"{malo['id']}.falla.json"
+    assert not aviso.is_symlink()
+    assert json.loads(aviso.read_text(encoding="utf-8"))["clase"] == "falla"
+    # Tampoco al enviar un mensaje común: mate.Buzon.dejar no sigue un provisorio plantado.
+    buzon = mate.Buzon(str(negocio / "ventas.mate"))
+    atajo_bz(negocio / "deposito.buzon" / f"{sobre_bz(14)['id']}.json.tmp", importante)
+    assert buzon.dejar("deposito.buzon", sobre_bz(14)) is None
+    assert importante.read_text(encoding="utf-8") == "no me toquen"
+    assert f"{sobre_bz(14)['id']}.json" in archivos_de(negocio / "deposito.buzon")
+    assert not [n for n in archivos_de(negocio / "deposito.buzon") if n.endswith(".tmp")]
+
+
+def test_escribir_entero_no_escribe_a_traves_de_un_acceso_directo(tmp_path):
+    importante = tmp_path / "importante.txt"
+    importante.write_text("no me toquen", encoding="utf-8")
+    carpeta = tmp_path / "adentro"
+    atajo_bz(carpeta / "nota.txt.tmp", importante)
+    mate.escribir_entero(str(carpeta / "nota.txt"), "hola")
+    assert importante.read_text(encoding="utf-8") == "no me toquen"
+    assert (carpeta / "nota.txt").read_text(encoding="utf-8-sig") == "hola"
+    assert archivos_de(carpeta) == ["nota.txt"]
+    # un provisorio viejo (un archivo común que quedó de un corte) se reemplaza, como siempre
+    (carpeta / "nota.txt.tmp").write_text("resto de un corte", encoding="utf-8")
+    mate.escribir_entero(str(carpeta / "nota.txt"), "chau")
+    assert (carpeta / "nota.txt").read_text(encoding="utf-8-sig") == "chau"
+    assert archivos_de(carpeta) == ["nota.txt"]
+
+
+def test_buzon_un_candado_que_es_un_acceso_directo_no_crea_nada_afuera(tmp_path, capsys,
+                                                                       monkeypatch):
+    negocio, importante = negocio_bz(tmp_path, monkeypatch)
+    buzon = negocio / "deposito.buzon"
+    dejar_bz(buzon, sobre_bz(1))
+    atajo_bz(buzon / "candado", tmp_path / "creado.txt")  # no apunta a nada: lo crearía
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+    assert (codigo, err) == (0, "") and "atendí 1 mensaje" in salida
+    assert not (tmp_path / "creado.txt").exists()
+    assert (buzon / "candado").is_file() and not (buzon / "candado").is_symlink()
+    # y si apunta a un archivo de afuera, ese archivo no se abre ni se toca
+    (buzon / "candado").unlink()
+    atajo_bz(buzon / "candado", importante)
+    dejar_bz(buzon, sobre_bz(2))
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+    assert (codigo, err) == (0, "") and "atendí 1 mensaje" in salida
+    assert importante.read_text(encoding="utf-8") == "no me toquen"
+    assert not (buzon / "candado").is_symlink()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["importante.txt", "negocio"]
