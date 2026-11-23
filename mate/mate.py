@@ -4332,7 +4332,8 @@ def tomar_candado_de_memoria(ruta, espera=0.0):
     muere (es el mismo mecanismo que el candado del buzón). Devuelve el archivo abierto con
     el candado tomado, o None si lo tiene otra corrida y no lo soltó en 'espera' segundos.
     SinCandado si acá no se puede tener uno (ver tomar_candado), y otro OSError si con ese
-    nombre hay algo que no se puede usar de candado.
+    nombre hay algo que no se puede usar de candado. Cuando falla NO borra el archivo: solo
+    lo borra, al soltar, la corrida que tiene el candado tomado.
     El archivo se borra al soltar; por eso, después de tomarlo, se controla que el archivo
     con candado sea el que está en la carpeta (otra corrida pudo borrarlo justo antes). En
     Windows ese control no hace falta: ahí un archivo que alguien tiene abierto no se borra."""
@@ -4342,13 +4343,14 @@ def tomar_candado_de_memoria(ruta, espera=0.0):
         try:
             f = tomar_candado(ruta)
         except OSError as e:
-            if getattr(e, "motivo", "") == "sistema":
-                # El archivo que se acaba de crear no sirve de nada: no se deja ahí.
-                try:
-                    if stat.S_ISREG(os.lstat(ruta).st_mode):
-                        os.remove(ruta)
-                except OSError:
-                    pass
+            if getattr(e, "motivo", ""):
+                # Acá no hay candados. El archivo NO se borra, aunque lo haya creado este
+                # mismo intento: no se puede saber si otra corrida lo abrió y lo tiene
+                # tomado (un fallo pasajero del sistema, o dos computadoras sobre la misma
+                # carpeta de red donde una sola consigue candados). Si se borrara, esa
+                # corrida seguiría con su candado sobre un archivo que ya no está en la
+                # carpeta, y una tercera crearía otro y atendería a la vez. Un archivo
+                # vacío de más no molesta: la próxima corrida lo usa.
                 raise
             # (en Windows, abrir un archivo que otra corrida está borrando da un error que
             # se va solo)
@@ -4448,6 +4450,9 @@ class Buzon:
         self.atendidos, self.rechazos = [], []  # archivos a borrar, y (archivo, motivo) a mover
         self.candado = None
         self.cambio_la_memoria = lambda: (False, [])  # (lo pone 'correr')
+        # ¿Se va a poder guardar lo que se atienda? (lo pone 'correr': mira que el candado
+        # de la memoria se pueda tomar, y si no, avisa)
+        self.se_puede_guardar = lambda cuantos: True
         self.atendi, self.deje, self.no_entregados = {}, {}, 0  # para el resumen
         self._buscados = {}
 
@@ -4638,7 +4643,12 @@ class Buzon:
                         f"{self.archivo}, así que no puedo recibir mensajes. Borralo o "
                         "cambiale el nombre")
             return []
-        if not self.esperan():
+        esperan = self.esperan()
+        if not esperan:
+            return []
+        # Atender es anotar en la memoria qué se atendió y qué se contesta: si el candado
+        # de la memoria no se puede tomar, no se atiende nada y los mensajes quedan ahí.
+        if not self.se_puede_guardar(len(esperan)):
             return []
         try:
             self.candado = tomar_candado(os.path.join(self.carpeta, "candado"))
@@ -13738,15 +13748,50 @@ def _main(argv, donde):
             avisar(f"aviso: {que_paso}. Sin candado no reparto mensajes: {quedan}. "
                    f"{que_hacer}")
 
-    def cerrar_buzon(buzon, nueva, repartir=True):
+    def avisar_que_no_se_guardo(buzon):
+        """Al terminar, con cosas del buzón para guardar y sin el candado de la memoria: no
+        se escribió nada. Se dice qué se perdió y qué queda como estaba, y la corrida
+        termina con código distinto de 0 (aprendido["sin_guardar"])."""
+        aprendido["sin_guardar"] = True
+        e = aprendido.get("sin_candado")
+        nombre = os.path.basename(ruta)
+        if e is None:
+            que_paso = (f"otra ventana de {nombre} tiene tomado el candado de la memoria "
+                        "y no lo soltó en 10 segundos")
+            que_hacer = (f"Fijate si quedó otra ventana de {nombre} colgada, cerrala y "
+                         "corré esto de nuevo")
+        else:
+            que_paso, que_hacer = por_que_no_hay_candado(e)
+        partes = []
+        enviados = len(buzon.por_salir)
+        if enviados:
+            partes.append(
+                f"{cuantos_mensajes(enviados)} que este programa envió a otros programas "
+                f"en esta corrida NO {'salió' if enviados == 1 else 'salieron'} y NO "
+                f"{'quedó anotado' if enviados == 1 else 'quedaron anotados'}: "
+                f"{'se perdió' if enviados == 1 else 'se perdieron'}, hay que hacerlo de "
+                "nuevo")
+        recibidos = len(buzon.atendidos) + len(buzon.rechazos)
+        if recibidos:
+            partes.append(
+                f"{cuantos_mensajes(recibidos)} del buzón "
+                f"{'sigue' if recibidos == 1 else 'siguen'} en "
+                f"{os.path.basename(buzon.carpeta)} como si no se "
+                f"{'hubiera' if recibidos == 1 else 'hubieran'} atendido, y se "
+                f"{'atiende' if recibidos == 1 else 'atienden'} de nuevo la próxima vez")
+        # (del resumen queda solo lo que de verdad salió, al arrancar y con candado)
+        buzon.atendi, buzon.no_entregados = {}, 0
+        avisar(f"error: {que_paso}. Sin candado no escribo la memoria ni el buzón, así "
+               f"que lo que pasó con el buzón en esta corrida NO se guardó: "
+               + "; ".join(partes or ["no quedó anotado nada"]) + f". {que_hacer}")
+
+    def cerrar_buzon(buzon, nueva):
         """Al terminar 'correr', si en esta corrida hubo buzón. La memoria es el punto de
         compromiso: en UNA escritura quedan el estado de los agentes, los mensajes que ya
         se atendieron y los que hay que dejarles a otros programas. Recién después se
         reparten esos, se mueven los rechazados y se borran los atendidos. Si se corta en
         el medio, la corrida siguiente termina el trabajo sin repetir ni perder nada.
-        repartir=False: no se pudo tomar el candado de la memoria. Lo de esta corrida se
-        anota igual (si no, se perdería), pero no sale ningún mensaje: quedan "por salir"
-        y los reparte la próxima corrida que tenga el candado."""
+        Se llama SIEMPRE con el candado de la memoria tomado (ver con_candado)."""
         leida = aprendido["leida"]
         try:
             en_disco = leer_memoria(archivo_memoria)[0]
@@ -13770,11 +13815,6 @@ def _main(argv, donde):
                 avisar(f"aviso: {problema}. Los mensajes del buzón no se tocaron: los que "
                        "llegaron se atienden de nuevo la próxima vez, y no salió ninguno")
                 return
-        if not repartir:
-            buzon.acomodar()  # (lo recibido se atendió con el candado del buzón tomado)
-            if parte["por_salir"]:
-                avisar_que_no_salen(len(parte["por_salir"]))
-            return
         quedan = buzon.repartir(parte["por_salir"])
         buzon.acomodar()
         if len(quedan) != len(parte["por_salir"]):
@@ -13806,10 +13846,13 @@ def _main(argv, donde):
             try:
                 # Leer la memoria, guardarla y repartir va de un tirón, con el candado de
                 # la memoria: dos corridas del mismo programa que terminan a la vez no se
-                # pisan. Sin candado (lo tiene otra hace rato, o acá no se puede tener)
-                # no se reparte nada: lo de esta corrida queda anotado y sale la próxima.
+                # pisan. Sin candado (lo tiene otra hace rato, o dejó de poder tomarse)
+                # no se escribe NADA: ni la memoria, ni un sobre, ni se borra lo recibido.
+                # Anotar "por salir" sin candado sería pisarle lo anotado a otra corrida
+                # que termina a la vez, y perder un mensaje callado. Se dice fuerte y la
+                # corrida termina con código distinto de 0.
                 if not con_candado(lambda: cerrar_buzon(buzon, nueva), 10):
-                    cerrar_buzon(buzon, nueva, repartir=False)
+                    avisar_que_no_se_guardo(buzon)
             finally:
                 buzon.soltar()
             for renglon in buzon.resumen():
@@ -13924,7 +13967,31 @@ def _main(argv, donde):
                            "recuerda cosas de una corrida a la otra ('estado recordado'), y "
                            "con dos ventanas a la vez una pisaría lo que anotó la otra. "
                            "Terminá la charla de la otra ventana (o cerrala) y corré esto de "
-                           "nuevo. Acá no se tocó nada: ni la memoria ni el buzón")
+                           "nuevo. "
+                           # (Windows contesta lo mismo cuando el candado lo tiene otro
+                           # que cuando una carpeta de red no los da: no se distinguen.)
+                           + ("Si no hay ninguna otra ventana abierta, puede ser que esta "
+                              "carpeta no dé candados (pasa en algunas carpetas de red): "
+                              "copiá la carpeta del programa a un disco de esta "
+                              "computadora y corrélo desde ahí. " if os.name == "nt" else "")
+                           + "Acá no se tocó nada: ni la memoria ni el buzón")
+                    return 2
+            elif any(s[0] == "agente_ajeno" for s in programa):
+                # Un programa sin 'estado recordado' no tiene el candado toda la corrida
+                # (se puede abrir en dos ventanas), pero si les envía mensajes a otros
+                # programas ('usar buzon') lo necesita al terminar, para anotarlos y
+                # repartirlos. Si acá no se puede tener un candado, se sabe ahora: no se
+                # arranca, en vez de atender y perder al final lo que se envió. (Si lo
+                # tiene otra corrida es por un momento, mientras guarda: se sigue.)
+                if not con_candado(lambda: None, 0) and aprendido["sin_candado"] is not None:
+                    que_paso, que_hacer = por_que_no_hay_candado(aprendido["sin_candado"])
+                    if getattr(aprendido["sin_candado"], "motivo", ""):
+                        que_paso += (". Este programa les envía mensajes a otros programas "
+                                     "('usar buzon') y sin candado no los puedo anotar ni "
+                                     "repartir sin riesgo de perder alguno, así que no lo "
+                                     "corro")
+                    avisar(f"{que_paso}. {que_hacer}. Acá no se tocó nada: ni la memoria "
+                           "ni el buzón")
                     return 2
             # Lo que aprendieron los agentes (0.4): solo 'correr' lee y escribe su memoria.
             try:
@@ -14025,6 +14092,30 @@ def _main(argv, donde):
                 return cambio, leer_buzon_de_memoria(archivo_memoria)[0]["recibidos"]
 
             buzon.cambio_la_memoria = cambio_la_memoria
+
+            def se_puede_guardar(cuantos):
+                """Antes de atender lo que llegó al buzón: ¿se puede tomar el candado de la
+                memoria? Si acá no se puede tener uno, no se atiende nada: los mensajes
+                quedan en su carpeta y se avisa. (Si lo tiene otra corrida de este programa
+                es por un momento, mientras guarda: se sigue, y se pide de nuevo al terminar.)"""
+                if con_candado(lambda: None, 2) or aprendido["sin_candado"] is None:
+                    return True
+                esperan = (f"{cuantos_mensajes(cuantos)} "
+                           f"{'queda' if cuantos == 1 else 'quedan'} en "
+                           f"{os.path.basename(buzon.carpeta)} y se "
+                           f"{'atiende' if cuantos == 1 else 'atienden'} la próxima vez que "
+                           f"{os.path.basename(ruta)} corra y pueda tomar el candado")
+                if aprendido.get("avisado"):
+                    avisar("aviso: sigo sin el candado de la memoria, así que tampoco "
+                           f"atiendo el buzón: {esperan}")
+                else:
+                    aprendido["avisado"] = True
+                    que_paso, que_hacer = por_que_no_hay_candado(aprendido["sin_candado"])
+                    avisar(f"aviso: {que_paso}. Sin candado no atiendo el buzón: {esperan}. "
+                           f"{que_hacer}")
+                return False
+
+            buzon.se_puede_guardar = se_puede_guardar
 
             def guardar_cuenta():
                 """Antes y después de cada consulta de verdad de un agente con frenos: la
@@ -14128,7 +14219,7 @@ def _main(argv, donde):
         return 1 if fallidas or interprete.errores_principal else 0
     for linea, texto in interprete.errores_agentes_det:
         reportar(linea, texto)
-    return 1 if interprete.errores_agentes else 0
+    return 1 if interprete.errores_agentes or aprendido.get("sin_guardar") else 0
 
 
 if __name__ == "__main__":

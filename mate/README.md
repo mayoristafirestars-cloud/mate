@@ -1223,20 +1223,28 @@ atendió). Lo único que se puede repetir es lo que el agente había mostrado en
   las dos ventanas corren y el buzón lo atiende una sola (la otra avisa y no recibe); lo que
   quedó por salir de una corrida cortada lo reparte una sola, con el candado de la memoria
   tomado y leyendo la memoria de nuevo en ese momento.
-- **Sin candado no sale ni entra ningún mensaje.** Si Mate no puede tomar el candado (la
-  carpeta está en un lugar donde el sistema no los da, como algunas carpetas de red; no se
-  puede crear el archivo; o con ese nombre hay otra cosa), no reparte lo que estaba por
-  salir ni lo que el programa envió en esa corrida: avisa `Sin candado no reparto mensajes`,
-  los mensajes quedan anotados en la memoria (se ven con `buzon ventas.mate`, en "Por
-  salir") y salen la próxima vez que el programa corra y pueda tomar el candado. Lo mismo
-  al recibir: si no puede tomar el candado de la carpeta del buzón, no atiende los mensajes
-  que le dejaron y quedan ahí. Nada sale ni se atiende dos veces; para destrabarlo, copiá
-  la carpeta de los programas a un disco de esa computadora.
-  Un programa con `estado recordado` en esa situación directamente no arranca (ver
-  [Memoria](#memoria-estado-recordado)). Lo único que se escribe sin candado es esa
-  anotación en la memoria de un programa sin `estado recordado`: si dos ventanas de ese
-  programa terminan justo a la vez en una carpeta sin candados, una puede pisar lo que
-  anotó la otra.
+- **Sin candado no sale ni entra ningún mensaje.** Si Mate no puede tomar el candado de la
+  memoria (la carpeta está en un lugar donde el sistema no los da, como algunas carpetas de
+  red; no se puede crear el archivo; o con ese nombre hay otra cosa), no escribe nada de lo
+  que ese candado cuida: ni la memoria ni un solo sobre.
+  - Un programa con `estado recordado` no arranca (ver [Memoria](#memoria-estado-recordado)).
+  - Un programa que les envía mensajes a otros (tiene `usar buzon`) tampoco arranca, aunque
+    no tenga `estado recordado`: necesita el candado para anotar y repartir lo que envía.
+    Avisa qué pasó y qué podés hacer, termina con código 2 y no toca nada; lo que tenía por
+    salir sigue anotado (se ve con `buzon ventas.mate`, en "Por salir").
+  - Un programa que no envía nada corre igual, pero no reparte lo que le había quedado por
+    salir (avisa `Sin candado no reparto mensajes`; sigue anotado y sale la próxima vez que
+    corra y pueda tomar el candado) ni atiende lo que le dejaron (avisa `Sin candado no
+    atiendo el buzón`; los mensajes quedan en su carpeta). Lo mismo si lo que no puede tomar
+    es el candado de la carpeta del buzón.
+  - Si el candado andaba al arrancar y deja de poder tomarse justo al terminar (una falla
+    pasajera, u otra ventana del mismo programa que no lo suelta en 10 segundos), Mate
+    tampoco escribe: avisa con `error:` que lo que el programa envió en esa corrida **no
+    salió ni quedó anotado** (hay que hacerlo de nuevo), que lo que había atendido del buzón
+    sigue ahí para atenderse otra vez, y termina con código 1.
+
+  Nada sale ni se atiende dos veces; para destrabarlo, copiá la carpeta de los programas a
+  un disco de esa computadora.
 - **Carpetas sincronizadas** (OneDrive, Dropbox): no están cubiertas. El buzón está pensado
   para una carpeta común de una misma PC.
 - **Si el archivo de memoria se rompe** (o se usa `--olvidar` sobre una memoria rota) se
@@ -1650,7 +1658,10 @@ python mate\mate.py correr mi_mostrador.mate          (arranca en 1 y termina en
   quedar, pero el candado lo suelta el sistema y la corrida siguiente arranca normalmente.
   No hace falta borrarlo, y borrarlo a mano con el programa abierto le saca la protección.
   (En Windows, si ese archivo quedó marcado como de solo lectura, Mate no lo puede borrar
-  al terminar y queda en la carpeta: no molesta, la corrida siguiente toma el candado igual.)
+  al terminar y queda en la carpeta: no molesta, la corrida siguiente toma el candado igual.
+  Y cuando el candado no se pudo tomar, el archivo también puede quedar, vacío: Mate solo
+  lo borra si es la corrida que lo tiene tomado, porque si no podría sacarle el candado a
+  otra ventana que sí lo tiene.)
   **Sin candado, el programa no atiende.** Si Mate no puede tomar el candado, por el motivo
   que sea, el programa **no arranca**: avisa qué pasó y qué podés hacer, termina con código
   2 y no toca ni la memoria ni el buzón (atender sin candado sería perder la protección sin
@@ -1664,8 +1675,12 @@ python mate\mate.py correr mi_mostrador.mate          (arranca en 1 y termina en
   puedas escribir. Y si con ese nombre hay algo que Mate no puede usar (una carpeta, o un
   archivo sobre el que no tenés permiso), avisa `no pude tomar
   mi_mostrador.memoria.candado`: sacalo de ahí y corré de nuevo. Esto vale solo para
-  `correr` y solo para programas con `estado recordado`: los demás no usan candado y corren
-  igual, y `probar`, `verificar` y `ensayar` no lo piden nunca.
+  `correr`, y para los programas con `estado recordado` o que les envían mensajes a otros
+  programas (`usar buzon`; ver [el buzón](#dos-programas-que-se-hablan-el-buzón)): los demás
+  no necesitan el candado para correr, y `probar`, `verificar` y `ensayar` no lo piden
+  nunca. (En Windows, una carpeta de red que no da candados puede contestar lo mismo que un
+  candado ocupado: ahí el aviso es `ya hay otra ventana abierta`, y agrega qué hacer si no
+  hay ninguna.)
 - **Con el programa abierto en una ventana se puede seguir trabajando desde otra** en todo
   lo que no es correrlo: `probar`, `verificar` y `ensayar` no se traban (no escriben el
   estado), y tampoco anotar una lección con `corregir` o aprobar una propuesta. Al guardar,
@@ -3350,10 +3365,14 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
   (OneDrive, Dropbox) no está probado y no hay que contar con él. **Sin candado no se
   atiende**: si el sistema directamente no da candados ahí, o el candado no se puede crear
   o tomar por lo que sea, un programa con `estado recordado` no arranca (avisa qué pasó y
-  qué hacer, y termina con código 2 sin tocar nada), y el buzón no se atiende ni reparte
-  nada (los mensajes quedan anotados y salen cuando haya candado). Eso incluye una carpeta
-  de solo lectura: un ejemplo con `estado recordado` hay que copiarlo a una carpeta donde
-  se pueda escribir para correrlo. Otro usuario de la misma computadora que pueda leer la carpeta puede tener
+  qué hacer, y termina con código 2 sin tocar nada), uno que les envía mensajes a otros
+  programas (`usar buzon`) tampoco, y el buzón no se atiende ni reparte
+  nada (los mensajes quedan donde estaban y salen cuando haya candado): sin candado Mate
+  no escribe la memoria ni un sobre. Si el candado deja de poder tomarse recién al
+  terminar, lo que el programa envió en esa corrida se pierde: Mate lo dice con `error:` y
+  termina con código 1. Eso incluye una carpeta
+  de solo lectura: un ejemplo con `estado recordado` o con `usar buzon` hay que copiarlo a
+  una carpeta donde se pueda escribir para correrlo. Otro usuario de la misma computadora que pueda leer la carpeta puede tener
   tomado el candado y dejar el programa sin arrancar. Las órdenes que anotan en la memoria
   sin correr el programa (`corregir`, aprobar una propuesta) no toman el candado: dos a la
   vez, justo en el mismo instante, pueden pisarse una lección. El pedido que espera el
