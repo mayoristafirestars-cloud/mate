@@ -19375,3 +19375,86 @@ def test_el_manual_dice_lo_de_la_cuarta_pasada_de_la_revision_externa():
     assert "esperan unos segundos, avisan `está abierto en otra ventana` y terminan con " \
            "código 2 sin tocar nada" in leeme
     assert "`corregir` y aprobar una propuesta, no: cambian la memoria" in leeme
+
+
+# Revisión externa, cuarta pasada (P196): --traza=archivo escribe sin candado, así que no
+# puede apuntar a un archivo que lleva Mate. La memoria queda intacta, byte a byte.
+
+@pytest.mark.parametrize("orden", ["correr", "probar"])
+@pytest.mark.parametrize("nombre", [
+    "caja.memoria.json", "CAJA.Memoria.JSON", "caja.memoria.json. ", "caja.memoria.json.tmp",
+    "caja.memoria.json.123.tmp", "caja.memoria.rota.json", "caja.memoria.candado",
+    "otro.memoria.json", "caja.memoria.json::$DATA", "a:b.memoria.json",
+    "caja.bitacora.txt", "caja.buzon/1.json", "caja.buzon/rechazados/1.json"])
+def test_la_traza_no_pisa_la_memoria_ni_sin_candado(tmp_path, monkeypatch, capsys,
+                                                    orden, nombre):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    (tmp_path / "caja.mate").write_text(
+        'mostrar("hola")\n', encoding="utf-8")
+    memoria = tmp_path / "caja.memoria.json"
+    antes = b'{"estado": {"Deposito": {"stock": 0}}}\n'
+    memoria.write_bytes(antes)
+    for destino in (nombre, str(tmp_path / nombre)):
+        codigo = mate.main([orden, "caja.mate", f"--traza={destino}"])
+        salida = capsys.readouterr()
+        assert codigo == 2 and salida.out == ""
+        assert "lo lleva Mate" in salida.err and "--traza=conversacion.txt" in salida.err
+        assert memoria.read_bytes() == antes
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["caja.mate", "caja.memoria.json"]
+
+
+def test_la_traza_tampoco_pisa_la_memoria_por_un_acceso(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    (tmp_path / "caja.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    memoria = tmp_path / "caja.memoria.json"
+    antes = b'{"estado": {"Deposito": {"stock": 0}}}\n'
+    memoria.write_bytes(antes)
+    try:
+        os.symlink(memoria, tmp_path / "charla.txt")
+    except (OSError, NotImplementedError):
+        pytest.skip("acá no se pueden crear accesos (hace falta permiso en Windows)")
+    assert mate.main(["correr", "caja.mate", "--traza=charla.txt"]) == 2
+    assert "lo lleva Mate" in capsys.readouterr().err
+    assert memoria.read_bytes() == antes
+    assert mate.guardar_conversacion(str(memoria), "caja.mate", ["x"], {
+        "enviar": 0, "preguntar": 0, "fallaron": 0}) is not None
+    assert memoria.read_bytes() == antes
+
+
+def test_la_traza_a_un_archivo_comun_sigue_andando(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    (tmp_path / "caja.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    for destino in ("conversacion.txt", "memoria.txt", "mi.memoria.txt"):
+        assert mate.main(["correr", "caja.mate", f"--traza={destino}"]) == 0
+        capsys.readouterr()
+        assert (tmp_path / destino).read_text(encoding="utf-8-sig").startswith("Conversación")
+
+
+def test_la_traza_tampoco_pisa_la_memoria_por_un_enlace_duro(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    (tmp_path / "caja.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    memoria = tmp_path / "caja.memoria.json"
+    antes = b'{"agentes": {}}\n'
+    memoria.write_bytes(antes)
+    try:
+        os.link(memoria, tmp_path / "duro.txt")
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("acá no se pueden crear enlaces duros")
+    mate.main(["correr", "caja.mate", "--traza=duro.txt"])  # avisa y no escribe
+    assert "lo lleva Mate" in capsys.readouterr().err
+    assert memoria.read_bytes() == antes
+
+
+@pytest.mark.parametrize("nombre", ["caja.mate.txt", "correr.bat", "caja.mate.", "x.ps1",
+                                    "caja.mate::$DATA", "MATE.PY "])
+def test_la_traza_no_pisa_programas_con_nombres_raros(tmp_path, monkeypatch, capsys, nombre):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    (tmp_path / "caja.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    assert mate.main(["correr", "caja.mate", f"--traza={nombre}"]) == 2
+    assert "para no pisar un programa" in capsys.readouterr().err
+    assert [p.name for p in tmp_path.iterdir()] == ["caja.mate"]

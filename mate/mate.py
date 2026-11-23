@@ -12411,6 +12411,42 @@ def avisar_pendientes(interprete, avisar):
         avisar(f"  ... y {len(cola) - 5} más")
 
 
+def nombres_de_un_camino(camino):
+    """Los nombres con que hay que mirar el último tramo de un camino: tal cual y como lo
+    ve Windows (sin puntos ni espacios al final, sin lo que sigue a un ':'). En minúsculas."""
+    nombre = camino.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
+    return {nombre, nombre.rstrip(". "), nombre.split(":")[0].rstrip(". ")}
+
+
+def traza_pisaria_la_memoria(destino, programa=None):
+    """¿Ese destino de --traza= es un archivo que lleva Mate (la memoria de un programa, su
+    provisorio, la apartada por rota, el candado, la bitácora o un sobre del buzón)? La
+    traza se escribe sin candado, así que ahí no va nunca: pisaría lo que recuerdan los
+    agentes (el stock, por ejemplo). Mira el nombre (entero y como lo ve Windows), adónde
+    lleva de verdad (por si es un acceso a otro archivo) y, si se sabe qué programa corre,
+    si es el mismo archivo que alguno de los suyos aunque se llame distinto."""
+    def lo_lleva_mate(camino):
+        tramos = camino.replace("\\", "/").lower().split("/")
+        if any(t.split(":")[0].rstrip(". ").endswith(".buzon") for t in tramos[:-1]):
+            return True
+        return any(".memoria.json" in n or ".bitacora.txt" in n or n.endswith(
+            (".memoria.rota.json", ".memoria.candado")) for n in nombres_de_un_camino(camino))
+    try:
+        real = os.path.realpath(destino)
+    except (OSError, ValueError):
+        real = destino
+    if lo_lleva_mate(destino) or lo_lleva_mate(real):
+        return True
+    for que in (("memoria.json", "memoria.rota.json", "memoria.candado", "bitacora.txt")
+                if programa else ()):
+        try:
+            if os.path.samefile(destino, archivo_de(programa, que)):
+                return True
+        except (OSError, ValueError):
+            pass
+    return False
+
+
 def guardar_conversacion(destino, programa, renglones, cuenta, sumar=False):
     """Deja la conversación en un archivo de texto, con un resumen al final. Devuelve
     None si salió bien o la explicación de por qué no se pudo. Con sumar=True la agrega
@@ -12421,6 +12457,9 @@ def guardar_conversacion(destino, programa, renglones, cuenta, sumar=False):
     resumen += ("Ninguno falló." if not cuenta["fallaron"]
                 else f"Fallaron {cuenta['fallaron']}.")
     texto = "\n".join([f"Conversación de {programa}", ""] + renglones + ["", resumen, ""])
+    if traza_pisaria_la_memoria(destino, programa):
+        return (f"no guardé la conversación en '{destino}': ese archivo lo lleva Mate "
+                "(la memoria de los agentes, la bitácora o el buzón)")
     try:
         # con la marca del principio, para que el Bloc de notas muestre bien las tildes
         with open(destino, "a" if sumar else "w",
@@ -13699,9 +13738,14 @@ def _main(argv, donde):
                 avisar("a --traza= le falta el nombre del archivo, por ejemplo: "
                        "--traza=conversacion.txt")
                 return 2
-            if conversacion.lower().endswith((".mate", ".py", ".pyw")):
+            if any(n.endswith(NO_SE_PISAN) for n in nombres_de_un_camino(conversacion)):
                 avisar(f"no guardo la conversación en '{conversacion}' para no pisar un "
                        "programa: elegí otro nombre, por ejemplo --traza=conversacion.txt")
+                return 2
+            if traza_pisaria_la_memoria(conversacion):
+                avisar(f"no guardo la conversación en '{conversacion}': ese archivo lo "
+                       "lleva Mate (la memoria de los agentes, como el stock, la "
+                       "bitácora o el buzón). Elegí otro nombre, por ejemplo --traza=conversacion.txt")
                 return 2
         elif corrige and len(args) >= 3 and a.startswith("-") and (
                 not _FORMA_DE_OPCION.fullmatch(a)):

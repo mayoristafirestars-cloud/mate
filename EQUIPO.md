@@ -3205,6 +3205,41 @@ cuatro emisores ni verificar su origen histórico; `pytest` completo en 3.11 y 3
 forzado propio para las propuestas que deja `ensayar` (lo cubre solo la batería); pasar por
 el especialista en seguridad; probar con una IA de verdad; y subir nada.
 
+### Cuarta pasada del revisor externo (sobre `87a5609`): la traza no pisa la memoria
+
+El revisor externo confirmó en Windows (Python 3.12, batería completa: 1245 pasan, 0 fallan,
+17 salteadas; ejemplos 114/114; curso 37/37) que E1, E2 y E3 quedaron resueltos y que las 5
+fallas de Windows ya no están. La integración continua pasó en Windows y Linux con Python
+3.10 y 3.14 sobre `87a5609`. Pidió un solo cambio:
+
+| Hallazgo | Gravedad | Qué era | Estado |
+|---|---|---|---|
+| F1 (era P196) | media | `correr`/`probar` con `--traza=<programa>.memoria.json` reemplazaba la memoria por el texto de la conversación, sin candado | **resuelto** |
+
+**Arreglo** (coordinador, por ser chico; revisado por un revisor independiente, que no lo
+escribió): `traza_pisaria_la_memoria()` rechaza como destino de `--traza=` todo archivo que
+lleva Mate: memoria, su provisorio, la apartada por rota, el candado, la bitácora y lo que
+esté dentro de una carpeta `.buzon`. Se mira el nombre entero y como lo ve Windows, adónde
+lleva un acceso (`realpath`) y, dentro de `guardar_conversacion`, si es el mismo archivo que
+alguno del programa aunque se llame distinto (`samefile`: enlaces duros). Al leer la opción:
+aviso y código 2, sin correr nada.
+
+**Lo que encontró el revisor independiente en la primera versión del arreglo** (todo
+corregido en el mismo commit): un `:` en el nombre salteaba el control en Linux
+(`a:b.memoria.json`); la bitácora y el buzón no estaban cubiertos; `--traza=` pisaba
+programas con nombres como `caja.mate.txt`, `correr.bat` o `caja.mate.` (ya existía: ahora
+usa `NO_SE_PISAN` y el nombre limpio); enlace duro a la memoria (ya existía).
+
+**Evidencia**: 35 pruebas nuevas (memoria intacta byte a byte con 13 nombres × `correr` y
+`probar`, acceso simbólico, enlace duro, programas con nombres raros, y que una traza común
+sigue andando). Las tres corridas del coordinador: 1297 / 114 de 114 / 37 de 37. A mano:
+`probar neg.mate --traza=neg.memoria.json` da código 2 y la memoria queda idéntica (`cmp`).
+
+**Queda** (bajo, solo Windows, sin verificar): nombres cortos 8.3 y letras Unicode que NTFS
+pudiera igualar; dependen de `realpath`/`samefile`. El resto de los bajos (P197 a P202, P192,
+P180) sigue igual.
+
+
 ## Estado final de la 0.7
 
 **Estado de hoy** (integrador, después de la tercera pasada del revisor externo sobre el pull
