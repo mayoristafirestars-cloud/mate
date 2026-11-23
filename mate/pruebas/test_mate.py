@@ -19444,8 +19444,9 @@ def test_la_traza_tampoco_pisa_la_memoria_por_un_enlace_duro(tmp_path, monkeypat
         os.link(memoria, tmp_path / "duro.txt")
     except (OSError, NotImplementedError, AttributeError):
         pytest.skip("acá no se pueden crear enlaces duros")
-    mate.main(["correr", "caja.mate", "--traza=duro.txt"])  # avisa y no escribe
-    assert "lo lleva Mate" in capsys.readouterr().err
+    assert mate.main(["correr", "caja.mate", "--traza=duro.txt"]) == 2
+    salida = capsys.readouterr()
+    assert salida.out == "" and "lo lleva Mate" in salida.err  # ni llegó a correr
     assert memoria.read_bytes() == antes
 
 
@@ -19458,3 +19459,93 @@ def test_la_traza_no_pisa_programas_con_nombres_raros(tmp_path, monkeypatch, cap
     assert mate.main(["correr", "caja.mate", f"--traza={nombre}"]) == 2
     assert "para no pisar un programa" in capsys.readouterr().err
     assert [p.name for p in tmp_path.iterdir()] == ["caja.mate"]
+
+
+# Quinta pasada del revisor externo: el mismo archivo con otro nombre se rechaza ANTES de
+# correr (código 2 y el programa no se ejecuta), no al guardar la conversación.
+
+@pytest.mark.parametrize("orden", ["correr", "probar", "verificar"])
+@pytest.mark.parametrize("cual", ["caja.memoria.json", "caja.bitacora.txt",
+                                  "caja.memoria.candado", "caja.mate"])
+def test_la_traza_al_mismo_archivo_con_otro_nombre_se_rechaza_antes_de_correr(
+        tmp_path, monkeypatch, capsys, orden, cual):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    (tmp_path / "caja.mate").write_text(
+        'escribir_archivo("corri.txt", "si")\nmostrar("hola")\n', encoding="utf-8")
+    memoria = tmp_path / "caja.memoria.json"
+    antes = b'{"agentes": {}}\n'
+    memoria.write_bytes(antes)
+    programa = (tmp_path / "caja.mate").read_bytes()
+    (tmp_path / "otro_nombre.txt").write_text("x", encoding="utf-8")
+    el_de_verdad = os.path.samefile
+
+    def el_mismo(a, b):  # como si otro_nombre.txt fuera un enlace duro a 'cual'
+        nombres = {os.path.basename(str(a)), os.path.basename(str(b))}
+        return nombres == {"otro_nombre.txt", cual} or (
+            os.path.exists(a) and os.path.exists(b) and el_de_verdad(a, b))
+
+    monkeypatch.setattr(mate.os.path, "samefile", el_mismo)
+    assert mate.main([orden, "caja.mate", "--traza=otro_nombre.txt"]) == 2
+    salida = capsys.readouterr()
+    assert salida.out == "" and "--traza=conversacion.txt" in salida.err
+    assert not (tmp_path / "corri.txt").exists()  # el programa no se ejecutó
+    assert memoria.read_bytes() == antes
+    assert (tmp_path / "caja.mate").read_bytes() == programa
+    assert (tmp_path / "otro_nombre.txt").read_text(encoding="utf-8") == "x"
+
+
+def test_la_traza_por_un_acceso_a_un_programa_se_rechaza_antes_de_correr(
+        tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    (tmp_path / "caja.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    (tmp_path / "otro.mate").write_text('mostrar("otro")\n', encoding="utf-8")
+    try:
+        os.symlink(tmp_path / "otro.mate", tmp_path / "acc.txt")
+    except (OSError, NotImplementedError):
+        pytest.skip("acá no se pueden crear accesos (hace falta permiso en Windows)")
+    assert mate.main(["correr", "caja.mate", "--traza=acc.txt"]) == 2
+    salida = capsys.readouterr()
+    assert salida.out == "" and "para no pisar un programa" in salida.err
+    assert (tmp_path / "otro.mate").read_text(encoding="utf-8") == 'mostrar("otro")\n'
+
+
+def test_probar_varios_rechaza_la_traza_antes_de_probar_ninguno(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    for nombre in ("a.mate", "b.mate"):
+        (tmp_path / nombre).write_text('mostrar("hola")\n', encoding="utf-8")
+    memoria = tmp_path / "b.memoria.json"
+    memoria.write_bytes(b'{"agentes": {}}\n')
+    try:
+        os.link(memoria, tmp_path / "duro.txt")
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("acá no se pueden crear enlaces duros")
+    assert mate.main(["probar", "a.mate", "b.mate", "--traza=duro.txt"]) == 2
+    salida = capsys.readouterr()
+    assert salida.out == "" and "lo lleva Mate" in salida.err
+    assert memoria.read_bytes() == b'{"agentes": {}}\n'
+
+
+@pytest.mark.parametrize("pedidos", [["."], ["a", "b"], ["a.mate", "carp"], ["carp"]])
+@pytest.mark.parametrize("cual", ["memoria", "programa"])
+def test_probar_carpeta_o_sin_extension_rechaza_la_traza_antes_de_probar_ninguno(
+        tmp_path, monkeypatch, capsys, pedidos, cual):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MATE_SIN_REGISTRO", "1")
+    carpeta = tmp_path / "carp" if "carp" in pedidos else tmp_path
+    carpeta.mkdir(exist_ok=True)
+    (tmp_path / "a.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    (carpeta / "b.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+    (carpeta / "b.memoria.json").write_bytes(b'{"agentes": {}}\n')
+    blanco = carpeta / ("b.memoria.json" if cual == "memoria" else "b.mate")
+    antes = blanco.read_bytes()
+    try:
+        os.link(blanco, tmp_path / "duro.txt")
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("acá no se pueden crear enlaces duros")
+    assert mate.main(["probar"] + pedidos + ["--traza=duro.txt"]) == 2
+    salida = capsys.readouterr()
+    assert salida.out == "" and "--traza=conversacion.txt" in salida.err
+    assert blanco.read_bytes() == antes

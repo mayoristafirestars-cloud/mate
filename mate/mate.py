@@ -12447,6 +12447,30 @@ def traza_pisaria_la_memoria(destino, programa=None):
     return False
 
 
+def traza_no_va_ahi(destino, programa):
+    """Antes de correr 'programa': ¿la traza iría a parar a un archivo que no se pisa,
+    aunque el nombre no lo diga (un acceso o un enlace a la memoria, a la bitácora o a un
+    programa)? Devuelve el aviso, o None si el destino sirve. Se mira ANTES de correr,
+    para no atender nada y terminar con error en vez de avisar al final."""
+    if traza_pisaria_la_memoria(destino, programa):
+        return (f"no guardo la conversación en '{destino}': ese archivo lo lleva Mate (la "
+                "memoria de los agentes, como el stock, la bitácora o el buzón). Elegí "
+                "otro nombre, por ejemplo --traza=conversacion.txt")
+    try:
+        real = os.path.realpath(destino)
+    except (OSError, ValueError):
+        real = destino
+    es_programa = any(n.endswith(NO_SE_PISAN) for n in nombres_de_un_camino(real))
+    try:
+        es_programa = es_programa or os.path.samefile(destino, programa)
+    except (OSError, ValueError):
+        pass
+    if es_programa:
+        return (f"no guardo la conversación en '{destino}' para no pisar un programa: "
+                "elegí otro nombre, por ejemplo --traza=conversacion.txt")
+    return None
+
+
 def guardar_conversacion(destino, programa, renglones, cuenta, sumar=False):
     """Deja la conversación en un archivo de texto, con un resumen al final. Devuelve
     None si salió bien o la explicación de por qué no se pudo. Con sumar=True la agrega
@@ -13096,6 +13120,16 @@ def probar_varios(pedidos, opciones, avisar):
             avisar(f"en la carpeta '{pedido}' no hay ningún archivo .mate")
             return 2
         archivos += [os.path.join(pedido, a) for a in adentro]
+    # Con --traza=archivo la conversación es una sola para todos: si iría a parar a un
+    # archivo de alguno de ellos (aunque se llame distinto), no se prueba ninguno.
+    destinos = [o[len("--traza="):].strip('"') for o in opciones
+                if o.lower().startswith("--traza=")]
+    for archivo in archivos if destinos and destinos[-1] else ():
+        ubicado, problema = _ubicar(archivo)
+        problema = not problema and traza_no_va_ahi(destinos[-1], ubicado)
+        if problema:
+            avisar(problema)
+            return 2
     pasaron = total = 0
     con_problemas = []
     guardadas = []  # con --traza=archivo: las conversaciones ya guardadas (van una tras otra)
@@ -13918,6 +13952,10 @@ def _main(argv, donde):
     if problema:
         avisar(problema, "al escribir la orden: no está el archivo"
                if problema.startswith("no encuentro") else None)
+        return 2
+    problema = conversacion and traza_no_va_ahi(conversacion, ruta)
+    if problema:  # antes de correr nada: ni se atiende ni se toca la memoria
+        avisar(problema)
         return 2
     donde["ruta"] = ruta
     if ruta.lower().endswith(".mate.txt"):

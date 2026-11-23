@@ -3240,6 +3240,35 @@ pudiera igualar; dependen de `realpath`/`samefile`. El resto de los bajos (P197 
 P180) sigue igual.
 
 
+### Quinta pasada del revisor externo (sobre `785cece`): la traza se rechaza antes de correr
+
+El revisor externo confirmó en Windows que el caso de P196 quedó resuelto (batería completa:
+1278 pasan, 0 fallan, 19 salteadas) y pidió un cambio, de gravedad media:
+
+| Hallazgo | Qué era | Estado |
+|---|---|---|
+| G1 | El destino de `--traza=` que es el mismo archivo que la memoria con otro nombre (`samefile`) se rechazaba recién al guardar la conversación: el programa corría y devolvía 0 | **resuelto** |
+
+**Arreglo** (coordinador; revisado en dos miradas por el revisor independiente):
+`traza_no_va_ahi(destino, programa)` se llama en `main` apenas se ubica el programa, antes de
+leerlo o correrlo: aviso y código 2. Compara con `samefile` contra la memoria, la apartada por
+rota, el candado, la bitácora y el propio programa, y mira adónde lleva un acceso. Con
+`probar` de varios archivos o de una carpeta, `probar_varios` hace el control sobre la lista ya
+expandida y resuelta, antes de probar ninguno. `guardar_conversacion` conserva su control como
+segunda defensa.
+
+**Lo que encontró el revisor independiente** (corregido): con `probar` de carpeta o con
+nombres sin `.mate`, el primer programa corría antes del rechazo.
+
+**Evidencia**: 22 pruebas nuevas que exigen código 2, salida vacía y que el programa no se
+haya ejecutado (`correr`, `probar`, `verificar`; memoria, bitácora, candado y programa; carpeta
+y nombres sin extensión). Tres corridas del coordinador: 1319 / 114 de 114 / 37 de 37.
+
+**Queda** (bajo, aceptado): un enlace duro armado a mano hacia un archivo de un programa que
+no participa de la corrida no se puede detectar; nombres 8.3 y letras Unicode en Windows,
+sin verificar.
+
+
 ## Estado final de la 0.7
 
 **Estado de hoy** (integrador, después de la tercera pasada del revisor externo sobre el pull
