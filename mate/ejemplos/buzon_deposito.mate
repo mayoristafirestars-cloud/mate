@@ -1,0 +1,65 @@
+# El otro programa del ejemplo del buzón (ver buzon_ventas.mate). Depósito es el dueño
+# del stock. No tiene renglones propios: cuando lo corren, atiende lo que le dejaron en
+# su buzón (la carpeta buzon_deposito.buzon) y contesta.
+#
+#   python mate.py correr buzon_deposito.mate
+#   (copiá antes los tres archivos a una carpeta tuya: lo explica buzon_ventas.mate)
+#
+# No hace falta 'usar buzon' para contestar: 'responder' le vuelve al que envió.
+
+usar "buzon_mensajes.mate"
+
+agente Deposito {
+    estado recordado stock = { yerba: 10, azucar: 4 }
+    # Los pedidos ya atendidos: el mismo pedido no descuenta dos veces (ni se contesta
+    # de nuevo: Ventas tampoco lo manda dos veces).
+    estado recordado vistos = []
+
+    al recibir Reservar como r {
+        si tiene(vistos, r.pedido) {
+            devolver
+        }
+        vistos = agregar(vistos, r.pedido)
+        sea hay = obtener(stock, r.producto, 0)
+        si r.cantidad > hay {
+            responder Reservado { pedido: r.pedido, hecho: falso, quedan: hay }
+        }
+        stock[r.producto] = hay - r.cantidad
+        responder Reservado { pedido: r.pedido, hecho: verdadero, quedan: stock[r.producto] }
+    }
+}
+
+# ── Las pruebas ──
+
+mensaje Probar { pedido: texto, cantidad: numero }
+agente Cliente {
+    estado vueltas = []
+    al recibir Probar como p {
+        enviar Reservar { pedido: p.pedido, producto: "yerba", cantidad: p.cantidad } a Deposito
+    }
+    al recibir Reservado como r { vueltas = agregar(vueltas, r) }
+}
+
+prueba "reserva, descuenta y contesta cuánto queda" {
+    enviar Probar { pedido: "P-1", cantidad: 2 } a Cliente
+    sea vueltas = mensajes_enviados("Reservado")
+    asegurar largo(vueltas) == 1
+    asegurar vueltas[0].mensaje.hecho
+    asegurar vueltas[0].mensaje.quedan == 8
+}
+
+prueba "el mismo pedido dos veces descuenta una sola" {
+    enviar Probar { pedido: "P-1", cantidad: 2 } a Cliente
+    enviar Probar { pedido: "P-1", cantidad: 2 } a Cliente
+    enviar Probar { pedido: "P-2", cantidad: 1 } a Cliente
+    sea vueltas = mensajes_enviados("Reservado")
+    asegurar largo(vueltas) == 2
+    asegurar vueltas[1].mensaje.quedan == 7
+}
+
+prueba "si no alcanza, no descuenta" {
+    enviar Probar { pedido: "P-9", cantidad: 50 } a Cliente
+    sea vueltas = mensajes_enviados("Reservado")
+    asegurar no vueltas[0].mensaje.hecho
+    asegurar vueltas[0].mensaje.quedan == 10
+}

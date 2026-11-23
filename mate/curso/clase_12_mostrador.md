@@ -501,8 +501,10 @@ notas: ahí están todas las consultas.
 
 ## Y ahora
 
-Terminaste el curso. Para seguir:
+Con esto tenés un mostrador completo. Para seguir:
 
+- La clase que sigue, la 13, es la última: en vez de un agente solo, un equipo de tres
+  que se hablan entre ellos (`python mate\mate.py curso 13`).
 - `python mate\mate.py ayuda` muestra todas las órdenes, y `python mate\mate.py ayuda si`
   (o cualquier otra palabra) explica esa palabra con un ejemplo.
 - En `mate\ejemplos` hay programas más largos, comentados renglón por renglón.

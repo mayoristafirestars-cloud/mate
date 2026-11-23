@@ -29,17 +29,21 @@ import csv
 import datetime
 import decimal
 import difflib
+import errno
 import io
 import json
 import math
 import operator
 import os
 import re
+import secrets
+import stat
+import time
 import types
 import unicodedata
 from collections import deque
 
-VERSION = "0.6"
+VERSION = "0.7"
 
 # El tope para que Mate siga siendo chico (mejora 90): no puede haber más palabras propias
 # ni más funciones incluidas que estas. Para agregar una hay que sacar otra, o discutir el
@@ -236,6 +240,24 @@ def espera_otra_cantidad(nombre, minimo, maximo, recibe):
     espera = str(maximo) if minimo == maximo else f"entre {minimo} y {maximo}"
     return ESPERA_OTRA_CANTIDAD.format(n=nombre, espera=espera, recibe=recibe)
 DEVOLVER_SUELTO = "'devolver' solo va dentro de una función"
+# El buzón entre programas (0.7):
+EN_EL_CONTRATO = ("{n} está en el contrato de conversación, que pide 'preguntar', y a otro "
+                  "programa no se le puede preguntar: sacalo del contrato o usá otro mensaje")
+
+
+def no_se_le_pregunta(agente, archivo, responde=None):
+    """El error de un 'preguntar' a un agente de otro programa."""
+    como = f"'al recibir {responde}' en un agente" if responde else "un 'al recibir'"
+    return (f"{agente} es de otro programa ({archivo}): no se le puede 'preguntar', porque "
+            "ese programa puede no estar corriendo. Mandale con 'enviar' y recibí la "
+            f"contestación con {como}")
+
+
+def de_otro_programa(agente, archivo, que):
+    """El error de lo que no se puede hacer con un agente de otro programa."""
+    return (f"{agente} es de otro programa ({archivo}): acá solo se le puede mandar un "
+            f"mensaje con 'enviar', no {que}. Sus copias, sus lecciones y su estado los "
+            "lleva ese programa")
 SOLO_EN_PRUEBA = ("mensajes_enviados() solo va dentro de una prueba: es para comprobar "
                   "qué mensajes se mandaron")
 SIMULAR_IA_SUELTO = ("simular_ia() solo va dentro de una prueba: fija lo que contesta la IA "
@@ -958,6 +980,13 @@ class Parser:
                     return ("usar_python", ln, self.espera(
                         "str", que="el nombre del archivo de Python entre comillas (usar "
                                    'python "ayudas.py")')[1])
+                # usar buzon "deposito.mate": los agentes de ese otro programa quedan como
+                # destino de 'enviar' (0.7). 'buzon' tampoco es una palabra reservada.
+                if self.es("id", "buzon"):
+                    self.tomar()
+                    return ("usar_buzon", ln, self.espera(
+                        "str", que="el nombre del otro programa entre comillas (usar "
+                                   'buzon "deposito.mate")')[1])
                 return ("usar", ln, self.espera("str", que="el nombre de un archivo")[1])
             if val == "mensaje":
                 return self.mensaje()
@@ -1642,9 +1671,12 @@ def revisar_pegado(fuente, archivo=None):
                         Linea(1 + fuente.count("\n", 0, primero.start(1)), archivo))
 
 
-def analizar(fuente, ruta=None, _vistos=None, en_consola=False, _raiz=None):
+def analizar(fuente, ruta=None, _vistos=None, en_consola=False, _raiz=None, _ajeno=False):
     """Convierte el texto en un programa, incluyendo lo que traiga con 'usar'.
-    _raiz: la carpeta del programa que se corre, cuando esto es un archivo traído."""
+    _raiz: la carpeta del programa que se corre, cuando esto es un archivo traído.
+    _ajeno: es el programa nombrado en un 'usar buzon': solo se lee para saber qué agentes
+    y mensajes tiene, así que su Python y sus propios 'usar buzon' no se miran."""
+    arriba = _vistos is None and not _ajeno  # el programa que se corre, no uno traído
     vistos = _vistos if _vistos is not None else set()
     if ruta:
         vistos.add(os.path.realpath(ruta))
@@ -1656,6 +1688,12 @@ def analizar(fuente, ruta=None, _vistos=None, en_consola=False, _raiz=None):
     tokens = tokenizar(fuente, ruta)
     revisar_cierres(tokens, fuente)
     for s in Parser(tokens, en_consola).programa():
+        if s[0] == "usar_buzon":
+            if not _ajeno:
+                programa.append(s)  # se resuelve al final, con el programa entero a la vista
+            continue
+        if s[0] == "usar_python" and _ajeno:
+            continue
         if s[0] == "usar_python":
             try:
                 nombre, archivo = archivo_de_python(carpeta, s[2])
@@ -1703,7 +1741,7 @@ def analizar(fuente, ruta=None, _vistos=None, en_consola=False, _raiz=None):
             e.linea = e.linea or s[1]
             raise
         try:
-            traido = analizar(texto, otra, vistos, _raiz=raiz)
+            traido = analizar(texto, otra, vistos, _raiz=raiz, _ajeno=_ajeno)
         except ErrorMate as e:
             if not getattr(e, "traido", False):  # se dice una vez: quién lo trajo
                 desde = f"desde {os.path.basename(ruta)}, línea {s[1]}" if ruta \
@@ -1714,8 +1752,149 @@ def analizar(fuente, ruta=None, _vistos=None, en_consola=False, _raiz=None):
             raise
         # De un archivo usado se toman las declaraciones, no lo que ejecuta ni sus pruebas.
         programa.extend(x for x in traido
-                        if x[0] in ("mensaje", "agente", "funcion", "sea", "usar_python"))
-    return programa
+                        if x[0] in ("mensaje", "agente", "funcion", "sea", "usar_python",
+                                    "usar_buzon"))
+    return traer_buzones(programa, ruta, raiz) if arriba else programa
+
+
+def nombre_de_programa(ruta):
+    """Cómo se llama un programa en el buzón: su archivo sin '.mate' (ni '.mate.txt')."""
+    return os.path.basename(archivo_de(ruta, ""))[:-1]
+
+
+def programa_del_buzon(raiz, escrito):
+    """De 'usar buzon "deposito.mate"': la ruta de ese otro programa. Tiene que estar en la
+    carpeta del programa que se corre: sin subcarpetas, sin '..' y sin la ruta completa."""
+    partes = [p for p in re.split(r"[\\/]", escrito.strip()) if p not in ("", ".")]
+    ultimo = partes[-1] if partes else "deposito.mate"
+    afuera = ErrorMate(
+        f"'usar buzon' nombra otro programa de la misma carpeta ({raiz}), y "
+        f'"{escrito}" queda afuera. Los dos programas van en la misma carpeta; escribí '
+        f'el nombre sin la ruta: usar buzon "{ultimo}"', familia="archivo")
+    if not partes:
+        raise ErrorMate("a 'usar buzon' le falta el nombre del otro programa, por ejemplo: "
+                        'usar buzon "deposito.mate"')
+    if len(partes) > 1 or ".." in partes or escrito.strip()[:1] in ("/", "\\") \
+            or re.match(r"[A-Za-z]:", partes[0]):
+        raise afuera
+    otra = os.path.join(raiz, partes[0])
+    if not os.path.isfile(otra) and os.path.isfile(otra + ".mate"):
+        otra += ".mate"
+    if os.path.isdir(otra):
+        raise ErrorMate(f"'{escrito}' es una carpeta, no un programa: 'usar buzon' lleva el "
+                        "archivo del otro programa, por ejemplo: usar buzon "
+                        '"deposito.mate"', familia="archivo")
+    if not os.path.isfile(otra):
+        raise ErrorMate(f"no pude abrir '{escrito}', el otro programa de 'usar buzon' (lo "
+                        f"busqué en {raiz})" + pista_de_usar(raiz, partes[0]),
+                        familia="archivo")
+    if os.path.normcase(os.path.dirname(os.path.realpath(otra))) \
+            != os.path.normcase(os.path.realpath(raiz)):
+        raise afuera  # (un acceso directo que lleva a otra carpeta tampoco vale)
+    try:
+        return os.path.relpath(otra)
+    except ValueError:  # en Windows, si está en otro disco
+        return otra
+
+
+def traer_buzones(programa, ruta, raiz):
+    """Resuelve los 'usar buzon "otro.mate"' (0.7). Del otro programa, que se lee pero nunca
+    se ejecuta, quedan:
+    - sus agentes, como "agentes de otro programa": sirven de destino de 'enviar';
+    - los mensajes que cruzan: los de los 'al recibir' de esos agentes, lo que 'responde'
+      cada uno y los mensajes que llevan adentro.
+    Lo que llega a los dos programas desde el mismo archivo y renglón (un mensajes.mate
+    traído con 'usar' por los dos) es lo mismo y vale una vez."""
+    pedidos = [s for s in programa if s[0] == "usar_buzon"]
+    if not pedidos:
+        return programa
+    resto = [s for s in programa if s[0] != "usar_buzon"]
+    propio = os.path.realpath(ruta) if ruta else None
+
+    def lugar(s):
+        archivo = getattr(s[1], "archivo", None) or ruta
+        return (os.path.normcase(os.path.realpath(archivo)) if archivo else None, int(s[1]))
+
+    def archivo_de_decl(s):
+        return os.path.basename(getattr(s[1], "archivo", None) or ruta or "este programa")
+
+    mensajes = {}
+    for s in resto:
+        if s[0] == "mensaje":
+            mensajes.setdefault(s[2], s)
+    agentes = {s[2]: s for s in resto if s[0] == "agente"}
+    ajenos, nuevos, traidos = {}, [], set()
+    for _, ln, escrito in pedidos:
+        try:
+            otra = programa_del_buzon(raiz, escrito)
+        except ErrorMate as e:
+            e.linea = e.linea or ln
+            raise
+        real, base = os.path.realpath(otra), os.path.basename(otra)
+        if real == propio:
+            if (getattr(ln, "archivo", None) or ruta) == ruta:
+                raise ErrorMate("un programa no se manda mensajes por el buzón a sí mismo: "
+                                "sus agentes ya se hablan con 'enviar'", ln)
+            continue  # (lo pide un archivo traído con 'usar', que también usan otros)
+        if real in traidos:
+            continue
+        traidos.add(real)
+        try:
+            suyo = analizar(leer_fuente(otra), otra, _raiz=raiz, _ajeno=True)
+        except OSError:
+            raise ErrorMate(f"no pude abrir '{escrito}', el otro programa de 'usar buzon'",
+                            ln, familia="archivo")
+        except ErrorMate as e:
+            donde = os.path.basename(getattr(e.linea, "archivo", None) or otra)
+            renglon = f", línea {int(e.linea)}" if e.linea else ""
+            raise ErrorMate(
+                f"el programa de 'usar buzon' tiene un error ({donde}{renglon}): {e.mensaje}. "
+                f"Arreglalo ahí: mientras {base} no se entienda, no se sabe qué mensajes "
+                "recibe", ln, familia=e.familia)
+        sus_mensajes = {}
+        for s in suyo:
+            if s[0] == "mensaje":
+                sus_mensajes.setdefault(s[2], s)
+        cruzan = []
+
+        def cruza(tipo):
+            tipo = tipo.rsplit(" de ", 1)[-1]
+            if tipo in sus_mensajes and tipo not in cruzan:
+                cruzan.append(tipo)
+                for _, de_campo, _ in sus_mensajes[tipo][3]:
+                    cruza(de_campo)
+                if sus_mensajes[tipo][4]:
+                    cruza(sus_mensajes[tipo][4])
+
+        for s in suyo:
+            if s[0] != "agente":
+                continue
+            tipos = [m[1] for m in s[4] if m[1] != AL_FALLAR]
+            for tipo in tipos:
+                cruza(tipo)
+            if s[2] in agentes and lugar(agentes[s[2]]) == lugar(s):
+                continue  # el mismo agente, traído con 'usar' por los dos: acá es local
+            if s[2] in ajenos and ajenos[s[2]][6:] == lugar(s):
+                continue
+            if s[2] in agentes or s[2] in ajenos:
+                raise ErrorMate(
+                    f"ya hay un agente {s[2]} en este programa: dos agentes no pueden "
+                    f"llamarse igual, aunque uno sea de otro programa ({base}). Cambiale el "
+                    "nombre a uno", ln)
+            ajenos[s[2]] = ("agente_ajeno", ln, s[2], tipos, base,
+                            os.path.basename(archivo_de(otra, "buzon"))) + lugar(s)
+        for nombre in cruzan:
+            suya, local = sus_mensajes[nombre], mensajes.get(nombre)
+            if local is None:
+                mensajes[nombre] = suya
+                nuevos.append(suya)
+            elif lugar(local) != lugar(suya) and local[3:] != suya[3:]:
+                raise ErrorMate(
+                    f"{nombre} está declarado distinto en {archivo_de_decl(local)} (línea "
+                    f"{int(local[1])}) y en {archivo_de_decl(suya)} (línea {int(suya[1])}). "
+                    "Los dos programas tienen que decir lo mismo: dejalo en un solo archivo "
+                    "(mensajes.mate) y traelo con 'usar' desde los dos", ln)
+    return resto + nuevos + list(ajenos.values())
 
 
 def archivo_de_python(carpeta, escrito):
@@ -1786,10 +1965,15 @@ def pista_de_usar(carpeta, nombre):
             return (f". Encontré {os.path.basename(forma)}.txt: el Bloc de notas le agregó "
                     ".txt; renombralo, o al guardar elegí Tipo: Todos los archivos")
     try:
-        hay = sorted(a for a in os.listdir(os.path.dirname(os.path.join(carpeta, nombre)))
-                     if a.lower().endswith(".mate"))
+        ahi = os.path.dirname(os.path.join(carpeta, nombre))
+        hay = sorted(a for a in os.listdir(ahi) if a.lower().endswith(".mate")
+                     and os.path.isfile(os.path.join(ahi, a)))
     except OSError:
         return ". Esa carpeta no existe"
+    for forma in formas:  # igual, salvo las mayúsculas (en Windows da lo mismo; en otras no)
+        for a in hay:
+            if a.casefold() == os.path.basename(forma).casefold():
+                return f". ¿Quisiste decir '{a}'? (escribilo igual, con las mismas mayúsculas)"
     for forma in formas:
         parecido = difflib.get_close_matches(os.path.basename(forma), hay, n=1, cutoff=0.75)
         if parecido:
@@ -2004,7 +2188,8 @@ def revisar_nombres(programa, mensajes, veces, en_consola=False):
       lo que falta se puede escribir en el renglón siguiente, y una función se puede rehacer."""
     errores, avisados = [], set()
     arriba = set(FUNCIONES) | {s[2] for s in programa
-                               if s[0] in ("sea", "funcion", "agente", "usar_python")}
+                               if s[0] in ("sea", "funcion", "agente", "usar_python",
+                                           "agente_ajeno")}
     tapadas = set(SE_PUEDEN_TAPAR) & set(_ligaduras(programa))  # nombres que el programa usa
     # Las funciones propias que seguro son esa función donde se las nombre: las de un
     # nombre que en todo el programa se le pone a una sola cosa.
@@ -2231,6 +2416,7 @@ def verificar(programa, en_consola=False):
     errores = []
     mensajes, agentes, estados = {}, {}, {}
     declarados = {}  # la declaración completa de cada agente
+    ajenos = {}  # los agentes de otro programa ('usar buzon'): nombre -> su archivo
     veces = _ligaduras(programa)
     errores += revisar_python(programa, veces)
     # Funciones que seguro son funciones donde se las nombre: las incluidas y las del
@@ -2274,6 +2460,19 @@ def verificar(programa, en_consola=False):
             agentes[s[2]] = [m[1] for m in s[4]]
             estados[s[2]] = {e[1]: e[2] for e in s[3]}
             declarados[s[2]] = s
+        elif s[0] == "agente_ajeno":
+            if s[2] in mensajes:
+                errores.append((s[1], f"'{s[2]}' es un mensaje de este programa y también "
+                                      f"un agente de {s[4]}: cambiale el nombre a uno"))
+            agentes[s[2]] = list(s[3])
+            estados[s[2]] = {}
+            ajenos[s[2]] = s[4]
+    try:  # (los mensajes del contrato de conversación no pueden ir a otro programa)
+        del_contrato = ContratoConversacion.del_programa(
+            programa, {nombre: s[3] for nombre, s in mensajes.items()}, agentes)
+        del_contrato = del_contrato.tipos if del_contrato else ()
+    except ErrorMate:
+        del_contrato = ()  # (ese error se avisa más abajo)
 
     def respuestas_de(agente, tipo, cuerpo):
         """Los 'responder' con un valor escrito a mano que no cumple el contrato."""
@@ -2472,7 +2671,10 @@ def verificar(programa, en_consola=False):
                         errores.append((ln, f"a {nombre} le falta el campo '{c}'"))
         elif len(n) == 5 and n[0] == "crear" and isinstance(n[4], list):
             _, ln, nombre, _, pares = n
-            if nombre not in agentes:
+            if nombre in ajenos:
+                errores.append((ln, de_otro_programa(nombre, ajenos[nombre],
+                                                     "crear una copia")))
+            elif nombre not in agentes:
                 errores.append((ln, con_sugerencia(
                     f"no existe el agente '{nombre}'", nombre, agentes)))
             else:
@@ -2492,9 +2694,17 @@ def verificar(programa, en_consola=False):
             varios = n[0] == "enviar" and _es_nodo(dest, "lista", 3)  # enviar ... a [a, b]
             for uno in (dest[2] if varios else [dest]):
                 a_quien = agente_de(uno, ag)
-                if a_quien and _es_nodo(msg, "ctor", 4) and msg[2] in mensajes:
+                if a_quien in ajenos and n[0] == "preguntar":
+                    errores.append((ln, no_se_le_pregunta(
+                        a_quien, ajenos[a_quien],
+                        mensajes[msg[2]][4] if _es_nodo(msg, "ctor", 4)
+                        and msg[2] in mensajes else None)))
+                elif a_quien and _es_nodo(msg, "ctor", 4) and msg[2] in mensajes:
                     if msg[2] not in agentes[a_quien]:
                         errores.append((ln, f"{a_quien} no sabe recibir '{msg[2]}'"))
+                    elif a_quien in ajenos:
+                        if msg[2] in del_contrato:
+                            errores.append((ln, EN_EL_CONTRATO.format(n=msg[2])))
                     elif n[0] == "preguntar" and nunca_responde(a_quien, msg[2]):
                         errores.append((ln, f"{a_quien} recibe '{msg[2]}' pero nunca "
                                             "responde: no se le puede preguntar (le falta "
@@ -2589,6 +2799,12 @@ class Agente:
         self.propuestas = []  # lecciones propuestas, sin aprobar: [{"fecha", "texto", "motivo"}]
         self.gasto = {}  # la cuenta de consultas: {"2026-11-21": {"consultas", "simuladas", "tokens"}}
         self.ensayo_desde = {}  # día -> las simuladas que ya traía la memoria al empezar
+        # Un agente de OTRO programa (0.7): acá solo es un destino de 'enviar'.
+        self.ajeno = None  # el archivo de ese programa ("deposito.mate"), o None si es de acá
+        self.programa = None  # cómo se llama ese programa en el buzón ("deposito")
+        self.carpeta_buzon = None  # la carpeta de su buzón ("deposito.buzon"), si se conoce
+        self.solo_responde = False  # llegó como remitente y no hay 'usar buzon' de su programa
+        self.propios = {}  # lo que sabe recibir, sin lo que se haya simulado en una prueba
 
 
 class Funcion:
@@ -2754,6 +2970,26 @@ def no_esta(mensaje, nombre, disponibles):
 
 
 _SUELTOS = frozenset((int, float, str, bool, type(None)))
+
+
+def lleva_agente(v, ajeno=False):
+    """¿Hay un agente en este valor, aunque sea adentro de una lista, mapa o mensaje?
+    ajeno: solo cuentan los de otro programa. Devuelve el agente, o None."""
+    if v.__class__ in _SUELTOS:
+        return None
+    if isinstance(v, Agente):
+        return v if v.ajeno is not None or not ajeno else None
+    if isinstance(v, Registro):
+        v = v.campos
+    if isinstance(v, dict):
+        v = v.values()
+    elif not isinstance(v, list):
+        return None
+    for x in v:
+        hallado = lleva_agente(x, ajeno)
+        if hallado is not None:
+            return hallado
+    return None
 
 
 def lleva_funcion(v):
@@ -3565,21 +3801,114 @@ def archivo_de(ruta, que):
     return f"{ruta}.{que}"
 
 
+def abrir_provisorio(provisorio, modo, **como):
+    """Abre un archivo provisorio NUEVO para escribir (modo "x" o "xb"). Si ya había algo
+    con ese nombre (uno viejo, o un acceso directo que alguien dejó ahí para que se escriba
+    en otro lado) lo saca primero: nunca se escribe a través de un acceso directo."""
+    for _ in range(3):
+        try:
+            if os.path.lexists(provisorio):
+                os.remove(provisorio)  # (de un acceso directo saca el acceso, no el archivo)
+            return open(provisorio, modo, **como)
+        except FileExistsError:  # apareció de nuevo justo ahora: se prueba otra vez
+            continue
+    raise FileExistsError(f"no pude crear {provisorio}")
+
+
+def nombre_provisorio(ruta):
+    """El nombre del provisorio de ese archivo: 'memoria.json' -> 'memoria.json.123-ab12cd34.tmp',
+    y el de un sobre del buzón 'id.json' -> 'id.123-ab12cd34.json.tmp' (sigue terminando en
+    '.json.tmp', que es lo que el buzón reconoce como provisorio y limpia si quedó viejo).
+    Lleva el número del proceso y unas letras al azar: dos ventanas que escriben el mismo
+    archivo a la vez no comparten provisorio, así que ninguna le borra el suyo a la otra."""
+    # Hasta la 0.7 el provisorio se llamaba siempre igual (el archivo más ".tmp"). Si quedó
+    # uno de esos (de un corte, o un acceso directo que alguien dejó ahí), se saca: de un
+    # acceso directo se saca el acceso, no el archivo al que apunta.
+    try:
+        if os.path.lexists(ruta + ".tmp"):
+            os.remove(ruta + ".tmp")
+    except OSError:
+        pass
+    marca = f"{os.getpid()}-{secrets.token_hex(4)}"
+    if ruta.lower().endswith(".json") and os.path.basename(
+            os.path.dirname(ruta)).lower().endswith(".buzon"):
+        return f"{ruta[:-len('.json')]}.{marca}.json.tmp"
+    return f"{ruta}.{marca}.tmp"
+
+
+PROVISORIO_DE_MATE = re.compile(r"\.\d+-[0-9a-f]{8}(\.json)?\.tmp\Z")
+LIMPIADAS = set()  # las carpetas donde esta corrida ya buscó provisorios viejos
+
+
+def limpiar_provisorios_viejos(carpeta):
+    """Saca de esa carpeta los provisorios de Mate (los de nombre_provisorio) de más de un
+    día: quedaron de una corrida que murió justo entre crearlo y ponerle el nombre. Como
+    llevan el número del proceso, la corrida siguiente ya no los pisa. Se mira una vez por
+    carpeta y por corrida; lo que no tiene esa forma de nombre no se toca, y de un acceso
+    directo se saca el acceso, no el archivo al que apunta."""
+    carpeta = os.path.abspath(carpeta or ".")
+    if carpeta in LIMPIADAS:
+        return
+    LIMPIADAS.add(carpeta)
+    try:
+        nombres = os.listdir(carpeta)
+    except OSError:
+        return
+    ahora = time.time()
+    for nombre in nombres:
+        if not PROVISORIO_DE_MATE.search(nombre.lower()):
+            continue
+        completo = os.path.join(carpeta, nombre)
+        try:
+            datos = os.lstat(completo)
+            if (stat.S_ISREG(datos.st_mode) or stat.S_ISLNK(datos.st_mode)) \
+                    and ahora - datos.st_mtime > VIDA_DE_UN_PROVISORIO:
+                os.remove(completo)
+        except OSError:
+            pass
+
+
 def escribir_entero(ruta, texto):
     """Escribe el archivo de una sola vez: primero en uno provisorio al lado y recién
     después lo pone en su lugar. Así nunca queda a medio escribir."""
-    provisorio = ruta + ".tmp"
+    limpiar_provisorios_viejos(os.path.dirname(ruta))
+    provisorio = nombre_provisorio(ruta)
     try:
         # con la marca del principio, para que el Bloc de notas muestre bien las tildes
-        with open(provisorio, "w", encoding="utf-8-sig", errors="backslashreplace") as f:
+        with abrir_provisorio(provisorio, "x", encoding="utf-8-sig",
+                              errors="backslashreplace") as f:
             f.write(texto)
-        os.replace(provisorio, ruta)
+        insistir(lambda: os.replace(provisorio, ruta))
     except BaseException:
         try:
             os.remove(provisorio)
         except OSError:
             pass
         raise
+
+
+def insistir(hacer, veces=6):
+    """Hace eso y, si el sistema contesta "no hay permiso", prueba de nuevo unas veces más
+    (en total espera un tercio de segundo). En Windows, abrir un archivo justo cuando otro
+    proceso lo está reemplazando, o reemplazar uno que otro proceso está leyendo en ese
+    instante, da PermissionError, y se va solo enseguida. Si no se va, sale ese error."""
+    pausa = 0.01
+    for intento in range(veces):
+        try:
+            return hacer()
+        except PermissionError:
+            if intento == veces - 1:
+                raise
+            time.sleep(pausa)
+            pausa *= 2
+
+
+def leer_archivo_de_memoria(ruta):
+    """El texto del archivo de memoria. Toda lectura de la memoria pasa por acá: la que
+    se hace sin el candado tomado ('lecciones', 'ensayar', 'buzon', o una corrida que
+    arranca mientras otra guarda) puede caer justo cuando otro proceso reemplaza el archivo,
+    y en Windows eso da un "no hay permiso" que dura un instante (ver insistir)."""
+    return insistir(lambda: leer_fuente(ruta))
 
 
 def en_un_renglon(texto, largo):
@@ -3606,7 +3935,7 @@ def leer_memoria(ruta):
         return float(t) if math.isfinite(float(t)) else numero_raro(t)
 
     try:
-        texto = leer_fuente(ruta)
+        texto = leer_archivo_de_memoria(ruta)
     except FileNotFoundError:
         return {}, []
     except (OSError, ErrorMate):
@@ -3670,14 +3999,111 @@ def leer_memoria(ruta):
     return limpio, avisos
 
 
-def guardar_memoria(ruta, programa, agentes):
+def leer_buzon_de_memoria(ruta):
+    """La parte "buzon" del archivo de memoria (0.7): ({"recibidos": [...], "por_salir":
+    [...]}, avisos). recibidos son los mensajes de otros programas que ya se atendieron
+    ("programa/id") y por_salir los que este programa todavía tiene que dejar en el buzón
+    de otro. Si el archivo no está, no se entiende o esa parte está mal armada, vale como
+    vacía (con un aviso): nunca rompe la lectura de lo demás."""
+    vacio = {"recibidos": [], "por_salir": []}
+    try:
+        datos = json.loads(leer_archivo_de_memoria(ruta))
+    except (OSError, ErrorMate, ValueError, RecursionError):
+        return vacio, []
+    parte = datos.get("buzon") if isinstance(datos, dict) else None
+    if parte is None:
+        return vacio, []
+    mal = (f'en {os.path.basename(ruta)}, la parte "buzon" no tiene la forma de siempre: '
+           "no la uso (puede repetirse o perderse algún mensaje entre programas)")
+    if not isinstance(parte, dict) or not isinstance(parte.get("recibidos", []), list) \
+            or not isinstance(parte.get("por_salir", []), list):
+        return vacio, [mal]
+    recibidos = [r for r in parte.get("recibidos", []) if isinstance(r, str)]
+    por_salir = []
+    for pendiente in parte.get("por_salir", []):
+        try:
+            if not isinstance(pendiente, dict) \
+                    or not carpeta_de_buzon_valida(pendiente.get("carpeta")):
+                raise NoSeEntrega
+            revisar_sobre(pendiente.get("sobre"))
+            por_salir.append({"carpeta": pendiente["carpeta"], "sobre": pendiente["sobre"]})
+        except NoSeEntrega:
+            continue
+    avisos = [mal] if len(recibidos) != len(parte.get("recibidos", [])) \
+        or len(por_salir) != len(parte.get("por_salir", [])) else []
+    return {"recibidos": recibidos, "por_salir": por_salir}, avisos
+
+
+class MemoriaSinCandado(Exception):
+    """Alguien quiso cambiar el archivo de memoria de un programa sin tener tomado su
+    candado. Es un error de Mate, no del programa: la memoria no se escribe nunca así."""
+
+
+# Los candados de memoria que tiene tomados ESTE proceso: la ruta del archivo de candado
+# -> el archivo abierto con el candado tomado. Los anota tomar_candado_de_memoria y los
+# saca soltar_candado_de_memoria; escribir_memoria mira acá antes de tocar nada.
+_CANDADOS_DE_MEMORIA = {}
+
+
+def clave_de_candado(ruta):
+    return os.path.normcase(os.path.abspath(ruta))
+
+
+def candado_de(archivo_memoria):
+    """El archivo de candado de esa memoria: caja.memoria.json -> caja.memoria.candado."""
+    if archivo_memoria.lower().endswith(".memoria.json"):
+        return archivo_memoria[:-len("json")] + "candado"
+    return archivo_memoria + ".candado"
+
+
+def tengo_el_candado(archivo_memoria, candado):
+    """¿Ese es el candado de esa memoria, y lo tiene tomado este proceso ahora mismo?"""
+    return (candado is not None and not getattr(candado, "closed", True)
+            and _CANDADOS_DE_MEMORIA.get(clave_de_candado(candado_de(archivo_memoria)))
+            is candado)
+
+
+def escribir_memoria(ruta, candado, texto=None, mover_a=None):
+    """EL ÚNICO LUGAR de Mate que cambia el archivo de memoria de un programa
+    (<programa>.memoria.json): lo escribe (texto), lo saca (sin texto) o lo deja aparte con
+    otro nombre (mover_a). Se NIEGA, con MemoriaSinCandado y sin tocar nada, si el que
+    llama no trae el candado de ESA memoria tomado por este proceso (el archivo que
+    devolvió tomar_candado_de_memoria y todavía no se soltó).
+    La regla es una sola: tomar el candado, LEER DE NUEVO la memoria del disco, aplicar el
+    cambio sobre eso, escribir y soltar (o tener el candado toda la corrida). Escribir una
+    copia leída antes de tomar el candado es pisar lo que otra ventana guardó en el medio:
+    una caja volvería a vender la unidad que ya vendió."""
+    if not tengo_el_candado(ruta, candado):
+        raise MemoriaSinCandado(
+            f"no se cambia {os.path.basename(ruta)} sin tener tomado su candado "
+            f"({os.path.basename(candado_de(ruta))}): primero tomar_candado_de_memoria, "
+            "después leer la memoria de nuevo y recién entonces escribirla")
+    if mover_a is not None:
+        insistir(lambda: os.replace(ruta, mover_a))
+    elif texto is None:
+        if os.path.lexists(ruta):
+            insistir(lambda: os.remove(ruta))
+    else:
+        escribir_entero(ruta, texto)
+
+
+def guardar_memoria(ruta, programa, agentes, buzon=None, candado=None):
     """Deja la memoria en su archivo (o lo saca, si ya no hay nada que recordar). Devuelve
-    None si salió bien o la explicación de por qué no se pudo."""
+    None si salió bien o la explicación de por qué no se pudo.
+    candado: el de esa memoria, TOMADO (ver escribir_memoria): sin él no se escribe, y lo
+    que se guarda tiene que salir de lo que se leyó con el candado ya tomado.
+    buzon: la parte del buzón entre programas (ver leer_buzon_de_memoria). Con None se
+    CONSERVA la que haya en el archivo: así 'corregir', 'lecciones', 'proponer' y la cuenta
+    de consultas guardan como siempre y no la pierden."""
+    if not tengo_el_candado(ruta, candado):
+        escribir_memoria(ruta, candado)  # (se niega: MemoriaSinCandado)
     agentes = {a: f for a, f in agentes.items() if any(f.values())}
     try:
-        if not agentes:
-            if os.path.lexists(ruta):
-                os.remove(ruta)
+        if buzon is None and os.path.lexists(ruta):
+            buzon = leer_buzon_de_memoria(ruta)[0]
+        buzon = {k: list(v) for k, v in (buzon or {}).items() if v}
+        if not agentes and not buzon:
+            escribir_memoria(ruta, candado)
             return None
         datos = {
             "que_es": f"La memoria de {programa}: lo que cada agente recuerda de una corrida "
@@ -3685,8 +4111,11 @@ def guardar_memoria(ruta, programa, agentes):
                       "cada vez que el programa termina. Para empezar de cero: correr con "
                       "--olvidar.",
             "agentes": agentes}
-        escribir_entero(ruta, json.dumps(datos, ensure_ascii=False, indent=2,
-                                         allow_nan=False) + "\n")
+        if buzon:  # (un programa sin buzón guarda lo mismo que antes, letra por letra)
+            datos["buzon"] = {"recibidos": buzon.get("recibidos", []),
+                              "por_salir": buzon.get("por_salir", [])}
+        escribir_memoria(ruta, candado, json.dumps(datos, ensure_ascii=False, indent=2,
+                                                   allow_nan=False) + "\n")
     except (OSError, ValueError, RecursionError):
         return (f"no pude guardar la memoria en '{ruta}': lo que pasó en esta corrida no va "
                 "a estar en la próxima. Fijate que el archivo no esté abierto en otro "
@@ -3727,6 +4156,814 @@ def fundir_memoria(leida, nueva, en_disco):
         if gasto:
             suya["gasto"] = gasto
     return {a: f for a, f in junta.items() if any(f.values())}
+
+
+# ───────────────────── Buzón entre programas (0.7) ─────────────────────
+# Un agente de un programa le puede 'enviar' un mensaje a un agente de OTRO programa de la
+# misma carpeta ('usar buzon "deposito.mate"'). El mensaje viaja en un "sobre" (un archivo
+# JSON) que queda en la carpeta deposito.buzon, y se entrega cuando ese programa corre.
+# - Lo que sale se anota primero en la memoria del que envía ("por salir"), junto con su
+#   estado, en una sola escritura; después se reparte. Así un corte no deja un mensaje
+#   enviado con el estado sin guardar, ni al revés.
+# - Lo que llega se valida con el contrato del que recibe. Lo que no se entrega va a la
+#   carpeta 'rechazados', intacto, con su motivo al lado.
+# - Lo que identifica a un mensaje es (programa que lo manda, id): el que recibe anota los
+#   que ya atendió y no los atiende dos veces.
+VERSION_DE_BUZON = 1  # el número que va en "mate_buzon"
+MAX_SOBRE = 2_000_000  # bytes: un archivo del buzón más pesado no se abre
+MAX_MENSAJE_AL_BUZON = 1_000_000  # bytes del mensaje que sale para otro programa
+MAX_SOBRES_POR_CORRIDA = 1000  # los que se atienden en una corrida; el resto espera
+MAX_RECIBIDOS = 2000  # ids ya atendidos que se recuerdan (más los que siguen en el buzón)
+MAX_NIVELES_DE_SOBRE = 100  # cosas una adentro de otra en un mensaje que llega
+LARGO_DE_MOTIVO = 400  # letras del motivo de una falla que vuelve al que envió
+VIDA_DE_UN_PROVISORIO = 86400  # segundos: un .tmp más viejo quedó de un corte y se borra
+SUELTO_EN_EL_BUZON = "(programa)"  # así figura lo que mandó el programa, no un agente
+_ID_DE_SOBRE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}")
+_NO_VA_EN_UN_NOMBRE = frozenset('\\/:*?"<>|')
+
+
+class NoSeEntrega(Exception):
+    """Por qué un sobre del buzón no se entrega (el texto es el motivo)."""
+
+
+def es_carpeta_de_verdad(ruta):
+    return os.path.isdir(ruta) and not os.path.islink(ruta)
+
+
+def nombre_de_programa_valido(nombre):
+    """¿Sirve como nombre de un programa (o de su carpeta) en el buzón? Nada que pueda
+    armar una ruta: ni barras, ni dos puntos, ni un punto adelante, ni CON o NUL."""
+    return (isinstance(nombre, str) and 0 < len(nombre) <= 150 and nombre == nombre.strip()
+            and not nombre.startswith(".") and not nombre.endswith(".")
+            and not any(c in _NO_VA_EN_UN_NOMBRE or ord(c) < 32 for c in nombre)
+            and nombre.split(".")[0].lower() not in _NOMBRES_DE_WINDOWS)
+
+
+def carpeta_de_buzon_valida(nombre):
+    return nombre_de_programa_valido(nombre) and nombre.lower().endswith(".buzon") \
+        and len(nombre) > len(".buzon")
+
+
+def revisar_lo_de_afuera(v, nivel=0):
+    """Un mensaje que cruza entre programas no trae agentes (la forma reservada
+    {"agente": ...}), ni números imposibles, ni demasiadas cosas una adentro de otra."""
+    if nivel > MAX_NIVELES_DE_SOBRE:
+        raise NoSeEntrega("trae demasiadas cosas una adentro de otra")
+    if isinstance(v, dict):
+        if set(v) in ({"agente"}, {"agente", "programa"}):
+            raise NoSeEntrega('trae un mapa con la forma reservada de un agente ({"agente": '
+                              "...}), y un mensaje entre programas todavía no puede llevar "
+                              "agentes: usá otras claves")
+        for x in v.values():
+            revisar_lo_de_afuera(x, nivel + 1)
+    elif isinstance(v, list):
+        for x in v:
+            revisar_lo_de_afuera(x, nivel + 1)
+    elif type(v) is int and v.bit_length() > MAX_BITS:
+        raise NoSeEntrega("trae un número demasiado grande")
+    elif type(v) is float and not math.isfinite(v):
+        raise NoSeEntrega("trae un número que no es válido")
+
+
+def revisar_sobre(datos):
+    """Controla que eso tenga la forma de un sobre del buzón. Lo que no conoce lo deja
+    pasar (puede ser de una versión siguiente)."""
+    no_es = ("no es un sobre de Mate (le falta 'mate_buzon', 'id', 'clase', 'de', 'para' o "
+             "'mensaje', o alguno no tiene la forma de siempre)")
+    if not isinstance(datos, dict):
+        raise NoSeEntrega(no_es)
+    version = datos.get("mate_buzon")
+    if type(version) is not int or version < 1:
+        raise NoSeEntrega(no_es)
+    if version > VERSION_DE_BUZON:
+        raise NoSeEntrega(f"lo escribió una versión más nueva de Mate (dice mate_buzon: "
+                          f"{version} y esta entiende hasta {VERSION_DE_BUZON})")
+    if not isinstance(datos.get("id"), str) or not _ID_DE_SOBRE.fullmatch(datos["id"]):
+        raise NoSeEntrega("su 'id' no tiene la forma permitida (letras sin tilde, cifras, "
+                          "punto, guion y guion bajo; hasta 120)")
+    if datos.get("clase") not in ("mensaje", "falla"):
+        raise NoSeEntrega(no_es)
+    for lado in ("de", "para"):
+        quien = datos.get(lado)
+        if not isinstance(quien, dict) or not all(
+                isinstance(quien.get(k), str) and 0 < len(quien[k]) <= 200
+                and not any(ord(c) < 32 for c in quien[k]) for k in ("programa", "agente")):
+            raise NoSeEntrega(no_es)
+    if not nombre_de_programa_valido(datos["de"]["programa"]):
+        raise NoSeEntrega("el nombre del programa que lo manda no sirve como nombre de "
+                          "archivo")
+    for clave in ("conversacion", "en_respuesta_a"):
+        if datos.get(clave) is not None and not (
+                isinstance(datos[clave], str) and _ID_DE_SOBRE.fullmatch(datos[clave])):
+            raise NoSeEntrega(no_es)
+    mensaje = datos.get("mensaje")
+    bien = isinstance(mensaje, dict) and set(mensaje) == {"tipo", "campos"} \
+        and isinstance(mensaje["tipo"], str) and isinstance(mensaje["campos"], dict)
+    if datos["clase"] == "falla":
+        if not isinstance(datos.get("motivo"), str):
+            raise NoSeEntrega(no_es)
+    elif not bien:
+        raise NoSeEntrega('su "mensaje" no tiene la forma {"tipo": ..., "campos": {...}}')
+    revisar_lo_de_afuera(mensaje)
+    return datos
+
+
+def abrir_sin_seguir(ruta):
+    """Abre para leer un archivo del buzón UNA sola vez y sin seguir accesos directos, y
+    controla sobre ese mismo archivo abierto (no sobre el nombre) que sea un archivo común.
+    Así no hay un momento entre mirarlo y leerlo en que alguien lo pueda cambiar por un
+    acceso directo a otro lado. Devuelve el archivo abierto ("rb"); OSError si no es un
+    archivo común o no se puede abrir.
+    - Donde el sistema lo tiene (Linux, macOS), O_NOFOLLOW hace que abrir un acceso directo
+      falle. En Windows no existe: ahí, con el archivo ya abierto, se controla que ese
+      archivo abierto sea el mismo que hay en la carpeta con ese nombre (y que ese nombre
+      no sea un acceso directo): si en el medio lo cambiaron por un acceso directo a otro
+      lado, lo abierto es lo de afuera y no coincide. (Sin probar en una Windows de verdad.)
+    - O_NONBLOCK: una tubería con nombre de sobre no deja al programa esperando."""
+    fd = os.open(ruta, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0)
+                 | getattr(os, "O_CLOEXEC", 0))
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"{ruta} no es un archivo común")
+        if not hasattr(os, "O_NOFOLLOW") and (
+                os.path.islink(ruta) or not es_el_de_la_carpeta(fd, ruta)):
+            raise OSError(f"{ruta} es un acceso directo")
+        f = os.fdopen(fd, "rb")
+        fd = None
+        return f
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def leer_sobre(ruta):
+    """El sobre que hay en ese archivo del buzón, ya controlado. NoSeEntrega si no sirve;
+    OSError si en este momento no se puede abrir, o si no es un archivo común (un acceso
+    directo, una carpeta): no se atiende ni se borra, y se prueba de nuevo en otra corrida."""
+    def raro(_):
+        raise ValueError
+
+    def decimal(t):
+        return float(t) if math.isfinite(float(t)) else raro(t)
+
+    with abrir_sin_seguir(ruta) as f:
+        crudo = f.read(MAX_SOBRE + 1)
+    if len(crudo) > MAX_SOBRE:
+        raise NoSeEntrega("pesa más de 2 MB")
+    try:
+        datos = json.loads(crudo.decode("utf-8-sig"), parse_constant=raro,
+                           parse_float=decimal)
+    except (UnicodeError, json.JSONDecodeError):
+        raise NoSeEntrega("no es un archivo JSON que se entienda")
+    except (ValueError, RecursionError):
+        raise NoSeEntrega("trae un número que no es válido, o demasiadas cosas una adentro "
+                          "de otra")
+    return revisar_sobre(datos)
+
+
+class SinCandado(OSError):
+    """Acá no se puede tener un candado, y no es porque lo tenga otra ventana. motivo:
+    "sistema" (la carpeta está en un lugar donde el sistema no da candados: pasa en algunas
+    carpetas de red) o "carpeta" (no hay un archivo de candado y no se puede crear: una
+    carpeta donde no se puede escribir)."""
+    def __init__(self, motivo, por_que=""):
+        super().__init__(por_que)
+        self.motivo = motivo
+
+
+def candado_ocupado(e):
+    """¿Ese error de pedir el candado quiere decir "lo tiene otro"? (Cualquier otro quiere
+    decir que acá no hay candados: no es lo mismo, y no se puede avisar lo mismo.)"""
+    ocupado = {errno.EACCES, errno.EAGAIN, getattr(errno, "EWOULDBLOCK", errno.EAGAIN),
+               getattr(errno, "EDEADLK", errno.EAGAIN), getattr(errno, "EDEADLOCK", errno.EAGAIN)}
+    return e.errno in ocupado
+
+
+def tomar_candado(ruta):
+    """El candado del buzón: lo tiene una sola ventana a la vez, y el sistema lo suelta si
+    el programa muere. Devuelve el archivo abierto con el candado tomado, o None si lo
+    tiene otra ventana. No espera. Un 'candado' que es un acceso directo no se sigue: se
+    saca y se crea uno de verdad. Se crea como cualquier archivo de datos (0o666 menos lo
+    que saque el sistema), sin permiso de ejecución: os.open(), si no se le dice, lo crea
+    con 0o777.
+    Lo que NO es "lo tiene otra ventana" sale como error, para que nadie lo confunda:
+    - SinCandado("carpeta"): no hay archivo de candado y no se puede crear;
+    - SinCandado("sistema"): el sistema no da candados en esa carpeta;
+    - otro OSError: hay algo con ese nombre que no se puede usar de candado (una carpeta,
+      una tubería, un archivo sobre el que no hay permiso).
+    Si el archivo es de otro usuario del sistema y no se puede abrir para escribir, se abre
+    para leer: el candado se toma igual, y es el mismo para los dos."""
+    if os.path.islink(ruta):
+        os.remove(ruta)
+    como = (getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0)
+            | getattr(os, "O_CLOEXEC", 0))
+    intentos = 0
+    while True:
+        try:
+            fd = os.open(ruta, os.O_RDWR | os.O_CREAT | como, 0o666)
+        except OSError as e:
+            if not os.path.lexists(ruta):
+                # (En Windows, abrir el candado justo cuando la corrida que lo tenía lo
+                # está borrando da "no hay permiso", y un instante después el archivo ya
+                # no está: eso no es una carpeta donde no se puede crear. Se prueba de
+                # nuevo antes de decirlo.)
+                intentos += 1
+                if intentos < 4:
+                    time.sleep(0.01)
+                    continue
+                raise SinCandado("carpeta", str(e))
+            if not isinstance(e, PermissionError):
+                raise
+            fd = os.open(ruta, os.O_RDONLY | como)
+        break
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "no es un archivo común", ruta)
+        f = os.fdopen(fd, "rb", buffering=0)
+        fd = None
+    finally:
+        if fd is not None:
+            os.close(fd)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        f.close()
+        if candado_ocupado(e):
+            return None
+        raise SinCandado("sistema", str(e))
+    return f
+
+
+def soltar_candado(f):
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    finally:
+        f.close()
+
+
+def tomar_candado_de_memoria(ruta, espera=0.0):
+    """El candado de la memoria de un programa (mi_negocio.memoria.candado, al lado del
+    programa). Lo tiene una sola corrida a la vez y el sistema lo suelta solo si el proceso
+    muere (es el mismo mecanismo que el candado del buzón). Devuelve el archivo abierto con
+    el candado tomado, o None si lo tiene otra corrida y no lo soltó en 'espera' segundos.
+    SinCandado si acá no se puede tener uno (ver tomar_candado), y otro OSError si con ese
+    nombre hay algo que no se puede usar de candado. Cuando falla NO borra el archivo: solo
+    lo borra, al soltar, la corrida que tiene el candado tomado.
+    El archivo se borra al soltar; por eso, después de tomarlo, se controla que el archivo
+    con candado sea el que está en la carpeta (otra corrida pudo borrarlo justo antes). En
+    Windows ese control no hace falta: ahí un archivo que alguien tiene abierto no se borra."""
+    limite = time.monotonic() + espera
+    fallas = 0
+    clave = clave_de_candado(ruta)
+    while True:
+        try:
+            f = tomar_candado(ruta)
+        except OSError as e:
+            if getattr(e, "motivo", ""):
+                # Acá no hay candados. El archivo NO se borra, aunque lo haya creado este
+                # mismo intento: no se puede saber si otra corrida lo abrió y lo tiene
+                # tomado (un fallo pasajero del sistema, o dos computadoras sobre la misma
+                # carpeta de red donde una sola consigue candados). Si se borrara, esa
+                # corrida seguiría con su candado sobre un archivo que ya no está en la
+                # carpeta, y una tercera crearía otro y atendería a la vez. Un archivo
+                # vacío de más no molesta: la próxima corrida lo usa.
+                raise
+            # (en Windows, abrir un archivo que otra corrida está borrando da un error que
+            # se va solo; con varias corridas tomando y soltando a la vez puede repetirse)
+            fallas += 1
+            if fallas >= 10:
+                raise
+            time.sleep(0.02)
+            continue
+        if f is not None:
+            if os.name == "nt" or es_el_de_la_carpeta(f, ruta):
+                mio = _CANDADOS_DE_MEMORIA.get(clave)
+                if mio is None or mio.closed:
+                    _CANDADOS_DE_MEMORIA[clave] = f
+                    return f
+                # Este mismo proceso ya lo tenía tomado (otra corrida adentro del mismo
+                # Python) y el sistema se lo dio de nuevo: hay sistemas donde el candado
+                # es del proceso. Para Mate está ocupado igual: el candado es de UNA
+                # corrida. Se devuelve este y se sigue como con cualquier candado ocupado.
+                soltar_candado(f)
+                f = None
+            else:
+                soltar_candado(f)  # ese archivo ya no es el que está en la carpeta: de nuevo
+                fallas += 1
+                if fallas >= 50:
+                    raise OSError(f"no pude tomar {ruta}")
+                continue
+        if time.monotonic() >= limite:
+            return None
+        time.sleep(0.02)
+
+
+def es_el_de_la_carpeta(f, ruta):
+    """¿Ese archivo abierto es el que hoy está en la carpeta con ese nombre?"""
+    try:
+        mio = os.fstat(f if isinstance(f, int) else f.fileno())
+        puesto = os.lstat(ruta)
+    except OSError:
+        return False
+    return (mio.st_dev, mio.st_ino) == (puesto.st_dev, puesto.st_ino)
+
+
+def soltar_candado_de_memoria(f, ruta):
+    """Suelta el candado de la memoria y saca su archivo, para no dejar nada de más al lado
+    del programa. (Si el proceso muere antes, el archivo queda y no molesta: sin candado.)"""
+    if _CANDADOS_DE_MEMORIA.get(clave_de_candado(ruta)) is f:
+        del _CANDADOS_DE_MEMORIA[clave_de_candado(ruta)]
+    if os.name == "nt":  # en Windows no se borra un archivo abierto: primero se suelta
+        soltar_candado(f)
+        try:
+            os.remove(ruta)
+        except OSError:  # (ya lo abrió otra corrida: es de ella)
+            pass
+        return
+    try:
+        # Con el candado todavía tomado: nadie más lo tiene. (Si alguien borró el archivo a
+        # mano y otra corrida ya creó el suyo, ese no es de esta: no se toca.)
+        if es_el_de_la_carpeta(f, ruta):
+            os.remove(ruta)
+    except OSError:
+        pass
+    soltar_candado(f)
+
+
+def por_que_no_se_tomo_el_candado(ruta, e):
+    """(qué pasó, qué puede hacer el usuario), en castellano llano, cuando el candado de la
+    memoria del programa 'ruta' no se pudo tomar y no es porque lo tenga otra ventana."""
+    archivo_candado = archivo_de(ruta, "memoria.candado")
+    motivo = getattr(e, "motivo", "")
+    if motivo == "sistema":
+        return (f"no pude tomar el candado de {os.path.basename(ruta)} "
+                f"({os.path.basename(archivo_candado)}): en esta carpeta el sistema no "
+                "da candados (pasa en algunas carpetas de red)",
+                "Copiá la carpeta del programa a un disco de esta computadora (por "
+                "ejemplo, adentro de Documentos) y corrélo desde ahí")
+    if motivo == "carpeta":
+        return (f"no pude crear {os.path.basename(archivo_candado)}, el archivo que "
+                f"marca que {os.path.basename(ruta)} está abierto: en esta carpeta no "
+                "se pueden crear archivos (no hay permiso para escribir, o el disco "
+                "está lleno)",
+                "Revisá los permisos de la carpeta, o copiala a un lugar donde puedas "
+                "escribir (por ejemplo, adentro de Documentos) y corrélo desde ahí")
+    nombre = os.path.basename(archivo_candado)
+    if os.path.isdir(archivo_candado):
+        que = "con ese nombre hay una carpeta"
+    elif isinstance(e, PermissionError):
+        que = "no tengo permiso para abrirlo (¿lo creó otro usuario de esta computadora?)"
+    else:
+        que = "con ese nombre hay algo que no es un archivo común"
+    return (f"no pude tomar {nombre}, el archivo que marca que "
+            f"{os.path.basename(ruta)} está abierto: {que}",
+            "Si no hay ninguna otra ventana con este programa, borralo (o cambiale el "
+            "nombre) y corré esto de nuevo")
+
+
+ESPERA_DE_UNA_ORDEN = 3.0  # segundos que 'corregir' y compañía esperan el candado
+# Lo que espera el candado un programa con 'estado recordado' al abrir. Si lo tiene otra
+# ventana del programa, lo tiene toda la charla: no sirve esperar, se avisa enseguida. Pero
+# 'corregir' y las demás órdenes que cambian la memoria lo tienen un instante, mientras
+# leen y escriben: con esta espera, abrir justo en ese instante no da "ya hay otra ventana".
+ESPERA_AL_ABRIR = 0.5
+
+
+def pedir_candado_de_memoria(ruta, avisar, para_que, espera=None):
+    """Para las órdenes que cambian la memoria de un programa sin correrlo ('corregir',
+    'lecciones --borrar', 'proponer', 'propuestas aprobar/descartar' y las propuestas que
+    deja 'ensayar'): toma el candado de la memoria de 'ruta', esperando un poco si lo tiene
+    otra corrida. Devuelve el candado tomado (el que llama lee la memoria DE NUEVO, cambia
+    eso, lo guarda y lo suelta con soltar_candado_de_memoria), o None después de avisar por
+    qué no: ahí no se toca nada y la orden termina con código distinto de 0.
+    para_que: lo que no se hizo, para el aviso ("no anoté la lección")."""
+    nombre = os.path.basename(ruta)
+    try:
+        candado = tomar_candado_de_memoria(
+            archivo_de(ruta, "memoria.candado"),
+            ESPERA_DE_UNA_ORDEN if espera is None else espera)
+    except OSError as e:
+        que_paso, que_hacer = por_que_no_se_tomo_el_candado(ruta, e)
+        avisar(f"{para_que}: {que_paso}. Sin candado no cambio la memoria de {nombre} "
+               "(podría pisar lo que está anotando otra ventana). "
+               f"{que_hacer}. Acá no se tocó nada")
+        return None
+    if candado is None:
+        avisar(f"{para_que}: {nombre} está abierto en otra ventana, que anota en la misma "
+               f"memoria ({os.path.basename(archivo_de(ruta, 'memoria.json'))}), y cambiarla "
+               "ahora sería pisarle lo que guarde (una venta, por ejemplo). Cerrá la otra "
+               "ventana y probá de nuevo. "
+               # (Windows contesta lo mismo cuando el candado lo tiene otro que cuando una
+               # carpeta de red no los da: no se distinguen.)
+               + ("Si no hay ninguna otra ventana abierta, puede ser que esta carpeta no dé "
+                  "candados (pasa en algunas carpetas de red): copiá la carpeta del "
+                  "programa a un disco de esta computadora y probá desde ahí. "
+                  if os.name == "nt" else "")
+               + "Acá no se tocó nada")
+    return candado
+
+
+def tiene_estado_recordado(programa):
+    """¿Algún agente del programa declara un 'estado recordado'?"""
+    if isinstance(programa, EstadoRecordado):
+        return True
+    return isinstance(programa, (list, tuple)) \
+        and any(tiene_estado_recordado(parte) for parte in programa)
+
+
+def cuantos_mensajes(n):
+    return "1 mensaje" if n == 1 else f"{n} mensajes"
+
+
+class Buzon:
+    """El buzón del programa que se corre con 'correr': lo que tiene por salir hacia otros
+    programas y lo que le llegó. 'probar', 'verificar', 'ensayar' y la consola no arman
+    ninguno, así que no leen ni escriben nada de esto."""
+
+    _ultima_corrida = 0  # (en millonésimas de segundo: ver el id, abajo)
+
+    def __init__(self, ruta, avisar=lambda texto: None):
+        self.ruta = os.path.abspath(ruta)
+        self.raiz = os.path.dirname(self.ruta)
+        self.archivo = os.path.basename(ruta)
+        self.programa = nombre_de_programa(ruta)
+        self.carpeta = archivo_de(self.ruta, "buzon")
+        self.avisar = avisar
+        # El id de cada sobre: cuándo arrancó la corrida, 20 cifras hexadecimales y el
+        # número de orden. Así los archivos quedan en el orden en que se enviaron, dentro
+        # de una corrida y entre corridas del mismo programa: de las 20 cifras, las 5
+        # primeras son las millonésimas de segundo de esa hora (dos corridas seguidas caen
+        # en el mismo segundo) y las otras 15 van al azar. La hora es la universal, que no
+        # salta para atrás con el cambio de hora.
+        # (Si el reloj no llega a distinguir dos corridas hechas desde un mismo proceso,
+        # la segunda se corre una millonésima: nunca queda igual ni antes.)
+        momento = max(time.time_ns() // 1000, Buzon._ultima_corrida + 1)
+        Buzon._ultima_corrida = momento
+        cuando = datetime.datetime(1970, 1, 1) + datetime.timedelta(microseconds=momento)
+        self.corrida = (f"{cuando:%Y%m%dT%H%M%S}-{cuando.microsecond:05x}"
+                        f"{secrets.token_hex(8)[:15]}")
+        self.atendio = False  # ¿llegó a atender lo que le dejaron? (si se corta, no)
+        self.orden = 0
+        self.leido = {"recibidos": [], "por_salir": []}  # lo que decía la memoria al empezar
+        self.ya_recibidos = set()
+        self.recibidos, self.por_salir = [], []  # lo nuevo de esta corrida
+        self.repartidos = set()  # (carpeta, id) de lo que ya quedó en el buzón del otro
+        self.atendidos, self.rechazos = [], []  # archivos a borrar, y (archivo, motivo) a mover
+        self.candado = None
+        self.cambio_la_memoria = lambda: (False, [])  # (lo pone 'correr')
+        # ¿Se va a poder guardar lo que se atienda? (lo pone 'correr': toma el candado de
+        # la memoria y se lo queda. True: lo tiene; None: lo tiene otra corrida; False: acá
+        # no hay candados, y ya avisó)
+        self.se_puede_guardar = lambda cuantos: True
+        self.atendi, self.deje, self.no_entregados = {}, {}, 0  # para el resumen
+        self._buscados = {}
+
+    def buscar(self, programa):
+        """(el archivo .mate, la carpeta del buzón) de ese programa, con los nombres tal
+        como figuran en el listado de la carpeta. El nombre que viene en un sobre nunca
+        se usa para armar una ruta: solo para compararlo con lo que hay."""
+        clave = unicodedata.normalize("NFC", programa).casefold()
+        if clave not in self._buscados:
+            archivo = carpeta = None
+            try:
+                hay = sorted(os.listdir(self.raiz))
+            except OSError:
+                hay = []
+            for nombre in hay:
+                bajo = unicodedata.normalize("NFC", nombre).casefold()
+                completo = os.path.join(self.raiz, nombre)
+                if bajo in (clave + ".mate", clave + ".mate.txt") and os.path.isfile(completo):
+                    archivo = archivo or nombre
+                elif bajo == clave + ".buzon" and es_carpeta_de_verdad(completo):
+                    carpeta = nombre
+            if archivo and not carpeta:
+                carpeta = os.path.basename(archivo_de(archivo, "buzon"))
+            self._buscados[clave] = (archivo, carpeta)
+        return self._buscados[clave]
+
+    def visible(self, programa):
+        """Cómo se nombra a ese programa en un aviso: 'ventas.mate' si está en la carpeta."""
+        return self.buscar(programa)[0] or programa
+
+    def nuevo_id(self):
+        self.orden += 1
+        return f"{self.corrida}-{self.orden:04d}"
+
+    def sobre(self, de_agente, para_programa, para_agente, mensaje, conversacion=None,
+              en_respuesta_a=None, falla=None, id=None):
+        """Arma un sobre. falla: el motivo, si es el aviso de que un mensaje no se pudo
+        atender (su id es el del mensaje original más '.falla': repetirlo no lo duplica)."""
+        id = id or self.nuevo_id()
+        sobre = {"mate_buzon": VERSION_DE_BUZON, "id": id,
+                 "clase": "mensaje" if falla is None else "falla",
+                 "de": {"programa": self.programa, "agente": de_agente},
+                 "para": {"programa": para_programa, "agente": para_agente},
+                 "conversacion": conversacion or id, "en_respuesta_a": en_respuesta_a,
+                 "cuando": datetime.datetime.now().isoformat(timespec="seconds"),
+                 "mensaje": mensaje}
+        if falla is not None:
+            sobre["motivo"] = en_un_renglon(falla, LARGO_DE_MOTIVO)
+        return sobre
+
+    def sale(self, carpeta, sobre):
+        """Anota un sobre para otro programa. Sale de verdad al terminar, después de
+        guardar la memoria."""
+        self.por_salir.append({"carpeta": carpeta, "sobre": sobre})
+
+    def dejar(self, carpeta, sobre):
+        """Escribe un sobre en el buzón de otro programa: primero en un archivo provisorio
+        y recién después con su nombre. Devuelve None, o por qué no se pudo."""
+        if not carpeta_de_buzon_valida(carpeta):
+            return f"'{carpeta}' no sirve como nombre de la carpeta de un buzón"
+        destino = os.path.join(self.raiz, carpeta)
+        if os.path.lexists(destino) and not es_carpeta_de_verdad(destino):
+            return (f"{carpeta} existe y no es una carpeta: ahí va el buzón de ese programa. "
+                    "Borralo o cambiale el nombre")
+        final = os.path.join(destino, sobre["id"] + ".json")
+        provisorio = None
+        try:
+            try:
+                crudo = json.dumps(sobre, ensure_ascii=False, indent=2,
+                                   allow_nan=False).encode("utf-8")
+            except UnicodeError:  # una letra rota: va escrita con su número
+                crudo = json.dumps(sobre, indent=2, allow_nan=False).encode("ascii")
+            os.makedirs(destino, exist_ok=True)
+            provisorio = nombre_provisorio(final)
+            with abrir_provisorio(provisorio, "xb") as f:
+                f.write(crudo)
+            os.replace(provisorio, final)
+        except (OSError, ValueError, RecursionError):
+            try:
+                if provisorio is not None:
+                    os.remove(provisorio)
+            except OSError:
+                pass
+            return (f"no pude escribir en {carpeta} (¿hay permiso para escribir en esa "
+                    "carpeta?)")
+        return None
+
+    def repartir(self, pendientes):
+        """Deja cada sobre pendiente en su buzón. Devuelve los que no se pudieron dejar
+        (siguen anotados en la memoria y salen en la próxima corrida)."""
+        quedan, problemas = [], {}
+        for pendiente in pendientes:
+            carpeta, sobre = pendiente["carpeta"], pendiente["sobre"]
+            problema = self.dejar(carpeta, sobre)
+            if problema:
+                quedan.append(pendiente)
+                problemas.setdefault(problema, []).append(pendiente)
+                continue
+            self.repartidos.add((carpeta, sobre["id"]))
+            para = self.visible(sobre["para"]["programa"])
+            self.deje[para] = self.deje.get(para, 0) + 1
+        for problema, cuales in problemas.items():
+            self.avisar(f"no pude dejar {cuantos_mensajes(len(cuales))} en el buzón de "
+                        f"{self.visible(cuales[0]['sobre']['para']['programa'])}: "
+                        f"{problema}. Queda anotado y sale la próxima vez que corra "
+                        f"{self.archivo}")
+        return quedan
+
+    def esperan(self, limpiar=False):
+        """Los sobres que hay en el buzón, en orden de nombre (que es el orden de envío)."""
+        try:
+            nombres = sorted(os.listdir(self.carpeta))
+        except OSError:
+            return []
+        archivos = []
+        for nombre in nombres:
+            completo = os.path.join(self.carpeta, nombre)
+            if nombre.lower().endswith(".json.tmp"):
+                try:  # un provisorio viejo: quedó de un corte a mitad de una escritura
+                    if limpiar and time.time() - os.path.getmtime(completo) \
+                            > VIDA_DE_UN_PROVISORIO:
+                        os.remove(completo)
+                except OSError:
+                    pass
+            elif nombre.lower().endswith(".json") and os.path.isfile(completo) \
+                    and not os.path.islink(completo):
+                archivos.append(completo)
+        return archivos
+
+    def contar(self, recibidos=()):
+        """Para informar, sin atender ni tocar nada: (cuántos mensajes esperan, por
+        programa; cuántos archivos no se entienden; cuántos están repetidos o ya se
+        atendieron, y se van a borrar sin entregar; cuántos quedaron sin mirar)."""
+        ya, de_quien, raros, repetidos = set(recibidos), {}, 0, 0
+        archivos = self.esperan()
+        for archivo in archivos[:MAX_SOBRES_POR_CORRIDA]:
+            try:
+                sobre = leer_sobre(archivo)
+            except (OSError, NoSeEntrega):
+                raros += 1
+                continue
+            clave = f"{sobre['de']['programa'].casefold()}/{sobre['id']}"
+            if clave in ya:
+                repetidos += 1
+                continue
+            ya.add(clave)
+            origen = self.visible(sobre["de"]["programa"])
+            de_quien[origen] = de_quien.get(origen, 0) + 1
+        return de_quien, raros, repetidos, max(0, len(archivos) - MAX_SOBRES_POR_CORRIDA)
+
+    def intrusos(self):
+        """Lo que hay en el buzón con nombre de mensaje (.json) y no es un archivo común
+        (una carpeta, un acceso directo): Mate no lo atiende ni lo borra."""
+        try:
+            return [n for n in sorted(os.listdir(self.carpeta))
+                    if n.lower().endswith(".json") and (
+                        os.path.islink(os.path.join(self.carpeta, n))
+                        or not os.path.isfile(os.path.join(self.carpeta, n)))]
+        except OSError:
+            return []
+
+    def id_de_falla(self, id, ruta):
+        """El id del aviso de que un mensaje no se pudo atender: el del mensaje más
+        '.falla'. Si la corrida se corta y el rechazo se repite, sale el mismo id y el que
+        envió no se entera dos veces. Si el mensaje ya se había rechazado y lo trajeron de
+        nuevo desde 'rechazados', lleva además el número del intento: es otro aviso."""
+        bases, veces = {id, os.path.basename(ruta)[:-len(".json")]}, 0
+        try:
+            for nombre in os.listdir(os.path.join(self.carpeta, "rechazados")):
+                if not nombre.endswith(".motivo.txt"):
+                    continue
+                base = nombre[:-len(".motivo.txt")]
+                veces += any(base == b or (base.startswith(b + "-")
+                                           and base[len(b) + 1:].isdigit()) for b in bases)
+        except OSError:
+            pass
+        final = ".falla" if not veces else f".falla-{veces + 1}"
+        return id[:120 - len(final)] + final
+
+    def abrir(self):
+        """Lo que hay para atender en esta corrida: toma el candado y devuelve los
+        archivos. Si no hay nada, o no se puede atender ahora, una lista vacía."""
+        if not os.path.lexists(self.carpeta):
+            return []
+        nombre = os.path.basename(self.carpeta)
+        if not es_carpeta_de_verdad(self.carpeta):
+            self.avisar(f"{nombre} existe y no es una carpeta: ahí va el buzón de "
+                        f"{self.archivo}, así que no puedo recibir mensajes. Borralo o "
+                        "cambiale el nombre")
+            return []
+        esperan = self.esperan()
+        if not esperan:
+            return []
+        # Atender es anotar en la memoria qué se atendió y qué se contesta: si el candado
+        # de la memoria no se puede tomar, no se atiende nada y los mensajes quedan ahí.
+        # (Si se pudo, la corrida se lo queda hasta terminar de guardar.)
+        puede = self.se_puede_guardar(len(esperan))
+        if puede is False:
+            return []
+        try:
+            self.candado = tomar_candado(os.path.join(self.carpeta, "candado"))
+        except OSError as e:
+            if getattr(e, "motivo", "") == "sistema":
+                self.avisar(f"en la carpeta de {self.archivo} el sistema no da candados "
+                            "(pasa en algunas carpetas de red), y sin candado no atiendo "
+                            f"el buzón ({nombre}): los mensajes quedan ahí. Poné los "
+                            "programas en una carpeta común de esta computadora")
+                return []
+            self.avisar(f"no pude tomar el candado del buzón ({nombre}): los mensajes "
+                        "quedan para la próxima corrida. Fijate que se pueda escribir en "
+                        "esa carpeta")
+            return []
+        if self.candado is None:
+            self.avisar(f"otra ventana de {self.archivo} está atendiendo el buzón; esta no "
+                        "recibe mensajes")
+            return []
+        if not puede:
+            # El candado de la memoria lo tiene otra corrida de este programa, y no lo
+            # soltó: lo que se atendiera ahora no se podría anotar como atendido, y se
+            # atendería de nuevo. No se atiende nada.
+            cuantos = len(esperan)
+            self.avisar(f"otra ventana de {self.archivo} tiene tomado el candado de la "
+                        "memoria, y sin candado no atiendo el buzón (no podría anotar qué "
+                        f"mensajes ya se atendieron): {cuantos_mensajes(cuantos)} "
+                        f"{'queda' if cuantos == 1 else 'quedan'} en {nombre} y se "
+                        f"{'atiende' if cuantos == 1 else 'atienden'} la próxima vez que "
+                        f"{self.archivo} corra. Si quedó otra ventana de {self.archivo} "
+                        "abierta, cerrala")
+            self.soltar()
+            return []
+        cambio, recibidos = self.cambio_la_memoria()
+        if cambio:
+            self.avisar(f"otra ventana de {self.archivo} guardó cambios mientras esta "
+                        "estaba abierta; los mensajes del buzón quedan para la próxima "
+                        "corrida")
+            self.soltar()
+            return []
+        self.ya_recibidos = set(self.leido["recibidos"]) | set(recibidos)
+        archivos = self.esperan(limpiar=True)
+        if len(archivos) > MAX_SOBRES_POR_CORRIDA:
+            self.avisar(f"en el buzón hay {len(archivos)} mensajes y en una corrida se "
+                        f"atienden hasta {MAX_SOBRES_POR_CORRIDA}: el resto queda para la "
+                        "próxima")
+            archivos = archivos[:MAX_SOBRES_POR_CORRIDA]
+        return archivos
+
+    def soltar(self):
+        if self.candado is not None:
+            soltar_candado(self.candado)
+            self.candado = None
+
+    def donde_van_los_rechazados(self):
+        return os.path.join(os.path.basename(self.carpeta), "rechazados")
+
+    def cambio(self):
+        """¿En esta corrida pasó algo con el buzón (para guardar, repartir, mover o borrar)?"""
+        return bool(self.recibidos or self.por_salir or self.repartidos
+                    or self.rechazos or self.atendidos)
+
+    def fundido(self, en_disco):
+        """La parte "buzon" que hay que guardar: lo que dice el archivo ahora, más lo de
+        esta corrida, menos lo que esta corrida ya repartió."""
+        def clave(pendiente):
+            return (pendiente["carpeta"], pendiente["sobre"]["id"])
+
+        recibidos = list(en_disco["recibidos"])
+        ya = set(recibidos)
+        recibidos += [r for r in self.recibidos if r not in ya]
+        if len(recibidos) > MAX_RECIBIDOS:  # los últimos, y los que siguen en el buzón
+            recibidos = [r for r in recibidos[:-MAX_RECIBIDOS] if os.path.lexists(
+                os.path.join(self.carpeta, r.rpartition("/")[2] + ".json"))] \
+                + recibidos[-MAX_RECIBIDOS:]
+        por_salir = [p for p in en_disco["por_salir"] if clave(p) not in self.repartidos]
+        ya = {clave(p) for p in por_salir}
+        por_salir += [p for p in self.por_salir
+                      if clave(p) not in ya and clave(p) not in self.repartidos]
+        return {"recibidos": recibidos, "por_salir": por_salir}
+
+    def acomodar(self):
+        """Después de guardar la memoria: mueve lo rechazado y borra lo atendido. Lo que
+        Windows no deje mover o borrar ahora queda, y se resuelve en la corrida siguiente."""
+        for ruta, motivo in self.rechazos:
+            self.mover_a_rechazados(ruta, motivo)
+        for ruta in self.atendidos:
+            try:
+                os.remove(ruta)
+            except OSError:
+                pass
+        self.rechazos, self.atendidos = [], []
+
+    def mover_a_rechazados(self, ruta, motivo):
+        """El archivo va intacto a 'rechazados' (sin pisar otro) y al lado queda el motivo."""
+        carpeta = os.path.join(self.carpeta, "rechazados")
+        if os.path.lexists(carpeta) and not es_carpeta_de_verdad(carpeta):
+            return
+        base = os.path.basename(ruta)[:-len(".json")]
+        try:
+            os.makedirs(carpeta, exist_ok=True)
+            nombre, n = base, 1
+            while os.path.lexists(os.path.join(carpeta, nombre + ".json")) \
+                    or os.path.lexists(os.path.join(carpeta, nombre + ".motivo.txt")):
+                n += 1
+                nombre = f"{base}-{n}"
+            os.rename(ruta, os.path.join(carpeta, nombre + ".json"))
+            escribir_entero(os.path.join(carpeta, nombre + ".motivo.txt"), (
+                f"Mate no entregó este mensaje ({datetime.datetime.now():%d/%m/%Y %H:%M}).\n"
+                f"Motivo: {motivo}\n"
+                f"Para intentarlo de nuevo, mové {nombre}.json a la carpeta de arriba "
+                f"({os.path.basename(self.carpeta)}) y corré {self.archivo}.\n"))
+        except (OSError, ValueError):
+            pass
+
+    def resumen(self):
+        """Los renglones que cuentan qué pasó con el buzón en esta corrida (o ninguno)."""
+        renglones = []
+        total = sum(self.atendi.values())
+        mal = ""
+        if self.no_entregados:
+            mal = (f"{self.no_entregados} no se "
+                   f"{'pudo' if self.no_entregados == 1 else 'pudieron'} entregar: "
+                   f"{'está' if self.no_entregados == 1 else 'están'} en "
+                   f"{self.donde_van_los_rechazados()}.")
+        if total:
+            de = ", ".join(f"{n} de {programa}" for programa, n in self.atendi.items())
+            renglones.append(f"Buzón: atendí {cuantos_mensajes(total)} ({de})."
+                             + (f" Además, {mal}" if mal else ""))
+        elif mal:
+            renglones.append(f"Buzón: {mal}")
+        for programa, n in self.deje.items():
+            renglones.append(f"Buzón: dejé {cuantos_mensajes(n)} para {programa}; "
+                             f"{'le llega' if n == 1 else 'le llegan'} la próxima vez que "
+                             "corra.")
+        return renglones
 
 
 def leccion_limpia(texto):
@@ -4602,6 +5839,10 @@ class Interprete:
         self.copias = {}
         self.cola = deque()
         self.contexto = None  # (agente, remitente, tipo de mensaje) mientras se atiende uno
+        # La pregunta del contrato de conversación que inició la cadena de preguntas que se
+        # está atendiendo (o None): su ID vale para toda la cadena, también a través de
+        # un paso del medio que no está en el contrato.
+        self.origen_de_charla = None
         self.entregados = 0
         # El "sobre" de cada entrega (mejora 99): su número, quién, a quién, en respuesta
         # a cuál y el número de conversación. Una conversación empieza cuando el programa
@@ -4610,6 +5851,10 @@ class Interprete:
         self.conversacion = None  # la del mensaje que se está atendiendo
         self.historial = []  # en una prueba: los sobres de lo que se mandó (mejora 98)
         self.desde = (0, 0)  # el número de mensaje y de conversación al empezar la prueba
+        # Con 'ensayar': lo que viajó entre agentes (tipo, de, a, molde de, molde a), en
+        # orden, respuestas incluidas. None en cualquier otra corrida.
+        self.viajes = None
+        self.vistos = {}  # (ensayo) número del mensaje -> el número con que se mostró
         self.pasos = 0
         self.max_pasos = MAX_PASOS  # None = sin tope
         self.linea_actual = None  # la última sentencia que se empezó a ejecutar
@@ -4655,6 +5900,16 @@ class Interprete:
         self.avisados = set()  # los avisos que se dan una sola vez por corrida
         self.guardar_cuenta = None  # 'correr': deja la cuenta de consultas en el disco
         self.calculando_frenos = False  # mientras se calculan los valores de unos 'frenos'
+        # El buzón entre programas (0.7). Solo 'correr' arma uno: con None, lo que se le
+        # envía a un agente de otro programa queda anotado (traza, mensajes_enviados) y
+        # nada más: 'probar', 'ensayar' y la consola no escriben ni leen ningún buzón.
+        self.buzon = None
+        self.probando = False  # la orden 'probar' (para decirlo en la traza)
+        self.en_consola = False  # la orden 'consola': ahí no hay buzón, y se avisa
+        self.ajenos = {}  # los agentes de otro programa que trajo 'usar buzon'
+        self.remitentes = {}  # los que llegaron como remitente: (programa, agente) -> agente
+        self.charla_de_buzon = {}  # número de conversación de acá -> su id entre programas
+        self.id_de_buzon = {}  # número del mensaje que llegó del buzón -> el id de su sobre
         self._armados = {}  # lo que ya está armado para correr (ver 'armar_bloque')
         self._nativas()
 
@@ -5058,6 +6313,26 @@ class Interprete:
                     "guarda lo que recuerdan los agentes, sus lecciones y la cuenta de "
                     'consultas). Elegí otro nombre, por ejemplo "notas.txt"',
                     familia="archivo")
+            # Ni en la memoria de un programa nombrado con 'usar buzon': ahí ese otro
+            # anota también qué mensajes ya atendió y cuáles tiene por salir.
+            for ajeno in self.ajenos.values():
+                if os.path.dirname(ruta) == carpeta and limpio in {
+                        os.path.basename(archivo_de(ajeno.ajeno, que)).lower()
+                        for que in ("memoria.json", "memoria.json.tmp")}:
+                    raise ErrorMate(
+                        f"{donde} no escribe en '{nombre}': es la memoria de "
+                        f"{os.path.basename(ajeno.ajeno)} y la lleva Mate (ahí están lo que "
+                        "recuerdan sus agentes y los mensajes del buzón que ya atendió). "
+                        'Elegí otro nombre, por ejemplo "notas.txt"', familia="archivo")
+            try:
+                adentro = os.path.relpath(ruta, carpeta).replace("\\", "/").split("/")
+            except ValueError:
+                adentro = []
+            if any(parte.rstrip(". ").lower().endswith(".buzon") for parte in adentro[:-1]):
+                raise ErrorMate(
+                    f"{donde} no escribe en '{nombre}': esa carpeta es un buzón entre "
+                    "programas y la lleva Mate. Para mandarle un mensaje a otro programa "
+                    "se usa 'enviar' (ver: ayuda buzon)", familia="archivo")
             if os.path.isdir(ruta):
                 raise ErrorMate(f"{donde}: '{nombre}' es una carpeta, no un archivo",
                                 familia="archivo")
@@ -5399,6 +6674,9 @@ class Interprete:
                                 "uno anota y lee solo sus propias lecciones")
             return self.contexto[0]
         antes = '"la lección", ' if funcion == "aprender" else ""
+        if isinstance(agente, Agente) and agente.ajeno is not None:
+            raise ErrorMate(de_otro_programa(agente.nombre, agente.ajeno,
+                                             f"usar {funcion}() con él"))
         if not self.en_prueba:
             raise ErrorMate(SOLO_EN_AGENTE.format(n=funcion, antes=antes))
         if agente is None:
@@ -5767,6 +7045,8 @@ class Interprete:
             return {"tipo": v.tipo,
                     "campos": {k: self._a_json(x, memoria) for k, x in v.campos.items()}}
         if isinstance(v, Agente):
+            if v.ajeno is not None:
+                raise ErrorMate(de_otro_programa(v.nombre, v.ajeno, "pasarlo a JSON"))
             return {"agente": v.nombre}
         if isinstance(v, list):
             return [self._a_json(x, memoria) for x in v]
@@ -5860,6 +7140,12 @@ class Interprete:
             if lleva_funcion(v):
                 raise ErrorMate("los mensajes llevan datos, no funciones "
                                 f"(campo '{campo}' de {nombre})")
+            if (self.ajenos or self.remitentes) and v.__class__ not in _SUELTOS:
+                de_afuera = lleva_agente(v, ajeno=True)
+                if de_afuera is not None:
+                    raise ErrorMate(de_otro_programa(
+                        de_afuera.nombre, de_afuera.ajeno,
+                        f"ponerlo adentro de un mensaje (campo '{campo}' de {nombre})"))
             if not (self.cumple(v, tipo) or (opcional and v is None)):
                 raise ErrorMate(
                     f"{nombre}.{campo} es de tipo {tipo} y recibió {self.no_cumple(v, tipo)}")
@@ -5904,6 +7190,11 @@ class Interprete:
                     self.agentes[s[2]] = ag
                     self.decl_agentes.append(s)
                     self.glob.definir(s[2], ag, origen="agente")
+                elif s[0] == "agente_ajeno":
+                    ag = self.agente_de_otro(s[2], s[4], nombre_de_programa(s[4]), s[5],
+                                             s[3])
+                    self.ajenos[s[2]] = ag
+                    self.glob.definir(s[2], ag, origen="agente")
             except ErrorMate as e:
                 e.linea = e.linea or s[1]
                 raise
@@ -5911,6 +7202,19 @@ class Interprete:
         contrato = ContratoConversacion.del_programa(programa, self.mensajes, self.agentes)
         if contrato is not None:
             self.contrato_conversacion = contrato
+
+    def agente_de_otro(self, nombre, archivo, programa, carpeta, tipos=(),
+                       solo_responde=False):
+        """Un agente de otro programa: no tiene estado ni atiende nada acá. Es a quien
+        se le manda (o se le contesta) por el buzón."""
+        ag = Agente(nombre)
+        ag.ajeno, ag.programa, ag.carpeta_buzon = archivo, programa, carpeta
+        ag.solo_responde, ag.recuerda = solo_responde, False
+        ag.decl = ("agente", None, nombre, [], [], [], [])
+        ag.env = Entorno(self.glob, frontera=True)
+        ag.propios = {tipo: None for tipo in tipos}
+        ag.manejadores = dict(ag.propios)
+        return ag
 
     def manejadores_de(self, decl):
         """Qué mensajes entiende un agente: queda fijo desde la declaración."""
@@ -5979,6 +7283,8 @@ class Interprete:
                 self.restaurar(ag.env, ag.inicial)
                 ag.ocupado = False
                 ag.manejadores = self.manejadores_de(s)  # sin lo que se haya simulado
+        for ag in self.ajenos.values():
+            ag.manejadores, ag.ocupado = dict(ag.propios), False
         self.cola.clear()
 
     def entornos_vivos(self):
@@ -6032,6 +7338,9 @@ class Interprete:
         self.reiniciar_agentes()
 
     def crear(self, n, env):
+        if n[2] in self.ajenos:
+            raise ErrorMate(de_otro_programa(n[2], self.ajenos[n[2]].ajeno,
+                                             "crear una copia"))
         if n[2] not in self.agentes:
             raise ErrorMate(con_sugerencia(
                 f"no existe el agente '{n[2]}'", n[2], self.agentes))
@@ -6107,6 +7416,7 @@ class Interprete:
             self.archivos_de_prueba = {}  # ...ni agrega renglones a los archivos de verdad
         if pruebas:  # ...ni lee ni escribe memoria o bitácora: cada prueba arranca limpia
             self.recordando, self.memoria, self.bitacora = False, {}, None
+            self.buzon, self.probando = None, True  # ...ni ningún buzón
         self.cargar(programa)
         for s in programa:
             if s[0] == "agente":
@@ -6114,7 +7424,8 @@ class Interprete:
                 # salvo que alguien le haya hablado antes.
                 if self.agentes[s[2]].env is None:
                     self.instanciar(self.agentes[s[2]])
-            elif s[0] not in ("mensaje", "funcion", "prueba", "usar_python", "contrato_conversacion"):
+            elif s[0] not in ("mensaje", "funcion", "prueba", "usar_python",
+                              "contrato_conversacion", "agente_ajeno"):
                 self.ejecutar(s, self.glob)
         self.vaciar_cola()
         if not pruebas:
@@ -6197,12 +7508,17 @@ class Interprete:
                         "motivo": e.mensaje, "mensaje": msg, "destino": dest}),
                         (sobre[0], None)))
                     continue
-                que = "en 'al fallar'" if msg.tipo == AL_FALLAR else f"al recibir {msg.tipo}"
-                linea = e.linea or getattr(e, "renglon", None)
-                texto = TextoDeError(self.con_camino(f"{dest.nombre} {que}: {e.mensaje}", e))
-                texto.familia = e.familia
-                self.errores_agentes.append(self.con_lugar(linea, texto))
-                self.errores_agentes_det.append((linea, texto))
+                self.anotar_error_de_agente(dest, msg, e)
+
+    def anotar_error_de_agente(self, dest, msg, e):
+        """El error de un agente que falló atendiendo algo que le enviaron: queda en la
+        lista de errores del programa (se muestra al final, y el código de salida es 1)."""
+        que = "en 'al fallar'" if msg.tipo == AL_FALLAR else f"al recibir {msg.tipo}"
+        linea = e.linea or getattr(e, "renglon", None)
+        texto = TextoDeError(self.con_camino(f"{dest.nombre} {que}: {e.mensaje}", e))
+        texto.familia = e.familia
+        self.errores_agentes.append(self.con_lugar(linea, texto))
+        self.errores_agentes_det.append((linea, texto))
 
     def ciclo(self, dest, linea):
         """El error de un ciclo de preguntas, con la cadena: A → B → A."""
@@ -6266,9 +7582,9 @@ class Interprete:
             if msg.tipo not in contrato.preguntas:
                 raise ErrorMate(f"'{msg.tipo}' solo puede viajar como respuesta en este contrato",
                                 linea, familia="contrato")
-            padre = self.contexto[4] if self.contexto else None
+            padre = self.origen_de_charla if self.contexto else None
             charla = contrato.identificador(msg, linea)
-            if padre is not None and padre.tipo in contrato.preguntas:
+            if padre is not None:
                 contrato.mismo_id(contrato.identificador(padre, linea), msg, linea)
             if not pregunta:
                 raise ErrorMate("el contrato de conversación requiere 'preguntar'", linea,
@@ -6285,24 +7601,56 @@ class Interprete:
         de = rem.nombre if rem else "(programa)"
         conversacion, respuesta_a = sobre or (self.en_conversacion(), None)
         # En una prueba la traza numera desde 1, igual que mensajes_enviados().
-        numero0, conversacion0 = self.desde if self.en_prueba else (0, 0)
+        numero0, conversacion0 = (
+            self.desde if self.en_prueba or self.viajes is not None else (0, 0))
+        # En un ensayo, lo que se mandó ANTES de la pregunta (una conversación más vieja)
+        # y llega ahora no es de este caso: ni se cuenta, ni se muestra, ni gasta número.
+        viejo = self.viajes is not None and conversacion <= conversacion0
+        if viejo and not aviso:
+            numero0 += 1
+            self.desde = (numero0, conversacion0)
+        traza = self.traza and not viejo
         visto = numero - numero0 if numero is not None else None
+        if self.viajes is not None and visto is not None and not viejo:
+            # (lo de antes que se entrega intercalado corre la cuenta: 'en respuesta al N'
+            # tiene que decir el número con que ese mensaje se mostró)
+            self.vistos[numero] = visto
         if self.en_prueba and not aviso:
             self.historial.append(
                 (numero, de, dest.nombre, msg, pregunta, conversacion, respuesta_a))
-        if self.traza and aviso:
-            self.trazar(f"{dest.nombre} se entera de que {rem.nombre} no pudo atender "
-                        f"{msg.campos['mensaje'].tipo}: {msg.campos['motivo']}", None, hondo)
-        elif self.traza:
+        if self.viajes is not None and not aviso and not viejo:
+            self.viajes.append((msg.tipo, de, dest.nombre,
+                                rem.decl[2] if rem else de, dest.decl[2]))
+        # A un agente de otro programa no se le entrega acá: el mensaje sale por el buzón
+        # (salvo que una prueba le haya puesto un 'simular': ahí se atiende en el momento).
+        al_buzon = dest.ajeno is not None and not aviso \
+            and not isinstance(dest.manejadores.get(msg.tipo), tuple)
+        if traza and aviso:
+            self.trazar(f"{dest.nombre} se entera de que {self.con_programa(rem)} no pudo "
+                        f"atender {msg.campos['mensaje'].tipo}: {msg.campos['motivo']}",
+                        None, hondo)
+        elif traza:
             flecha = "pregunta a" if pregunta else "→"
             # El sobre se anota en los renglones sin sangría: lo de más adentro es de la
             # misma conversación que el renglón que lo contiene.
             anotado = ""
             if not hondo:
-                anotado = f"   (conversación {conversacion - conversacion0}" + (
-                    f", en respuesta al {respuesta_a - numero0})" if respuesta_a else ")")
-            self.trazar(f"{de} {flecha} {dest.nombre}: {formato(msg)}{anotado}",
-                        visto, hondo)
+                anotado = f"   (conversación {conversacion - conversacion0}"
+                if al_buzon:
+                    anotado += ", al buzón: " + (
+                        "sale al terminar" if self.buzon is not None else
+                        "en una prueba no se escribe" if self.probando else
+                        "acá no se escribe")
+                elif numero in self.id_de_buzon:
+                    anotado += ", del buzón"
+                anotado += (
+                    f", en respuesta al {self.vistos.get(respuesta_a, respuesta_a - numero0)})"
+                    if respuesta_a else ")")
+            self.trazar(f"{self.con_programa(rem)} {flecha} {self.con_programa(dest)}: "
+                        f"{formato(msg)}{anotado}", visto, hondo)
+        if al_buzon:
+            self.sale_al_buzon(rem, dest, msg, conversacion, respuesta_a)
+            return None
         afuera, self.conversacion = self.conversacion, conversacion
         try:
             respondio, valor = self.atender(rem, dest, msg, pregunta, linea)
@@ -6320,27 +7668,269 @@ class Interprete:
                 raise
             self.cuenta["fallaron"] += 1
             self.anotar_falla(dest, e, msg)
-            if self.traza and getattr(e, "sin_respuesta", None) is dest:
+            if traza and getattr(e, "sin_respuesta", None) is dest:
                 self.trazar(f"{dest.nombre} sin respuesta: terminó de atender {msg.tipo} sin "
                             "llegar a un 'responder'", visto, hondo)
-            elif self.traza:
+            elif traza:
                 donde = " en su 'al fallar'" if aviso else ""
                 self.trazar(f"{dest.nombre} falló{donde}: {e.mensaje}", visto, hondo)
             raise
         finally:
             self.conversacion = afuera
         if pregunta:
-            if self.traza:
+            if self.viajes is not None and isinstance(valor, Registro) and not viejo:
+                self.viajes.append((valor.tipo, dest.nombre, de, dest.decl[2],
+                                    rem.decl[2] if rem else de))
+            if traza:
                 self.trazar(f"{dest.nombre} responde a {de}: {formato(valor, False)}",
                             visto, hondo)
             return valor
         if respondio and rem is not None:
             self.cola.append((dest, rem, valor, (conversacion, numero)))
-        elif respondio and self.traza:
+        elif respondio and traza and numero in self.id_de_buzon:
+            # Llegó por el buzón y no lo mandó un agente: tampoco hay quién la reciba.
+            self.trazar(f"la respuesta de {dest.nombre} se descartó (el mensaje llegó de "
+                        "otro programa y no lo mandó un agente: para recibirla, que lo "
+                        f"envíe un agente de ese programa): {formato(valor, False)}",
+                        visto, hondo)
+        elif respondio and traza:
             # Lo mandó el programa con 'enviar': no hay quién reciba la respuesta.
             self.trazar(f"la respuesta de {dest.nombre} se descartó (para recibirla, usá "
                         f"'preguntar' en vez de 'enviar'): {formato(valor, False)}",
                         visto, hondo)
+        return None
+
+    @staticmethod
+    def con_programa(agente):
+        """El nombre para la traza: 'Deposito (deposito.mate)' si es de otro programa."""
+        if agente is None:
+            return "(programa)"
+        return f"{agente.nombre} ({agente.ajeno})" if agente.ajeno else agente.nombre
+
+    # ── el buzón entre programas (0.7) ──
+    def para_el_buzon(self, msg, dest, linea=None):
+        """El mensaje como va a viajar a otro programa (JSON). Un error claro si no puede
+        ir: lleva un agente adentro, o pesa demasiado."""
+        if lleva_agente(msg) is not None:
+            raise ErrorMate("un mensaje para otro programa todavía no puede llevar un agente "
+                            f"adentro ({msg.tipo} para {dest.nombre}): mandá su nombre, o "
+                            "los datos que hagan falta", linea, familia="contrato")
+        try:
+            datos = self._a_json(msg)
+            revisar_lo_de_afuera(datos)
+            pesa = len(json.dumps(datos, ensure_ascii=False, allow_nan=False)
+                       .encode("utf-8", "replace"))
+        except NoSeEntrega as e:
+            raise ErrorMate(f"{msg.tipo} no puede ir a otro programa: {e}", linea,
+                            familia="contrato")
+        except (ValueError, RecursionError):
+            raise ErrorMate(f"{msg.tipo} trae un número que no se puede pasar a JSON, y así "
+                            "no puede ir a otro programa", linea, familia="contrato")
+        if pesa > MAX_MENSAJE_AL_BUZON:
+            raise ErrorMate(f"el mensaje para {dest.nombre} pesa más de 1 MB: mandá menos "
+                            "datos por vez", linea, clase="falla", familia="contrato")
+        return datos
+
+    def revisar_envio(self, dest, msg, linea):
+        """Los controles de un 'enviar' a un agente de otro programa, en ese renglón."""
+        if dest.solo_responde:
+            otro = dest.ajeno if dest.ajeno.lower().endswith((".mate", ".mate.txt")) \
+                else f"{dest.programa}.mate"
+            raise ErrorMate(
+                f"para mandarle a {dest.nombre} ({dest.ajeno}) algo que no sea la "
+                f'contestación, agregá arriba: usar buzon "{otro}"', linea)
+        if msg.tipo not in dest.manejadores:
+            raise ErrorMate(f"{dest.nombre} no sabe recibir '{msg.tipo}'", linea,
+                            familia="agente")
+        contrato = self.contrato_conversacion
+        if contrato and msg.tipo in contrato.tipos:
+            raise ErrorMate(EN_EL_CONTRATO.format(n=msg.tipo), linea, familia="contrato")
+        self.para_el_buzon(msg, dest, linea)
+
+    def sale_al_buzon(self, rem, dest, msg, conversacion, respuesta_a):
+        """Le tocó salir a un mensaje para otro programa: queda anotado "por salir". Sale
+        de verdad cuando el programa termina y guarda (ver cerrar_memoria, en 'correr')."""
+        buzon = self.buzon
+        if buzon is None:  # 'probar', 'ensayar' o la consola: no se escribe ningún buzón
+            if self.en_consola:  # (acá los avisos salen por donde sale todo lo demás)
+                self.salida(
+                    f"aviso: desde la consola no sale nada para otro programa: el mensaje "
+                    f"para {dest.nombre} ({dest.ajeno}) no se escribió en ningún buzón. "
+                    "Para mandarlo de verdad, ponelo en un archivo y usá 'correr'")
+            return
+        if dest.carpeta_buzon is None:
+            self.avisar_una_vez(("sin remitente", dest.programa), (
+                f"no encontré a quién contestarle ({dest.programa}): en esta carpeta no "
+                f"está {dest.programa}.mate ni la carpeta de su buzón"))
+            return
+        buzon.sale(dest.carpeta_buzon, buzon.sobre(
+            rem.nombre if rem else SUELTO_EN_EL_BUZON, dest.programa, dest.nombre,
+            self.para_el_buzon(msg, dest), self.charla_de_buzon.get(conversacion),
+            self.id_de_buzon.get(respuesta_a)))
+
+    def sacar_lo_del_buzon(self):
+        """Al cerrar la corrida, también si se cortó (un error, o Ctrl+C en un mostrador):
+        lo que un agente ya dejó para otro programa y seguía en la cola queda "por salir",
+        para guardarse junto con el estado de ese agente. Si no, quedaría guardado que
+        Ventas anotó el pedido y a Depósito no le llegaría nunca. (Lo que encoló un agente
+        que falló, o al que cortaron a mitad de un mensaje, ya no está en la cola.)"""
+        if self.buzon is None:
+            return
+        queda = deque()
+        for entrada in list(self.cola):
+            rem, dest, msg, sobre = entrada
+            if dest.ajeno is None or msg.tipo == AL_FALLAR \
+                    or isinstance(dest.manejadores.get(msg.tipo), tuple):
+                queda.append(entrada)
+                continue
+            try:
+                self.entregar(rem, dest, msg, pregunta=False, sobre=sobre)
+            except ErrorMate:  # (se pasó del tope de mensajes: queda sin salir, y se avisa)
+                queda.append(entrada)
+        self.cola = queda
+
+    def remitente_de(self, de):
+        """El agente de otro programa que mandó un sobre. Si este programa tiene el 'usar
+        buzon' de ese otro, es ese mismo agente; si no, uno que solo sirve para contestarle."""
+        nombre, programa = de["agente"], de["programa"]
+        declarado = self.ajenos.get(nombre)
+        if declarado is not None and declarado.programa.casefold() == programa.casefold():
+            return declarado
+        clave = (programa.casefold(), nombre)
+        if clave not in self.remitentes:
+            archivo, carpeta = self.buzon.buscar(programa)
+            self.remitentes[clave] = self.agente_de_otro(
+                nombre, archivo or programa, programa, carpeta, solo_responde=True)
+        return self.remitentes[clave]
+
+    def atender_buzon(self):
+        """Al terminar los renglones del programa (solo con 'correr'): atiende lo que otros
+        programas le dejaron en el buzón. Una sola pasada, en orden de envío; lo que llegue
+        mientras tanto queda para la próxima corrida."""
+        if self.buzon is None:
+            return
+        self.buzon.atendio = True
+        for ruta in self.buzon.abrir():
+            self.atender_sobre(ruta)
+
+    def no_entregar(self, ruta, motivo, sobre=None):
+        """Un sobre que no se entrega: va a 'rechazados' con su motivo (cuando el programa
+        termina y guarda), se avisa y, si era un mensaje de alguien que se reconoce, le
+        vuelve el aviso de la falla. Nunca se contesta una falla con otra falla."""
+        buzon = self.buzon
+        buzon.rechazos.append((ruta, motivo))
+        buzon.no_entregados += 1
+        if self.traza:
+            self.trazar(f"buzón: no se entregó {motivo}")
+        self.avisar(f"no entregué un mensaje del buzón: {motivo}. Quedó en "
+                    f"{buzon.donde_van_los_rechazados()}")
+        if sobre is None or sobre["clase"] != "mensaje":
+            return
+        de, para = sobre["de"], sobre["para"]
+        carpeta = buzon.buscar(de["programa"])[1]
+        if carpeta is None:
+            self.avisar_una_vez(("sin remitente", de["programa"]), (
+                f"no encontré a quién contestarle ({de['programa']}): en esta carpeta no "
+                f"está {de['programa']}.mate ni la carpeta de su buzón"))
+            return
+        buzon.sale(carpeta, buzon.sobre(
+            para["agente"], de["programa"], de["agente"], sobre["mensaje"],
+            sobre.get("conversacion") or sobre["id"], sobre["id"], falla=motivo,
+            id=buzon.id_de_falla(sobre["id"], ruta)))
+
+    def mensaje_de_afuera(self, datos):
+        """El mensaje de un sobre, armado y validado con el contrato de ESTE programa (lo
+        mismo que de_json(texto, "Tipo")). ErrorMate si no lo cumple."""
+        if datos["tipo"] not in self.mensajes:
+            raise ErrorMate(f"acá no existe el mensaje '{datos['tipo']}'", familia="contrato")
+        try:
+            return self.amoldar(self._de_json(datos["campos"]), datos["tipo"])
+        except RecursionError:
+            raise ErrorMate("trae demasiadas cosas una adentro de otra", familia="contrato")
+
+    def atender_sobre(self, ruta):
+        """Atiende un archivo del buzón: lo valida, se lo entrega a su agente y anota que
+        ya está atendido. Lo que no se puede entregar va a 'rechazados'."""
+        buzon = self.buzon
+        try:
+            sobre = leer_sobre(ruta)
+        except OSError:
+            return  # ahora no se puede abrir (un antivirus, otra ventana): otra vez será
+        except NoSeEntrega as e:
+            self.no_entregar(ruta, f"el archivo {os.path.basename(ruta)}: {e}")
+            return
+        de, para, falla = sobre["de"], sobre["para"], sobre["clase"] == "falla"
+        # (el motivo de una falla viene de afuera: va en un renglón y recortado)
+        motivo = en_un_renglon(sobre["motivo"], LARGO_DE_MOTIVO) if falla else None
+        origen = buzon.visible(de["programa"])
+        tipo = "un mensaje"
+        if isinstance(sobre["mensaje"], dict) and isinstance(sobre["mensaje"].get("tipo"), str):
+            tipo = en_un_renglon(sobre["mensaje"]["tipo"], 60) or tipo
+        que = (f"el aviso de {de['agente']} ({origen}) de que no pudo atender {tipo}"
+               if falla else f"{tipo} de {de['agente']} ({origen})") + f" para {para['agente']}"
+        if para["programa"].casefold() != buzon.programa.casefold():
+            return self.no_entregar(ruta, f"{que}: es para otro programa "
+                                          f"({para['programa']}), no para {buzon.archivo}")
+        if de["programa"].casefold() == buzon.programa.casefold():
+            return self.no_entregar(ruta, f"{que}: dice venir de este mismo programa, y un "
+                                          "programa no se manda mensajes por el buzón a sí "
+                                          "mismo")
+        clave = f"{de['programa'].casefold()}/{sobre['id']}"
+        if clave in buzon.ya_recibidos or clave in buzon.recibidos:
+            buzon.atendidos.append(ruta)  # ya se había atendido: se borra sin entregar
+            return None
+        # (lo que mandó el programa suelto no tiene a quién contestarle, como siempre)
+        rem = None if not falla and de["agente"] == SUELTO_EN_EL_BUZON \
+            else self.remitente_de(de)
+        dest = self.agentes.get(para["agente"]) or next(
+            (a for a in self.vivos if a.nombre == para["agente"]), None)
+        suelto = falla and para["agente"] == SUELTO_EN_EL_BUZON
+        if dest is None and not suelto:
+            return self.no_entregar(ruta, f"{que}: acá no hay ningún agente llamado "
+                                          f"{para['agente']}", sobre)
+        try:
+            msg = self.mensaje_de_afuera(sobre["mensaje"])
+        except (ErrorMate, TypeError, KeyError) as e:
+            if not falla:
+                return self.no_entregar(ruta, f"{que} no cumple el contrato: "
+                                              f"{getattr(e, 'mensaje', 'no se entiende')}",
+                                        sobre)
+            msg = None  # (el mensaje original ya no pasa el contrato: se avisa igual)
+        if not falla and msg.tipo not in dest.manejadores:
+            return self.no_entregar(ruta, f"{que}: {dest.nombre} no sabe recibir "
+                                          f"'{msg.tipo}'", sobre)
+        self.conversaciones += 1
+        conversacion = self.conversaciones
+        self.charla_de_buzon[conversacion] = sobre.get("conversacion") or sobre["id"]
+        if falla and (suelto or msg is None or AL_FALLAR not in dest.manejadores):
+            self.avisar(f"{rem.nombre} ({origen}) no pudo atender {tipo}"
+                        + ("" if suelto else f" de {dest.nombre}") + f": {motivo}")
+        else:
+            if falla:
+                msg = Registro(AL_FALLAR, {"motivo": motivo, "mensaje": msg,
+                                           "destino": rem})
+            else:
+                self.id_de_buzon[self.cuenta["enviar"] + self.cuenta["preguntar"] + 1] \
+                    = sobre["id"]
+            esperado = self.cuenta["enviar"] + self.cuenta["preguntar"]
+            try:
+                self.entregar(rem, dest, msg, pregunta=False, sobre=(conversacion, None))
+            except ErrorMate as e:
+                if self.cuenta["enviar"] + self.cuenta["preguntar"] == esperado:
+                    self.id_de_buzon.pop(esperado + 1, None)  # (ni llegó a tener número)
+                # Como siempre que un agente falla, su estado volvió atrás. El mensaje no
+                # se reintenta para siempre: va a 'rechazados' con el motivo.
+                if e.clase != "limite":
+                    self.anotar_error_de_agente(dest, msg, e)
+                self.no_entregar(ruta, f"{que}: {dest.nombre} falló al atenderlo: "
+                                       f"{e.mensaje}", sobre)
+                if e.clase == "limite":  # el freno corta todo el programa, como siempre
+                    raise
+                return None
+        buzon.recibidos.append(clave)
+        buzon.atendidos.append(ruta)
+        buzon.atendi[origen] = buzon.atendi.get(origen, 0) + 1
+        self.vaciar_cola()  # lo que el agente contestó o mandó a raíz de este mensaje
         return None
 
     def reponer_charla(self, charla, estado):
@@ -6374,6 +7964,15 @@ class Interprete:
             env.definir(var, dict(msg.campos) if aviso else msg, origen="mensaje")
         previo, dest.ocupado = self.contexto, True
         self.contexto = (dest, rem, msg.tipo, env.serie, msg)
+        # El ID de la conversación: lo fija una pregunta del contrato, y lo heredan las
+        # preguntas que se hacen para atenderla (aunque no estén en el contrato). Lo que
+        # sale de la cola (un 'enviar', un aviso de falla) no viene de ninguna cadena.
+        origen_previo = self.origen_de_charla
+        contrato = self.contrato_conversacion
+        if contrato and msg.tipo in contrato.preguntas:
+            self.origen_de_charla = msg
+        elif not pregunta or previo is None:
+            self.origen_de_charla = None
         respondio, valor = False, None
         # Si falla, el agente vuelve a como estaba antes de recibir este mensaje.
         estado_previo = {k: list(v) for k, v in dest.env.vars.items()}
@@ -6414,10 +8013,12 @@ class Interprete:
                 if not isinstance(valor, Registro):
                     raise ErrorMate("a un 'enviar' solo se le responde con un mensaje",
                                     renglon_respuesta)
-                if valor.tipo not in rem.manejadores:
+                if valor.tipo not in rem.manejadores and not rem.solo_responde:
                     raise ErrorMate(
                         f"{dest.nombre} respondió {valor.tipo} a {rem.nombre}, pero "
                         f"{rem.nombre} no tiene 'al recibir {valor.tipo}'", renglon_respuesta)
+                if rem.ajeno is not None:  # la respuesta viaja a otro programa
+                    self.para_el_buzon(valor, rem, renglon_respuesta)
         except ErrorMate as e:
             if pregunta:
                 anotar_paso(e, ("pregunta", dest.nombre, rem.nombre if rem else None, linea))
@@ -6434,12 +8035,16 @@ class Interprete:
             raise
         except KeyboardInterrupt:
             # Cortado con Ctrl+C a mitad de un mensaje: lo que cambió atendiéndolo no queda
-            # (si no, la memoria guardaría un estado a medio cambiar).
+            # (si no, la memoria guardaría un estado a medio cambiar), y lo que dejó para
+            # enviar tampoco sale.
             dest.env.vars = estado_previo
             dest.lecciones = lecciones_previas
+            nuevos = [self.cola.pop() for _ in range(len(self.cola) - en_cola)]
+            self.cola.extend(m for m in reversed(nuevos) if m[0] is not dest)
             raise
         finally:
             self.contexto, dest.ocupado, self.llamadas = previo, False, llamadas
+            self.origen_de_charla = origen_previo
             self.atendiendo.pop()
         return respondio, valor
 
@@ -6844,6 +8449,8 @@ class Interprete:
             msg = it.un_mensaje(de_msg(env))
             destinos = it.destinos(de_dest(env))
             for dest in destinos:  # primero se revisan todos: sale para todos o para nadie
+                if dest.ajeno is not None:
+                    it.revisar_envio(dest, msg, linea)
                 if msg.tipo not in dest.manejadores:
                     raise ErrorMate(f"{dest.nombre} no sabe recibir '{msg.tipo}'", linea,
                                     familia="agente")
@@ -7389,6 +8996,9 @@ class Interprete:
                     pista = (f": es una lista. Para ver '{campo}' de uno de sus elementos, "
                              f"pedilo primero (por ejemplo lista[0].{campo}) o recorré la "
                              f"lista:  para fila en lista {{ mostrar(fila.{campo}) }}")
+                if isinstance(base, Agente) and base.ajeno is not None:
+                    raise ErrorMate(de_otro_programa(base.nombre, base.ajeno,
+                                                     f"mirarle '{campo}'"), linea)
                 raise ErrorMate(f"{tipo_claro(base)} no tiene campos{pista}", linea)
             if campo not in campos:
                 mensaje = no_esta(
@@ -7412,6 +9022,9 @@ class Interprete:
             try:
                 msg = it.un_mensaje(de_msg(env))
                 dest = it.destino(de_dest(env))
+                if dest.ajeno is not None:
+                    raise ErrorMate(no_se_le_pregunta(dest.nombre, dest.ajeno,
+                                                      it.responde.get(msg.tipo)))
                 if it.contexto is None and not it.naciendo:
                     it.vaciar_cola()  # lo que el programa ya envió llega antes
                 return it.entregar(it.contexto[0] if it.contexto else None, dest, msg,
@@ -7670,7 +9283,11 @@ FUNCIONES INCLUIDAS (no hay otras)
           mostrar("Dijiste: {{dicho}}")
       }}
   (La orden 'ensayar programa.mate casos.txt' prueba un programa así sin tipear: escribe
-  cada pregunta del archivo en el primer leer() y mira lo que el programa muestra después.)
+  cada pregunta del archivo en el primer leer() y mira lo que el programa muestra después.
+  En ese archivo, debajo de cada pregunta, va lo que se espera:  tiene que decir: sin envío
+  o  no puede decir: descuento  y, entre agentes,  tiene que viajar: Reservar de Ventas a
+  Deposito  o  no tiene que viajar: Reponer . Si el caso necesita un renglón más del cliente
+  en la misma charla, va debajo de la pregunta:  después: si )
 - consultar_ia(instrucciones, pregunta) le pregunta a una IA de verdad (Claude) y devuelve su
   respuesta como texto. Sirve adentro de un agente: el agente arma la pregunta, consulta y
   responde con su mensaje de siempre. Es paga y necesita la clave en la variable de entorno
@@ -7756,6 +9373,12 @@ AGENTES Y MENSAJES
     renglón de la regla: no se ataja con 'intentar'.
 - usar "otro.mate" trae los mensajes, agentes, funciones y variables ('sea' y 'var') de
   otro archivo. Un nombre que ya vino de ahí no se puede declarar de nuevo.
+- usar buzon "deposito.mate" (0.7): los agentes de ese OTRO programa de la misma carpeta
+  quedan como destino de 'enviar' (y nada más: no se les puede 'preguntar' ni 'crear').
+  El mensaje sale cuando el programa termina, queda en la carpeta deposito.buzon y se
+  entrega, validado con el contrato, cuando corre deposito.mate. La contestación vuelve
+  igual y se recibe con un 'al recibir'. Lo mejor es declarar los mensajes en un solo
+  archivo (mensajes.mate) y traerlo con 'usar' desde los dos programas.
 - usar python "ayudas.py" trae las funciones escritas con 'def' en ese archivo de Python,
   que está en la carpeta del programa (nombre en minúsculas, sin espacios). Se llaman con el
   nombre del archivo adelante:  sea r = ayudas.raiz(144)
@@ -8026,6 +9649,24 @@ AYUDA = {
     "usar": ("trae los mensajes, agentes, funciones y variables ('sea' y 'var') de otro "
              "archivo, que se busca al lado de este. (Para traer funciones escritas en "
              "Python: 'ayuda python')", 'usar "catalogo.mate"\nmostrar(iva)'),
+    "buzon": ("después de 'usar': nombra OTRO programa de la misma carpeta. Sus agentes "
+              "quedan como destino de 'enviar' (no se les puede 'preguntar'). El mensaje "
+              "sale cuando este programa termina, queda en la carpeta deposito.buzon y se "
+              "entrega, validado con el contrato, cuando corre el otro. Si el programa se "
+              "corta (un error, Ctrl+C), lo que ya dejaron sus agentes sale igual, pero "
+              "lo que le llegó no se atiende: avisa cuántos quedaron. Para ver qué hay "
+              "en un buzón: la orden 'buzon deposito.mate'",
+              "# En ventas.mate (deposito.mate está en la misma carpeta) iría:\n"
+              '#     usar buzon "deposito.mate"\n'
+              '#     enviar Reservar { producto: "yerba", cantidad: 2 } a Deposito\n'
+              "# Y esto es deposito.mate: atiende lo que le dejaron cuando lo corren.\n"
+              "mensaje Reservar { producto: texto, cantidad: numero }\n"
+              "agente Deposito {\n"
+              "    al recibir Reservar como r {\n"
+              '        mostrar("Reservo {r.cantidad} de {r.producto}")\n'
+              "    }\n}\n"
+              "# (para probarlo sin el otro programa)\n"
+              'enviar Reservar { producto: "yerba", cantidad: 2 } a Deposito'),
     "python": ("después de 'usar': trae las funciones de un archivo de Python que está al "
                "lado del programa, para sumar lo que Mate no trae. Se llaman con el nombre "
                "del archivo adelante. Cruzan números, textos, verdadero/falso, nada, listas "
@@ -8202,6 +9843,7 @@ def consola(entrada=None, mostrar=print, ia_simulada=False, ia_respuestas=(), an
     anotar: a quién avisarle de cada error mostrado (el registro de errores de uso)."""
     anotar = anotar or (lambda *_a, **_k: None)
     interprete = Interprete(salida=mostrar)
+    interprete.en_consola = True
     interprete.ia_simulada = bool(ia_simulada)
     interprete.ia_respuestas = list(ia_respuestas)
     interprete.glob.se_pisa = True  # acá se puede volver a declarar algo para corregirlo
@@ -8672,29 +10314,788 @@ def archivos_del_mostrador(nombre, orden, carpeta_de_mate=None, fin_de_renglon=N
             casos: de_muestra.replace("\n", fin).encode("utf-8-sig")}
 
 
+# ───────────────────────── La orden 'nuevo equipo' (0.7) ─────────────────────────
+# 'nuevo equipo mi_negocio' crea, con la misma forma y los mismos cuidados que 'nuevo
+# mostrador', un equipo de tres agentes (Ventas, Depósito y Compras) que se hablan entre
+# ellos: mi_negocio.mate, mi_negocio_precios.csv y mi_negocio_casos.txt.
+# De dónde sale: tampoco acá está copiada la lógica. El equipo es el del ejemplo
+# 13_equipo_del_negocio.mate (lo que hay entre sus títulos "El equipo" y "Las pruebas"), y
+# las funciones que entienden los pedidos son las del ejemplo 12, que el 13 trae con
+# 'usar': como el programa creado tiene que andar solo, van adentro, en tres tramos del 12
+# marcados por los comentarios de más abajo. Un arreglo en cualquiera de los dos ejemplos
+# llega a los equipos que se creen después.
+EJEMPLO_DEL_EQUIPO = "13_equipo_del_negocio.mate"
+CASOS_DEL_EQUIPO = "casos_del_equipo.txt"
+_EQUIPO_DESDE = "\n# ── El equipo"
+_EQUIPO_PROGRAMA = "\n# ── El programa"  # (de acá para abajo va al final, después de lo del 12)
+_EQUIPO_HASTA = "\n# ── Las pruebas"
+# Del ejemplo 12 (desde, hasta): la regla del envío; las funciones que entienden el pedido
+# y hacen la cuenta; y las que revisan la planilla. Quedan afuera su agente, su charla y
+# su programa.
+_DEL_12_PARA_EL_EQUIPO = (
+    ("\n# La regla del envío:", "\nmensaje CargarLista"),
+    ('\n# La columna "precio" de la lista', "\n# Una consulta: primero prueba el programa"),
+    ("\n# ¿La planilla sirve para atender?", "\n# Lee la planilla y la revisa"))
+
+_ENCABEZADO_DEL_EQUIPO = """\
+# «PROGRAMA»: el equipo de tu negocio.
+# Son tres agentes: Ventas, Depósito y Compras.
+# Lo creó la orden 'nuevo equipo' de Mate, a partir de los ejemplos
+# 13_equipo_del_negocio.mate y 12_mostrador_con_reglas.mate. Es tuyo: lo podés cambiar
+# todo lo que quieras.
+#
+# QUÉ HACE. Los tres agentes se hablan entre ellos para repartirse el trabajo:
+#   - VENTAS atiende por teclado. Cuando el cliente pide una CANTIDAD de un PRODUCTO de la
+#     planilla ("quiero 12 azucar con envio"), hace la cuenta sin consultar a la IA.
+#     NO ANOTA DIRECTO: primero repite el pedido, con la cuenta completa y con cuántos
+#     BULTOS son ("Entendí: 12 x Azúcar (bolsa de 10 kg) ... Son 12 bolsas enteras. ¿Lo
+#     anoto? Contestá si o no."). Solo si lo que sigue es un "si" (o "sí", "dale", "ok",
+#     "confirmo", "anotalo"), y nada más, le pide a Depósito que lo reserve. Con "no", o
+#     con cualquier otra cosa, no anota nada; si la otra cosa es un pedido nuevo, lo
+#     trata como pedido nuevo, con su propia pregunta. Así, si Ventas entendió mal, se ve
+#     ANTES de descontar el stock. (Las palabras del sí están en palabras_de_si().)
+#     Al sí lo puede acompañar solo "por favor" o "gracias". "Dejá", "ok, dejá" o "dale,
+#     dejá nomás" son un no. Y si te vas con chau sin contestar, avisa que no anotó.
+#     Pregunta "¿Lo anoto?" solo con los pedidos CLAROS: con una pregunta ("cuanto salen
+#     12 azucar"), un "no", una duda, una palabra que no conoce ("recibí 10 yerbas") o
+#     una frase que habla de un pedido que YA está hecho ("retiro el pedido de 5 azucar",
+#     "gracias por las 10 yerbas") contesta la cuenta, y ni pregunta ni anota.
+#     Tampoco anota si piden por lo que viene ADENTRO del bulto ("10 paquetes de yerba",
+#     y la yerba se vende por bolsón de 10 paquetes): pregunta, y dice cómo se vende.
+#     La unidad de venta es la PRIMERA palabra de la columna presentacion: conviene que
+#     sea el bulto ("pack de 6 botellas", y no "6 botellas"). Lo de adentro son las
+#     palabras que llevan un número adelante ("10 paquetes", "1 kg").
+#     Un pedido ya anotado no se anula desde la charla: eso lo arregla una persona.
+#     Todo lo demás (saludar, contar qué hay) lo contesta la IA, con frenos para que no
+#     invente precios.
+#   - DEPÓSITO es el único que sabe cuánto stock hay. Lo descuenta con cada pedido
+#     confirmado y lo RECUERDA de una vez a la otra. No vende lo que no hay.
+#   - COMPRAS deja anotado lo que hay que reponer. Depósito le avisa UNA vez, cuando un
+#     producto baja del mínimo; al abrir y al cerrar, el programa muestra lo anotado.
+#
+# QUÉ PODÉS CAMBIAR SIN SABER PROGRAMAR:
+#   1. Tus productos. Están en la planilla que está al lado de este archivo:
+#          «PLANILLA»
+#      Abrila con Excel o con el Bloc de notas. El primer renglón son los títulos, y va
+#      una sola vez:
+#          producto;presentacion;precio;stock
+#      Abajo va un renglón por producto. El cliente nombra cada producto por la PRIMERA
+#      palabra de su nombre ("yerba", "azúcar"): conviene que sea la que lo distingue.
+#   2. Desde cuántas unidades hay envío: el número de unidades_para_envio, acá abajo.
+#      Va un número entero, sin comillas: 1 o más.
+#   3. El mínimo de stock: el número de stock_minimo, un poco más abajo. Cuando de un
+#      producto quedan menos unidades que esas, Depósito le avisa a Compras. Va un número
+#      entero, sin comillas: 0 o más (con 0 no avisa nunca).
+#   4. Cómo se presenta el negocio: el texto que empieza con "Atendés las ventas".
+#   5. Lo que la IA no puede decir nunca: las palabras de 'prohibido', dentro de 'frenos'.
+#   6. Las palabras con las que tus clientes piden: están en palabras_de_pedir(). Si a un
+#      pedido bien dicho Ventas no le pregunta "¿Lo anoto?" (contesta "Todavía no anoté
+#      nada"), agregá ahí la palabra que usó, entre comillas y con una coma. Van en
+#      minúsculas y sin tildes. Las palabras con las que confirman: en palabras_de_si().
+#
+# EL STOCK. El de la planilla es el de ARRANQUE: Depósito lo toma la primera vez que ve
+# cada producto y de ahí en más lo lleva él. Lo que recuerda queda en este archivo, que
+# se abre con el Bloc de notas:
+#          «MEMORIA»
+# Cambiar el número en la planilla NO cambia lo que Depósito recuerda:
+#   - Cuando llega mercadería, escribí en la charla:   ingreso 30 azucar
+#     (la palabra ingreso, sin tilde; la cantidad; el nombre del producto; y nada más:
+#     ni signos ni otras palabras). Depósito lo repite ("Entendí: entran 30 x Azúcar
+#     (bolsa de 10 kg). Son 30 bolsas enteras. ¿Lo sumo?") y lo suma recién cuando
+#     contestás si: un cero de más se ve antes de tocar el stock. Si está escrito de
+#     otra manera no suma nada y te dice cómo va. Si con lo que entró el producto sigue
+#     por debajo del mínimo, el pedido de reposición queda anotado.
+#   - Para empezar de nuevo con el stock de la planilla, agregá --olvidar al comando de
+#     correr (una sola vez: borra lo que recuerdan Depósito y Compras).
+#   - Depósito le avisa a Compras cuando un producto BAJA del mínimo por una venta (o
+#     cuando alguien pide uno que está en cero). Uno que ya arranca por debajo del mínimo
+#     en la planilla no se anota hasta que alguien lo pide.
+#   - Si sacás un producto de la planilla o le cambiás el nombre, lo que Depósito y
+#     Compras recordaban de él queda guardado: se limpia con --olvidar.
+# OJO: "ingreso" se escribe en la misma charla que usa el cliente. Sirve mientras el
+# teclado lo maneja alguien del negocio.
+#
+# OJO, QUE ES IMPORTANTE: el stock y lo anotado para reponer se GUARDAN CUANDO EL PROGRAMA
+# TERMINA. Terminá siempre la charla con chau. Si cerrás la ventana con la X (o se corta
+# la luz), se pierde lo anotado en esa charla: el stock queda como estaba al abrirla. Si
+# atendés todo el día, conviene escribir chau y volver a entrar cada tanto.
+# Un pedido o un ingreso que esperaba el "si" no se guarda nunca: sin el "si", no existe.
+# Y no abras este programa en dos ventanas a la vez: la segunda avisa que ya hay otra
+# abierta y no arranca (si las dos anotaran, la que cierra última pisaría a la otra).
+#
+# CÓMO SE USA, en PowerShell, parado en la carpeta donde está este archivo:
+#   Para comprobar que quedó todo bien (hacelo cada vez que cambies algo):
+#          «ORDEN» probar «PROGRAMA»
+#   Para charlar con el equipo sin gastar nada (no hace falta clave ni internet):
+#          «ORDEN» correr «PROGRAMA» --ia-simulada
+#   Para VER cómo se hablan los agentes (Ventas con Depósito, Depósito con Compras):
+#          «ORDEN» correr «PROGRAMA» --ia-simulada --traza
+#   Para atender con la IA de verdad:
+#          «ORDEN» correr «PROGRAMA»
+#   Para salir de la charla, escribí chau.
+#   Para ensayarlo: Mate le hace las preguntas anotadas en «CASOS» (se abre con el Bloc
+#   de notas) y dice cuáles contestó bien. Un ensayo no descuenta stock:
+#          «ORDEN» ensayar «PROGRAMA» «CASOS» --ia-simulada
+#   (En un caso, el "si" del cliente va debajo de la pregunta, así:   después: si )
+#   OJO: los casos que vienen en «CASOS» son de muestra, escritos para la planilla de
+#   muestra (yerba, azúcar, fideos). Cuando pongas tus productos en la planilla, cambiá
+#   también los casos: si no, fallan los que nombran un producto que ya no está.
+#
+# Las pruebas del final usan una lista fija, no tu planilla ni lo que Depósito recuerda:
+# siguen pasando aunque cambies los productos, los precios, el número del envío o el
+# mínimo. Una sola mira tu planilla, para avisarte si quedó algo mal cargado.
+# Si unidades_para_envio, stock_minimo o ingreso_maximo quedan mal puestos (con comillas,
+# con decimales, negativos), el equipo no atiende y todas las pruebas fallan con el mismo
+# aviso, que dice cuál es y cómo va. (La orden 'verificar' no mira eso: mira que el
+# programa esté bien escrito.)
+# Si en la planilla queda un precio o un stock vacío o con letras, el equipo no atiende:
+# al arrancar dice de qué producto es y cómo arreglarlo.
+"""
+
+_PRUEBAS_DEL_EQUIPO = """\
+# ── Las pruebas ──────────────────────────────────────────────────────────────────────
+# Corren con la orden 'probar'. Usan la lista fija de acá abajo y no tu planilla: así
+# siguen pasando aunque cambies los productos y los precios. En una prueba los agentes
+# arrancan de cero (no se usa lo que recuerdan ni se guarda nada) y la IA nunca es de
+# verdad. mensajes_enviados("Reponer") da los mensajes de ese tipo que viajaron en la prueba.
+
+# La lista de las pruebas. De azúcar hay 5 más que el mínimo, para poder bajar de ahí, y
+# de yerba 100000 más que el mínimo, para que no baje nunca.
+funcion lista_de_prueba() {
+    # (con el mínimo mal puesto no hay cuenta que hacer: la prueba falla enseguida, en
+    # abrir_el_negocio(), con el aviso que dice cómo va)
+    var piso = 0
+    si es_entero_desde(stock_minimo, 0) {
+        piso = stock_minimo
+    }
+    devolver [{ producto: "Yerba mate", presentacion: "bolsón de 10 paquetes de 1 kg", precio: 35000, stock: piso + 100000 },
+              { producto: "Azúcar", presentacion: "bolsa de 10 kg", precio: 9800.5, stock: piso + 5 },
+              { producto: "Fideos secos", presentacion: "caja de 20 paquetes de 500 g", precio: 18900, stock: 0 }]
+}
+
+# En las pruebas, el cliente que pide y, cuando Ventas le repite el pedido y le pregunta
+# "¿Lo anoto?", contesta "si". Devuelve lo que Ventas contesta a ese "si". Si Ventas no
+# preguntó (no entendió un pedido claro), devuelve lo que contestó, y no dice "si".
+funcion pedir_y_confirmar(charla, dicho) {
+    sea entendido = consultar_a_ventas(charla, dicho)
+    si no (empieza_con(entendido, "Entendí: ") y termina_con(entendido, "¿Lo anoto? Contestá si o no.")) {
+        devolver entendido
+    }
+    devolver consultar_a_ventas("{charla} (el si)", "si")
+}
+
+prueba "tu planilla está bien cargada" {
+    # La única prueba que mira «PLANILLA»: si falla, el texto dice qué arreglar.
+    # Es lo mismo que el equipo revisa al arrancar: los títulos, y que cada producto
+    # tenga su precio y su stock en números (una celda vacía no es un número).
+    # También mira los tres números de arriba: unidades_para_envio, stock_minimo e
+    # ingreso_maximo.
+    sea a_corregir = que_arreglar(lista)
+    si a_corregir != nada {
+        fallar(a_corregir)
+    }
+}
+
+prueba "un pedido lo anota Ventas y lo descuenta Depósito, sin consultar a la IA" {
+    abrir_el_negocio(lista_de_prueba())
+    # Aunque la IA "quiera" contestar mal, nadie le pregunta.
+    simular_ia("Son $ 10,80.")
+    # Ventas no anota directo: repite el pedido, con la cuenta y los bultos, y pregunta.
+    asegurar consultar_a_ventas("a", "quiero 3 azucar") == "Entendí: 3 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 29.401,50. Son 3 bolsas enteras. ¿Lo anoto? Contestá si o no."
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    # Con el "si", recién ahí, se anota. (El "si" es otra consulta, con su propio nombre
+    # de charla; lo que lo une al pedido es que lo dice el MISMO cliente: el del teclado.)
+    asegurar consultar_a_ventas("a2", "si") == "Anotado: 3 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 29.401,50."
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    # Quedan 3 menos: se ve preguntando por una más de las que hay.
+    sea quedan = stock_minimo + 2
+    asegurar consultar_a_ventas("b", "tenes {quedan + 1} azucar?") == "De Azúcar quedan {quedan}; no llego a {quedan + 1}."
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "la conversación va de Ventas a Depósito, y de Depósito a Compras" {
+    abrir_el_negocio(lista_de_prueba())
+    # De fideos no hay: Depósito no vende, y le avisa a Compras.
+    pedir_y_confirmar("a", "quiero 3 fideos")
+    # Quién le preguntó a quién, en orden (el mínimo en 0 es no avisar nunca). El cliente
+    # habló dos veces: el pedido, y el "si". Recién con el "si" Ventas le habla a Depósito.
+    var camino = []
+    para m en mensajes_enviados() {
+        si m.pregunta {
+            camino = agregar(camino, "{m.de} → {m.a}: {m.tipo}")
+        }
+    }
+    var esperado = ["(programa) → Ventas: ConsultaDeCliente", "(programa) → Ventas: ConsultaDeCliente",
+                    "Ventas → Deposito: Reservar"]
+    si stock_minimo > 0 {
+        esperado = agregar(esperado, "Deposito → Compras: Reponer")
+    }
+    asegurar camino == esperado, camino
+}
+
+prueba "pedir más de lo que hay no vende" {
+    abrir_el_negocio(lista_de_prueba())
+    asegurar pedir_y_confirmar("a", "quiero 3 fideos") == "De Fideos secos ahora no hay stock."
+    sea hay = stock_minimo + 100000
+    asegurar pedir_y_confirmar("b", "quiero {hay + 1} yerbas") == "De Yerba mate quedan {hay}; no llego a {hay + 1}."
+    # No se descontó nada: siguen estando todas.
+    asegurar empieza_con(pedir_y_confirmar("c", "quiero {hay} yerbas"), "Anotado: {hay} x Yerba mate")
+}
+
+prueba "al bajar del mínimo sale UN pedido de reposición, no uno por cada venta" {
+    abrir_el_negocio(lista_de_prueba())
+    # De azúcar hay 5 más que el mínimo: con 3 menos todavía no se avisa.
+    pedir_y_confirmar("a", "quiero 3 azucar")
+    asegurar largo(mensajes_enviados("Reponer")) == 0
+    # Con 3 menos ya queda por debajo: se avisa. Y con los pedidos que siguen, no de nuevo.
+    pedir_y_confirmar("b", "quiero 3 azucar")
+    pedir_y_confirmar("c", "quiero 1 azucar")
+    pedir_y_confirmar("d", "quiero 1 azucar")
+    # (con el mínimo en 0 no se avisa nunca)
+    var avisos = 1
+    si stock_minimo == 0 {
+        avisos = 0
+    }
+    asegurar largo(mensajes_enviados("Reponer")) == avisos
+    # Compras lo tiene anotado una sola vez.
+    sea faltantes = preguntar QueFalta {} a Compras
+    asegurar largo(faltantes.pedidos) == avisos
+}
+
+prueba "preguntar el precio no anota nada ni descuenta stock" {
+    abrir_el_negocio(lista_de_prueba())
+    para dicho en ["cuanto salen 3 azucar?", "tenes 3 azucar?", "precio de 3 azucar"] {
+        asegurar consultar_a_ventas(dicho, dicho) == "3 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 29.401,50. Todavía no anoté nada: para pedirlo, escribí \\"quiero 3 azucar\\"."
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
+}
+
+prueba "el envío sale desde las unidades de la regla; si no llega, no se anota" {
+    abrir_el_negocio(lista_de_prueba())
+    sea n = unidades_para_envio
+    asegurar termina_con(pedir_y_confirmar("a", "quiero {n} yerbas con envio"), "Con envío: sí, va con envío.")
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    # Con una unidad menos no hay envío (si la regla es desde 1, no hay "una menos"): se
+    # le dice, y no se anota hasta que el cliente decida.
+    si n > 1 {
+        sea contestado = consultar_a_ventas("b", "me mandas {n - 1} yerbas?")
+        asegurar tiene(contestado, "Sin envío: hacemos envíos desde {n} unidades y pedís {n - 1}.")
+        asegurar tiene(contestado, "Todavía no anoté nada")
+        asegurar largo(mensajes_enviados("Reservar")) == 1
+    }
+    # Si dice que NO quiere envío, se anota y no se le confirma un envío.
+    asegurar termina_con(pedir_y_confirmar("c", "quiero {n} yerbas sin envio"), "total {pesos(n * 35000)}.")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "la mercadería que llega se suma, y Compras la tacha de su lista" {
+    abrir_el_negocio(lista_de_prueba())
+    pedir_y_confirmar("a", "quiero 3 fideos")
+    # Entran 30 más que el mínimo: alcanza, y Compras no tiene nada que reponer.
+    # (si pusiste un mínimo más grande que ingreso_maximo, eso no entra en un solo
+    # ingreso: esta prueba no tiene qué mirar)
+    sea n = stock_minimo + 30
+    si n <= ingreso_maximo {
+        asegurar anotar_ingreso(lista_de_prueba(), "ingreso {n} fideos") == "Entraron {n} de Fideos secos: ahora hay {n}."
+        asegurar (preguntar QueFalta {} a Compras).pedidos == []
+        asegurar empieza_con(pedir_y_confirmar("b", "quiero 30 fideos"), "Anotado: 30 x Fideos secos")
+    }
+}
+
+prueba "si entra poca mercadería y sigue bajo el mínimo, el pedido de reposición queda" {
+    abrir_el_negocio(lista_de_prueba())
+    # (con un mínimo de 0 o de 1 no hay "poca": esta prueba no tiene qué mirar)
+    si stock_minimo > 1 {
+        # De fideos no hay. Entra 1: sigue por debajo del mínimo, y Compras lo anota.
+        asegurar anotar_ingreso(lista_de_prueba(), "ingreso 1 fideos") == "Entraron 1 de Fideos secos: ahora hay 1. Sigue por debajo del mínimo ({stock_minimo}): queda anotado para reponer."
+        asegurar (preguntar QueFalta {} a Compras).pedidos == [{ producto: "Fideos secos", quedan: 1 }]
+        # Como ya está anotado, una venta no le avisa de nuevo.
+        pedir_y_confirmar("a", "quiero 1 fideos")
+        asegurar largo(mensajes_enviados("Reponer")) == 0
+        # Entra lo que falta para llegar al mínimo: recién ahí Compras lo tacha.
+        # (salvo que el mínimo sea más grande que lo que entra en un solo ingreso)
+        si stock_minimo <= ingreso_maximo {
+            anotar_ingreso(lista_de_prueba(), "ingreso {stock_minimo} fideos")
+            asegurar (preguntar QueFalta {} a Compras).pedidos == []
+        }
+    }
+}
+
+prueba "un ingreso lleva la cantidad y el producto, y nada más" {
+    abrir_el_negocio(lista_de_prueba())
+    para dicho en ["ingreso fideos", "ingreso -5 yerbas", "ingreso - 5 yerbas", "ingreso yerbas 5",
+                   "ingreso 5 cafe", "ingreso 10 yerbas con envio", "ingreso 5 yerbas no",
+                   "ingreso 5 yerbas?", "ingreso 5 de yerba", "ingreso 5 yerbas gracias",
+                   "ingresó 5 yerbas", "ingreso: 5 yerbas", "ingresos 5 yerbas"] {
+        asegurar empieza_con(anotar_ingreso(lista_de_prueba(), dicho), "No entendí el ingreso. No sumé nada."), dicho
+    }
+    # Un número más grande que el tope (un cero de más) tampoco entra.
+    asegurar empieza_con(anotar_ingreso(lista_de_prueba(), "ingreso {ingreso_maximo + 1} yerbas"), "No lo anoté:")
+    asegurar largo(mensajes_enviados("Ingreso")) == 0
+    # Solo es un ingreso si la primera palabra es "ingreso". Si está escrito parecido
+    # ("ingresó 5 yerbas"), en la charla se explica cómo va y no cuenta como consulta.
+    asegurar es_un_ingreso("ingreso 30 yerbas") y no es_un_ingreso("Ingresó mi pedido de 20 yerbas?")
+    asegurar parece_un_ingreso("ingresó 5 yerbas") y no parece_un_ingreso("Ingresó mi pedido de 20 yerbas?")
+    simular_teclado(["ingresó 5 yerbas", "ingreso 5 yerbas?", "chau"])
+    asegurar charlar_con_el_equipo(lista_de_prueba()) == 0
+    asegurar largo(mensajes_enviados("Ingreso")) == 0
+}
+
+prueba "lo que no es un pedido claro no se anota: negaciones, dudas, preguntas y avisos" {
+    abrir_el_negocio(lista_de_prueba())
+    para dicho en ["no me mandes 2 yerbas", "no anotes 2 yerbas", "se puede pedir 2 yerbas?",
+                   "2 yerbas?", "queria saber si puedo pedir 2 yerbas", "no se si quiero 20 yerbas",
+                   "haceme un descuento en 20 yerbas", "a las 3 paso a buscar la yerba",
+                   "te debo 2 yerbas", "quiero -3 yerbas", "quiero - 3 yerbas", "quiero –3 yerbas",
+                   "quiero 20 yerbas？", "recibi 10 yerbas",
+                   "llegaron 10 yerbas", "me mandaron 10 yerbas", "ingresaron 5 yerbas"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada"), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    # Y un pedido claro sí se anota, se diga como se diga.
+    para dicho en ["quiero 2 yerbas", "2 yerbas", "Hola, quería 2 bolsones de yerba por favor",
+                   "dame 2 yerbas, las retiro yo", "anotame 2 yerbas sin envio",
+                   "quiero comprar 2 yerbas", "quiero pedir 2 yerbas", "me das 2 yerbas",
+                   "hago un pedido de 2 yerbas", "2 yerbas, gracias"] {
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+    }
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "hablar de un pedido que YA está hecho no lo anota otra vez" {
+    abrir_el_negocio(lista_de_prueba())
+    # El cliente agradece, viene a retirar o pregunta por lo que ya pidió: si se anotara,
+    # se le vendería dos veces.
+    para dicho en ["retiro el pedido de 5 yerbas", "gracias por las 5 yerbas",
+                   "ya llevo el pedido de 5 yerbas", "hola, por mi pedido de 5 yerbas",
+                   "te llevo 10 yerbas", "me mandan 10 yerbas", "otro dia quiero 20 yerbas",
+                   "gracias por el pedido de 20 yerbas", "gracias por las 10 yerbas del otro dia",
+                   "gracias, ya retiro mi pedido de 5 yerbas",
+                   "hola, el pedido de 10 yerbas ya lo retiro",
+                   "buenas, ya mandan mi pedido de 12 yerbas", "ya me mandan las 10 yerbas",
+                   "mi pedido de 20 yerbas", "che, y el pedido de 5 yerbas", "retiro 5 yerbas"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada"), dicho
+    }
+    # Nadie reservó nada: la yerba está entera.
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+}
+
+prueba "un pedido en la unidad de ADENTRO del bulto no se anota: Ventas pregunta" {
+    abrir_el_negocio(lista_de_prueba())
+    # La yerba se vende por bolsón de 10 paquetes: "10 paquetes" puede ser 1 bolsón o 10.
+    asegurar consultar_a_ventas("a", "quiero 10 paquetes de yerba") == "Todavía no anoté nada, para no equivocarme: dijiste \\"paquetes\\", y Yerba mate se vende por bolsón de 10 paquetes de 1 kg, a $ 35.000,00 cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \\"quiero 1 yerba\\"."
+    para dicho en ["10 paquetes de yerba", "dame 1 paquete de yerba", "anotame 20 paquetes de fideos",
+                   "quiero 10 paquetes de yerba con envio", "cuanto salen 10 paquetes de yerba?",
+                   "quiero 2 azucar de 10 kg"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada, para no equivocarme: dijiste \\""), dicho
+    }
+    # Un pasado con tilde ("compró" no es "compro"), o un "hago" o un "de" sueltos, tampoco.
+    para dicho en ["compró 10 yerbas", "llevó 10 yerbas", "encargó 5 yerbas", "encargo de 5 yerbas",
+                   "de 5 yerbas", "hago 5 yerbas", "hacerte 5 yerbas", "me hacer 5 yerbas",
+                   "llevo 10 yerbas de mas"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada: para pedirlo, escribí \\"quiero "), dicho
+    }
+    # Nadie reservó nada: la yerba está entera.
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(consultas_ia()) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+    # Con la unidad de venta adelante sí está claro.
+    asegurar empieza_con(pedir_y_confirmar("x", "quiero 1 bolsón de yerba"), "Anotado: 1 x Yerba mate")
+    asegurar empieza_con(pedir_y_confirmar("y", "quiero 3 bolsas de azucar de 10 kg"), "Anotado: 3 x Azúcar")
+}
+
+prueba "con una planilla propia: la presentación que arranca con un número, o que nombra al producto" {
+    sea propia = [{ producto: "Agua mineral", presentacion: "6 botellas de 2 litros", precio: 5400, stock: 100000 },
+                  { producto: "Alfajores", presentacion: "12 unidades", precio: 9600, stock: 100000 },
+                  { producto: "Vino", presentacion: "6 botellas", precio: 14500, stock: 100000 },
+                  { producto: "Huevos", presentacion: "maple de 30 huevos", precio: 14500, stock: 100000 },
+                  { producto: "Galletitas", presentacion: "caja con 24 paquetes para kiosco", precio: 14500, stock: 100000 },
+                  { producto: "Paquete regalo", presentacion: "caja de 6 paquetes", precio: 12000, stock: 100000 },
+                  { producto: "Grisines", presentacion: "paquete de 3 unidades sin sal", precio: 2100, stock: 100000 },
+                  { producto: "Lavandina", presentacion: "bidón de 5 litros", precio: 3300, stock: 100000 },
+                  { producto: "Sidra", presentacion: "caja de botellas", precio: 3300, stock: 100000 },
+                  { producto: "Dulce de leche", presentacion: "caja de 12 potes", precio: 3300, stock: 100000 }]
+    abrir_el_negocio(propia)
+    # Si la presentación ARRANCA con un número no hay palabra para el bulto: lo que nombra
+    # es lo de adentro. "6 botellas de agua" puede ser 1 bulto o 6.
+    asegurar unidad_de_venta(propia[0]) == "" y unidad_de_venta({ producto: "Tomate", presentacion: "x 6 latas" }) == ""
+    asegurar consultar_a_ventas("a", "quiero 6 botellas de agua") == "Todavía no anoté nada, para no equivocarme: dijiste \\"botellas\\", y Agua mineral se vende así: 6 botellas de 2 litros, a $ 5.400,00 cada bulto. ¿Cuántos bultos querés? Por ejemplo, para llevar uno solo: \\"quiero 1 bulto de agua\\"."
+    # Y si lo de adentro se llama como el producto ("maple de 30 huevos"), "30 huevos"
+    # puede ser 1 maple o 30: el ejemplo de la respuesta va con la unidad de venta.
+    asegurar consultar_a_ventas("b", "quiero 30 huevos") == "Todavía no anoté nada, para no equivocarme: dijiste \\"huevos\\", y Huevos se vende por maple de 30 huevos, a $ 14.500,00 cada uno. ¿Cuántos querés de esos? Por ejemplo, para llevar uno solo: \\"quiero 1 maple de huevos\\"."
+    para dicho en ["quiero 12 unidades de alfajores", "quiero 6 botellas de vino", "quiero 2 huevos",
+                   "quiero 6 paquetes regalo", "dame 6 paquetes regalo, gracias",
+                   "quiero 3 unidades de grisines", "quiero 2 lavandinas de 5 litros",
+                   "quiero 6 botellas de sidra", "quiero 12 potes de dulce de leche"] {
+        asegurar empieza_con(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada, para no equivocarme: dijiste \\""), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("ConsultarStock")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Agua mineral" } a Deposito).unidades == 100000
+    # Con el nombre del producto, con "bultos" o con la unidad de venta, se anota. Y las
+    # palabras de la presentación que no llevan un número adelante ("sin sal", "para
+    # kiosco") describen: no son una unidad, y no frenan un pedido corriente.
+    para dicho en ["quiero 2 aguas", "quiero 2 bultos de vino", "quiero 2 alfajores",
+                   "quiero 2 maples de huevos", "quiero huevos, 2 maples",
+                   "quiero 2 cajas de paquete regalo", "quiero 2 galletitas para kiosco",
+                   "quiero 2 cajas de galletitas", "quiero 2 grisines sin sal",
+                   "quiero 2 bidones de 5 litros de lavandina", "quiero 2 cajas de sidra",
+                   "quiero 2 dulce de leche", "dulce de leche 2 cajas"] {
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x "), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 13
+    asegurar unidades_de_adentro(propia[4]) == ["paquetes"] y unidades_de_adentro(propia[8]) == ["botellas"]
+}
+
+prueba "el 'de' del nombre de un producto, adelante de la cantidad, no frena el pedido" {
+    abrir_el_negocio(lista_de_prueba() + [{ producto: "Aceite de girasol", presentacion: "caja de 12 botellas de 900 ml", precio: 31200, stock: 100000 }])
+    para dicho en ["aceite de girasol 2 cajas", "quiero aceite de girasol 2",
+                   "quiero aceite de girasol, 2 cajas", "quiero hacer un pedido de aceite de girasol: 2 cajas"] {
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x Aceite de girasol"), dicho
+    }
+    para dicho en ["de yerba quiero 2", "quiero de yerba 2", "buenas tardes, de yerba 2 bolsones"] {
+        asegurar empieza_con(pedir_y_confirmar(dicho, dicho), "Anotado: 2 x Yerba mate"), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 7
+    # Pegado a la cantidad, el "de" sigue hablando de algo que ya existe.
+    para dicho en ["encargo de 5 yerbas", "de 5 yerbas", "encargo de unas 5 yerbas", "el encargo de yerba 5"] {
+        asegurar tiene(consultar_a_ventas(dicho, dicho), "Todavía no anoté nada: para pedirlo, escribí \\"quiero "), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 7
+}
+
+prueba "devolver o anular no anota nada, y Ventas dice que eso lo arregla una persona" {
+    abrir_el_negocio(lista_de_prueba())
+    simular_ia("Listo, te lo anulé.")
+    para dicho en ["devuelvo 5 yerbas", "cancelame 5 yerbas", "anulame el pedido de 5 yerbas",
+                   "ya no quiero 5 yerbas"] {
+        asegurar consultar_a_ventas(dicho, dicho) == respuesta_de_anular(), dicho
+    }
+    asegurar largo(consultas_ia()) == 0 y largo(mensajes_enviados("Reservar")) == 0
+}
+
+prueba "el contrato no deja saltearse a Ventas ni hablarle a Compras por afuera" {
+    abrir_el_negocio(lista_de_prueba())
+    # El programa no le puede pedir una reserva a Depósito: eso es de Ventas.
+    asegurar falla { preguntar Reservar { charla: "a", producto: "Yerba mate", cantidad: 5 } a Deposito }
+    # Ni pedirle una reposición a Compras: eso es de Depósito.
+    asegurar falla { preguntar Reponer { charla: "b", producto: "Yerba mate", quedan: 1 } a Compras }
+    asegurar (preguntar QueFalta {} a Compras).pedidos == []
+}
+
+prueba "lo que no es un pedido va a la IA, y un precio inventado no le llega al cliente" {
+    abrir_el_negocio(lista_de_prueba())
+    simular_ia("¡Hola! Tenemos yerba y azúcar.")
+    asegurar consultar_a_ventas("a", "hola, ¿qué tienen?") == "¡Hola! Tenemos yerba y azúcar."
+    # Un precio que no está en la lista: salta el freno y llega la reserva.
+    simular_ia("El café sale $ 12.000.")
+    asegurar no tiene(consultar_a_ventas("b", "¿y café?"), "12.000")
+    # Para eso nadie le habló a Depósito.
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+}
+
+prueba "nada se anota sin un 'si': Ventas repite el pedido, con los bultos, y espera" {
+    abrir_el_negocio(lista_de_prueba())
+    # (aunque la IA "quiera" decir que anotó, el freno no la deja)
+    simular_ia("Listo, anotado: 2 yerbas.")
+    sea pregunta = "Entendí: 2 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 70.000,00. Son 2 bolsones enteros. ¿Lo anoto? Contestá si o no."
+    # Con "no" no se anota nada.
+    asegurar consultar_a_ventas("a", "quiero 2 yerbas") == pregunta
+    asegurar consultar_a_ventas("b", "no") == "Listo: no anoté nada."
+    # Con cualquier otra cosa tampoco: Ventas avisa que lo de antes no quedó anotado, y
+    # atiende lo nuevo. Y el pedido deja de esperar: un "si" tardío no lo anota.
+    para otra_cosa en ["si?", "si pero que sean 5", "si no", "no si", "bueno", "1", "uno solo",
+                       "si quiero", "claro que no", "s", "y si mejor llevo 3?",
+                       "si, y mandame 5 azucar", "dale que va"] {
+        asegurar consultar_a_ventas("pide y sigue: {otra_cosa}", "quiero 2 yerbas") == pregunta
+        sea contestado = consultar_a_ventas(otra_cosa, otra_cosa)
+        asegurar empieza_con(contestado, "No anoté lo de antes (2 x Yerba mate): no me contestaste que sí. "), otra_cosa
+        asegurar no tiene(contestado, "Anotado"), otra_cosa
+        consultar_a_ventas("no, después de: {otra_cosa}", "no")
+        asegurar consultar_a_ventas("si, después de: {otra_cosa}", "si") == respuesta_sin_pedido(), otra_cosa
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+    # Si la otra cosa es un pedido nuevo, lleva su propia pregunta: el "si" que sigue
+    # anota ESE, y no el de antes. Y un segundo "si" no anota de nuevo.
+    asegurar consultar_a_ventas("g", "quiero 2 yerbas") == pregunta
+    asegurar consultar_a_ventas("h", "quiero 3 yerbas") == "No anoté lo de antes (2 x Yerba mate): no me contestaste que sí. Entendí: 3 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 105.000,00. Son 3 bolsones enteros. ¿Lo anoto? Contestá si o no."
+    asegurar consultar_a_ventas("i", "si") == "Anotado: 3 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 105.000,00."
+    asegurar consultar_a_ventas("j", "si") == respuesta_sin_pedido()
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000 - 3
+    # El "si" se puede decir de varias maneras, pero tiene que ser lo único que se dice.
+    sea maneras = ["si", "Sí", "SI", "sí.", "dale", "ok", "confirmo", "anotalo", "si, anotalo",
+                   "sí, por favor", "dale, gracias"]
+    para manera en maneras {
+        consultar_a_ventas("pide y contesta: {manera}", "quiero 1 yerba")
+        asegurar empieza_con(consultar_a_ventas(manera, manera), "Anotado: 1 x Yerba mate"), manera
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 1 + largo(maneras)
+    asegurar es_un_si("  Sí, dale ") y no es_un_si("si?") y no es_un_si("si pero no") y no es_un_si("gracias")
+    asegurar es_un_no("No, gracias") y es_un_no("mejor no") y no es_un_no("no se") y no es_un_no("si")
+}
+
+prueba "el 'si' de un cliente no confirma el pedido de otro: cada uno tiene el suyo" {
+    abrir_el_negocio(lista_de_prueba())
+    sea hay = stock_minimo + 100000
+    # Ana pide. Antes de que conteste, Beto (otro cliente) dice "si": no tiene ningún
+    # pedido esperando, así que no se anota nada. El stock sigue igual.
+    asegurar empieza_con(consultar_a_ventas("ana-1", "quiero 2 yerbas", "ana"), "Entendí: 2 x Yerba mate")
+    asegurar consultar_a_ventas("beto-1", "si", "beto") == respuesta_sin_pedido()
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == hay
+    # El pedido de Ana sigue esperando SU "si": lo de Beto no lo borró ni lo anotó.
+    asegurar empieza_con(consultar_a_ventas("ana-2", "si", "ana"), "Anotado: 2 x Yerba mate")
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == hay - 2
+    # Con un pedido esperando de cada uno, cada "si" anota el propio y el "no" de uno no
+    # toca el del otro. El del teclado es un cliente más.
+    asegurar empieza_con(consultar_a_ventas("ana-3", "quiero 1 yerba", "ana"), "Entendí: 1 x Yerba mate")
+    asegurar empieza_con(consultar_a_ventas("beto-2", "quiero 3 yerbas", "beto"), "Entendí: 3 x Yerba mate")
+    asegurar consultar_a_ventas("t-1", "si") == respuesta_sin_pedido()
+    asegurar (preguntar DejarDeEsperar { cliente: "teclado" } a Ventas).aviso == ""
+    asegurar consultar_a_ventas("ana-4", "no", "ana") == "Listo: no anoté nada."
+    asegurar empieza_con(consultar_a_ventas("beto-3", "si", "beto"), "Anotado: 3 x Yerba mate")
+    asegurar largo(mensajes_enviados("Reservar")) == 2
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == hay - 5
+}
+
+prueba "un 'no' dicho de otra manera no se toma como sí: 'ok, dejá' no anota" {
+    abrir_el_negocio(lista_de_prueba())
+    simular_ia("Decime qué producto querés y cuántas unidades.")
+    # Es lo que contesta quien vio en la pregunta que Ventas entendió mal. Al lado de
+    # "dejá" o "cancelalo", el "ok" o el "dale" son una muletilla: es un no.
+    para dicho en ["ok, dejá", "dale, dejá nomás", "si, mejor deja", "dejá", "no, dejá", "mejor no",
+                   "no, dejá nomás", "ok, cancelalo", "no, muchas gracias", "No, gracias"] {
+        asegurar empieza_con(consultar_a_ventas("pide y contesta: {dicho}", "quiero 6 yerbas"), "Entendí: 6 x Yerba mate"), dicho
+        asegurar consultar_a_ventas(dicho, dicho) == "Listo: no anoté nada.", dicho
+        asegurar no es_un_si(dicho) y es_un_no(dicho), dicho
+        # (y el pedido dejó de esperar: un "si" tardío no lo anota)
+        asegurar consultar_a_ventas("si, después de: {dicho}", "si") == respuesta_sin_pedido(), dicho
+    }
+    # Al sí lo acompaña solo la cortesía ("por favor", "gracias"): con cualquier otra
+    # palabra al lado ya no es un sí, aunque tampoco diga que no.
+    para dicho en ["ok mejor", "por confirmar", "dale nomás", "si, mejor", "si por", "si, muchas",
+                   "si favor", "ok, mejor mañana", "por favor", "muchas gracias", "si no", "no si"] {
+        asegurar empieza_con(consultar_a_ventas("pide y sigue: {dicho}", "quiero 6 yerbas"), "Entendí: 6 x Yerba mate"), dicho
+        sea contestado = consultar_a_ventas(dicho, dicho)
+        asegurar empieza_con(contestado, "No anoté lo de antes (6 x Yerba mate): no me contestaste que sí. "), dicho
+        asegurar no tiene(contestado, "Anotado") y no es_un_si(dicho) y no es_un_no(dicho), dicho
+        asegurar consultar_a_ventas("si, después de: {dicho}", "si") == respuesta_sin_pedido(), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+    asegurar es_un_si("si, por favor") y es_un_si("dale, muchas gracias") y es_un_si("ok porfa") y es_un_si("Sí, gracias")
+    # Con el ingreso, igual: nada de esto lo suma. (Los dos renglones que no son ni sí ni
+    # no, "si" y "por confirmar", van a Ventas como consultas.)
+    simular_teclado(["ingreso 1 yerba", "ok, dejá", "si", "ingreso 1 yerba", "dale, dejá nomás",
+                     "ingreso 1 yerba", "si, mejor deja", "ingreso 1 yerba", "por confirmar", "chau"])
+    asegurar charlar_con_el_equipo(lista_de_prueba()) == 2
+    asegurar largo(mensajes_enviados("Ingreso")) == 0 y largo(mensajes_enviados("Reservar")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+}
+
+prueba "lo que espera el 'si' no sobrevive a un comando ni a irse de la charla" {
+    abrir_el_negocio(lista_de_prueba())
+    # Un texto que parece un comando de PowerShell no es un "si": el pedido (y el ingreso)
+    # deja de esperar, y el "si" que venga después no anota nada. Irse con "listo" tampoco.
+    # Un Enter solo, en cambio, no contesta nada: la pregunta sigue en pie (el pedido del
+    # medio es el único que se anota).
+    simular_teclado(["quiero 6 yerbas", "Get-ChildItem", "si",
+                     "ingreso 1 yerba", "Get-ChildItem", "si",
+                     "quiero 6 yerbas", "", "si",
+                     "quiero 6 yerbas", "listo"])
+    asegurar charlar_con_el_equipo(lista_de_prueba()) == 6
+    asegurar largo(mensajes_enviados("Reservar")) == 1 y largo(mensajes_enviados("Ingreso")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000 - 6
+    # (se fue con "listo" sin contestar: Ventas ya no espera nada)
+    asegurar consultar_a_ventas("a", "si") == respuesta_sin_pedido()
+    asegurar largo(mensajes_enviados("Reservar")) == 1
+}
+
+prueba "las frases que Ventas entendía mal ya no descuentan stock: se ven en la pregunta" {
+    # La lista de las pruebas y, además, presentaciones con la cuenta adentro ("pack x 6").
+    sea propia = lista_de_prueba() + [{ producto: "Cerveza rubia", presentacion: "pack x 6", precio: 7200, stock: 100000 },
+                                      { producto: "Vino tinto", presentacion: "caja x 6", precio: 14500, stock: 100000 },
+                                      { producto: "Atún", presentacion: "x 6 latas", precio: 9000, stock: 100000 },
+                                      { producto: "Agua mineral", presentacion: "caja de 12 botellas", precio: 5400, stock: 100000 }]
+    abrir_el_negocio(propia)
+    # El cliente quería UN pack, y Ventas entendió 6: ahora se lo dice antes de anotar.
+    asegurar consultar_a_ventas("a", "quiero un pack x 6 de cerveza") == "Entendí: 6 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 43.200,00. Son 6 packs enteros. ¿Lo anoto? Contestá si o no."
+    asegurar consultar_a_ventas("b", "no") == "Listo: no anoté nada."
+    # Si la cantidad es justo un número de adentro del bulto, lo dice con todas las letras.
+    asegurar consultar_a_ventas("c", "quiero un bolson x 10 de yerba") == "Entendí: 10 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 350.000,00. Son 10 bolsones enteros (no 10 paquetes). ¿Lo anoto? Contestá si o no."
+    consultar_a_ventas("d", "no")
+    para dicho en ["quiero una caja x 6 de vino", "quiero caja x 6 botellas de vino",
+                   "quiero un bulto x 6 de atun", "quiero bolsa x 10 azucar",
+                   "quiero 10 unidades de yerba", "quiero 12 unidades de agua",
+                   "quiero 6 unidades de cerveza", "quiero 6 vinos", "quiero 6 x cerveza",
+                   "cerveza pack x 6", "yerba x 10", "compro 10 yerbas",
+                   "hola, 5 yerbas para retirar", "5 yerbas a retirar", "10 yerbas retiro",
+                   "llevo 10 yerbas al local", "yo llevo 10 yerbas", "encargo de yerba 5",
+                   "quiero 2 bultos de yerba", "quiero 10 paquetes de yerba", "compró 10 yerbas"] {
+        sea contestado = consultar_a_ventas(dicho, dicho)
+        asegurar no tiene(contestado, "Anotado"), dicho
+        si empieza_con(contestado, "Entendí: ") {
+            # (la pregunta dice cuántos bultos son, con la unidad en que se vende)
+            asegurar tiene(contestado, " enteros") o tiene(contestado, " enteras"), contestado
+            asegurar termina_con(contestado, "¿Lo anoto? Contestá si o no."), contestado
+        } sino {
+            asegurar tiene(contestado, "Todavía no anoté nada"), contestado
+        }
+        # El cliente ve que no era eso, y dice que no.
+        consultar_a_ventas("{dicho} (el no)", "no")
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("Reponer")) == 0
+    para fila en propia {
+        asegurar (preguntar CuantoQueda { producto: fila.producto } a Deposito).unidades == fila.stock, fila.producto
+    }
+    # Dicho bien, y con el "si", se anota lo que el cliente quería: un pack.
+    asegurar pedir_y_confirmar("z", "quiero 1 cerveza") == "Anotado: 1 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 7.200,00."
+    asegurar en_bultos(propia[0], 2) == "Son 2 bolsones enteros." y en_bultos(propia[0], 1) == "Es 1 bolsón entero."
+    asegurar en_bultos(propia[5], 6) == "Son 6 bultos enteros (no 6 latas)." y en_plural("bidón") == "bidones"
+}
+
+prueba "el ingreso de mercadería también pide el 'si' antes de sumar" {
+    abrir_el_negocio(lista_de_prueba())
+    # (de a 1, para que la prueba pase también con un ingreso_maximo chico)
+    asegurar pregunta_de_ingreso(leer_ingreso(lista_de_prueba(), "ingreso 1 yerba")) == "Entendí: entran 1 x Yerba mate (bolsón de 10 paquetes de 1 kg). Es 1 bolsón entero. ¿Lo sumo? Contestá si o no."
+    asegurar pregunta_de_ingreso({ fila: lista_de_prueba()[1], cantidad: 30 }) == "Entendí: entran 30 x Azúcar (bolsa de 10 kg). Son 30 bolsas enteras. ¿Lo sumo? Contestá si o no."
+    # Sin el "si" no entra nada: ni con "no", ni con otra cosa, ni con otro ingreso (ese
+    # pregunta de nuevo), ni cortando la charla con el ingreso esperando.
+    simular_teclado(["ingreso 1 yerba", "no", "ingreso 1 yerba", "uy, era de azucar",
+                     "ingreso 1 yerba", "ingreso 1 azucar", "si?", "ingreso 1 yerba", "chau"])
+    asegurar charlar_con_el_equipo(lista_de_prueba()) == 2
+    asegurar largo(mensajes_enviados("Ingreso")) == 0
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000
+}
+
+prueba "con el 'si' el ingreso entra una sola vez, y un 'si' contesta lo último que se preguntó" {
+    abrir_el_negocio(lista_de_prueba())
+    # El segundo "si" va a Ventas, que no tiene ningún pedido esperando. Si en el medio de
+    # un pedido se anota un ingreso, el pedido deja de esperar: el "si" del ingreso no lo
+    # anota. Y con un ingreso esperando, el "si" a un pedido no suma el ingreso.
+    simular_teclado(["ingreso 1 yerba", "si", "si",
+                     "quiero 2 yerbas", "ingreso 1 yerba", "si", "si",
+                     "ingreso 1 yerba", "quiero 3 yerbas", "si", "chau"])
+    asegurar charlar_con_el_equipo(lista_de_prueba()) == 5
+    asegurar largo(mensajes_enviados("Ingreso")) == 2 y largo(mensajes_enviados("Reservar")) == 1
+    asegurar (preguntar CuantoQueda { producto: "Yerba mate" } a Deposito).unidades == stock_minimo + 100000 + 2 - 3
+}
+"""
+
+
+def _tramo(texto, desde, hasta, archivo, carpeta):
+    """Lo que hay en el texto de un ejemplo entre dos de sus títulos (sin el renglón en
+    blanco de adelante). Si alguno de los dos no está, falla con un ErrorMate."""
+    inicio = texto.find(desde)
+    fin = texto.find(hasta, inicio + 1) if inicio >= 0 else -1
+    if fin < 0:
+        raise ErrorMate(
+            f"no pude armar el equipo: {archivo} (en {para_pegar(carpeta)}) "
+            "no tiene la forma que espero. ¿Lo cambiaste? Bajá Mate de nuevo para tener "
+            "el ejemplo original", familia="archivo")
+    return texto[inicio + 1:fin + 1]
+
+
+def archivos_del_equipo(nombre, orden, carpeta_de_mate=None, fin_de_renglon=None):
+    """Lo que crea 'nuevo equipo <nombre>': {nombre del archivo: su contenido, en bytes}:
+    el programa, la planilla y los casos para 'ensayar', en ese orden. Falla con un
+    ErrorMate si en la carpeta de Mate falta alguno de los ejemplos, o si ya no tienen los
+    títulos que marcan qué partes se copian."""
+    carpeta = os.path.join(carpeta_de_mate or os.path.dirname(os.path.abspath(__file__)),
+                           CARPETA_DE_EJEMPLOS)
+    programa, planilla = f"{nombre}.mate", f"{nombre}_precios.csv"
+    casos = f"{nombre}_casos.txt"
+    try:
+        equipo = leer_fuente(os.path.join(carpeta, EJEMPLO_DEL_EQUIPO))
+        mostrador = leer_fuente(os.path.join(carpeta, EJEMPLO_DEL_MOSTRADOR))
+        with open(os.path.join(carpeta, PLANILLA_DE_MUESTRA), "rb") as f:
+            muestra = f.read()
+        de_muestra = leer_fuente(os.path.join(carpeta, CASOS_DEL_EQUIPO))
+    except OSError:
+        raise ErrorMate(
+            f"para crear un equipo hacen falta {EJEMPLO_DEL_EQUIPO}, {EJEMPLO_DEL_MOSTRADOR}, "
+            f"{PLANILLA_DE_MUESTRA} y {CASOS_DEL_EQUIPO}, que vienen con Mate, y no los "
+            f"encuentro en {para_pegar(carpeta)}. Si copiaste solo mate.py, bajá Mate de "
+            "nuevo con todas sus carpetas", familia="archivo")
+    regla, pedidos, revisar = (_tramo(mostrador, desde, hasta, EJEMPLO_DEL_MOSTRADOR, carpeta)
+                               for desde, hasta in _DEL_12_PARA_EL_EQUIPO)
+    agentes = _tramo(equipo, _EQUIPO_DESDE, _EQUIPO_PROGRAMA, EJEMPLO_DEL_EQUIPO, carpeta)
+    el_programa = _tramo(equipo, _EQUIPO_PROGRAMA, _EQUIPO_HASTA, EJEMPLO_DEL_EQUIPO, carpeta)
+    # El orden: lo que se puede cambiar va arriba (la regla del envío, el mínimo, los
+    # agentes); después, las funciones que entienden los pedidos; y al final el programa.
+    texto = "\n".join((
+        _ENCABEZADO_DEL_EQUIPO, regla, agentes,
+        "# ── Entender los pedidos y revisar la planilla ───────────────────────────────────────\n"
+        "# De acá hasta el título \"El programa\" son las funciones del ejemplo 12: las que\n"
+        "# entienden lo que escribió el cliente, hacen la cuenta y revisan la planilla.\n",
+        pedidos + revisar + el_programa)).replace(PLANILLA_DE_MUESTRA, planilla)
+    texto += _PRUEBAS_DEL_EQUIPO
+    for marca, valor in (("«PROGRAMA»", programa), ("«PLANILLA»", planilla),
+                         ("«CASOS»", casos), ("«ORDEN»", orden),
+                         ("«MEMORIA»", archivo_de(programa, "memoria.json"))):
+        texto = texto.replace(marca, valor)
+    # Los casos de muestra traen, de nota, cómo se ensaya el ejemplo 13: acá va cómo se
+    # ensaya este equipo (desde el título 'Cómo se escribe' es el mismo archivo).
+    corte = de_muestra.find(_CASOS_DESDE)
+    de_muestra = (f"# Casos para ensayar {programa}: lo que pregunta un cliente, lo que la "
+                  "respuesta\n# tiene que decir (o no puede decir) y qué mensajes tienen que "
+                  "viajar entre los\n# agentes (o no). Es tuyo: cambialos y "
+                  "agregá los que quieras.\n# OJO: los casos que vienen acá son de muestra, "
+                  "escritos para la planilla de muestra\n# (yerba, azúcar, fideos). Si cambiás "
+                  f"los productos de {planilla}, cambiá\n# también estos casos: si no, "
+                  "fallan los que nombran un producto que ya no está.\n"
+                  "# Un ensayo no descuenta stock ni anota nada: cada pregunta arranca con "
+                  "lo que\n# Depósito recuerda en ese momento. Si de un producto ya se "
+                  "vendió casi todo, sus\n# casos van a contestar que no alcanza (para "
+                  "volver al stock de la planilla:\n"
+                  f"#     {orden} correr {programa} --olvidar ).\n"
+                  "#\n# Cómo se usa, en PowerShell, parado en "
+                  "la carpeta donde está este archivo:\n"
+                  f"#     {orden} ensayar {programa} {casos} --ia-simulada\n"
+                  "# (sin --ia-simulada contesta la IA de verdad: así se ve si una lección "
+                  "funcionó)\n#\n") + de_muestra[max(corte, 0):]
+    fin = os.linesep if fin_de_renglon is None else fin_de_renglon
+    return {programa: texto.replace("\n", fin).encode("utf-8-sig"), planilla: muestra,
+            casos: de_muestra.replace("\n", fin).encode("utf-8-sig")}
+
+
+# Lo que sabe crear 'nuevo': con qué función se arman los archivos y de qué archivo de
+# muestra salen los casos.
+_QUE_CREA_NUEVO = {
+    "mostrador": (archivos_del_mostrador, CASOS_DE_MUESTRA),
+    "equipo": (archivos_del_equipo, CASOS_DEL_EQUIPO),
+}
+
+
 def orden_nuevo(args, avisar, mostrar=print):
-    """La orden 'nuevo mostrador <nombre>': crea el programa y su planilla de muestra en la
-    carpeta actual, sin pisar nada, y dice los pasos que siguen. Devuelve el código de salida."""
+    """La orden 'nuevo mostrador <nombre>' o 'nuevo equipo <nombre>': crea el programa, su
+    planilla de muestra y sus casos en la carpeta actual, sin pisar nada, y dice los pasos
+    que siguen. Devuelve el código de salida."""
     orden = orden_para_esta_carpeta()
-    ejemplo = f"{orden} nuevo mostrador mi_negocio"
+    que = sin_tildes(args[0].lower()) if args else ""
     que_falta = "al escribir la orden: 'nuevo' sin decir qué crear o con qué nombre"
-    if not args or sin_tildes(args[0].lower()) != "mostrador":
-        avisar("después de 'nuevo' va qué crear y con qué nombre. Por ahora crea "
-               f"mostradores:  {ejemplo}", que_falta, True)
+    if que not in _QUE_CREA_NUEVO:
+        avisar("después de 'nuevo' va qué crear y con qué nombre. Crea un mostrador o un "
+               f"equipo de agentes:  {orden} nuevo mostrador mi_negocio   o   "
+               f"{orden} nuevo equipo mi_negocio", que_falta, True)
         return 2
+    armar, casos_de_muestra = _QUE_CREA_NUEVO[que]
+    ejemplo = f"{orden} nuevo {que} mi_negocio"
     if len(args) == 1:
-        avisar("a 'nuevo mostrador' le falta el nombre que le querés poner (una palabra, "
+        avisar(f"a 'nuevo {que}' le falta el nombre que le querés poner (una palabra, "
                f"sin espacios). Por ejemplo:  {ejemplo}", que_falta, True)
         return 2
     if len(args) > 2:
-        avisar("el nombre del mostrador va en una sola palabra, sin espacios (podés unir "
-               f"con guion bajo):  {orden} nuevo mostrador {'_'.join(args[1:])}",
-               "al escribir la orden: 'nuevo mostrador' con un nombre con espacios", True)
+        avisar(f"el nombre del {que} va en una sola palabra, sin espacios (podés unir "
+               f"con guion bajo):  {orden} nuevo {que} {'_'.join(args[1:])}",
+               f"al escribir la orden: 'nuevo {que}' con un nombre con espacios", True)
         return 2
     nombre = re.sub(r"(?i)\.mate(\.txt)?$", "", args[1].strip())
-    mal_nombre = "al escribir la orden: 'nuevo mostrador' con un nombre que no sirve"
+    mal_nombre = f"al escribir la orden: 'nuevo {que}' con un nombre que no sirve"
     if re.search(r"[\\/:]", nombre):
-        avisar("el mostrador se crea en la carpeta donde estás parado: va solo el nombre, "
+        avisar(f"el {que} se crea en la carpeta donde estás parado: va solo el nombre, "
                f"sin carpeta. Por ejemplo:  {ejemplo}", mal_nombre, True)
         return 2
     if not re.fullmatch(r"[^\W_][\w\-]{0,59}", nombre):
@@ -8706,28 +11107,28 @@ def orden_nuevo(args, avisar, mostrar=print):
                f"Windows se reserva. Elegí otro, por ejemplo:  {ejemplo}", mal_nombre, True)
         return 2
     try:
-        archivos = archivos_del_mostrador(nombre, orden)
+        archivos = armar(nombre, orden)
     except ErrorMate as e:
-        avisar(e.mensaje, "al escribir la orden: 'nuevo mostrador' sin los ejemplos de Mate")
+        avisar(e.mensaje, f"al escribir la orden: 'nuevo {que}' sin los ejemplos de Mate")
         return 1
     programa, planilla, casos = list(archivos)
     # Nada se pisa: ni el programa, ni la planilla, ni los casos, ni la memoria o la
     # bitácora que haya dejado un programa viejo con ese nombre (el nuevo heredaría sus
-    # lecciones).
+    # lecciones y, en un equipo, su stock).
     ya_estan = [a for a in (programa, programa + ".txt", planilla, casos,
                             archivo_de(programa, "memoria.json"),
                             archivo_de(programa, "bitacora.txt")) if os.path.lexists(a)]
     if ya_estan:
         avisar(f"no creé nada: en esta carpeta ya hay {' y '.join(ya_estan)}, y no piso "
                "archivos. Elegí otro nombre (por ejemplo:  "
-               f"{orden} nuevo mostrador {nombre}_2) o mové esos archivos a otra carpeta"
+               f"{orden} nuevo {que} {nombre}_2) o mové esos archivos a otra carpeta"
                + ("" if casos in ya_estan or programa not in ya_estan else
                   f". Si lo que te falta es el archivo de casos para 'ensayar' ({casos}), "
                   "copiá el de muestra con ese nombre al lado del programa: está en "
                   + ruta_para_escribir(os.path.join(
                       os.path.dirname(os.path.abspath(__file__)), "ejemplos",
-                      CASOS_DE_MUESTRA))),
-               "al escribir la orden: 'nuevo mostrador' con un nombre que ya existe", True)
+                      casos_de_muestra))),
+               f"al escribir la orden: 'nuevo {que}' con un nombre que ya existe", True)
         return 1
     creados = []
     try:
@@ -8749,7 +11150,47 @@ def orden_nuevo(args, avisar, mostrar=print):
                    "pueda escribir en esa carpeta (o parate en otra, por ejemplo Documentos)")
         return 1
     ancho = max(len(a) for a in archivos)
-    for renglon in (
+    if que == "equipo":
+        renglones = (
+            f"Listo. Creé tres archivos en {para_pegar(os.getcwd())}:",
+            f"  {programa.ljust(ancho)}   el programa: Ventas, Depósito y Compras",
+            f"  {planilla.ljust(ancho)}   la planilla de precios y stock, con productos de muestra",
+            f"  {casos.ljust(ancho)}   preguntas de clientes para ensayar el equipo",
+            "",
+            "Los pasos que siguen (cada comando se puede copiar tal cual):",
+            "  1. Comprobar que quedó todo bien:",
+            f"       {orden} probar {programa}",
+            "  2. Charlar con el equipo sin gastar nada, viendo cómo se hablan los agentes.",
+            "     Probá escribir: quiero 20 azucar   (Ventas repite el pedido y pregunta",
+            "     \"¿Lo anoto?\": contestá si; y después: chau)",
+            f"       {orden} correr {programa} --ia-simulada --traza",
+            "  3. Correrlo de nuevo, sin --traza: el stock sigue donde quedó (Depósito lo",
+            "     recuerda) y Compras muestra lo que anotó para reponer.",
+            f"       {orden} correr {programa} --ia-simulada",
+            "  4. Poner tus productos en la planilla (también se abre con Excel). El primer",
+            "     renglón, el de los títulos, no se toca y va una sola vez:",
+            f"       notepad {planilla}",
+            "  5. Comprobar de nuevo (paso 1) y atender con la IA de verdad. La primera vez",
+            "     va con --olvidar, para que Depósito arranque con el stock de tu planilla:",
+            f"       {orden} correr {programa} --olvidar",
+            f"  6. Ensayarlo: Mate le hace las preguntas de {casos} y dice cuáles",
+            "     contestó bien (un ensayo no descuenta stock):",
+            f"       {orden} ensayar {programa} {casos} --ia-simulada",
+            "     Ojo: esos casos son de muestra, escritos para la planilla de muestra. Si",
+            "     cambiaste los productos (paso 4), cambiá también los casos, o van a fallar",
+            "     los que nombran un producto que ya no está. Para abrirlos:",
+            f"       notepad {casos}",
+            "",
+            "Nada se anota sin tu si: Ventas repite cada pedido, con la cuenta y los bultos,",
+            "y lo anota recién cuando le contestás si. Con no, o con otra cosa, no anota nada.",
+            "El stock de la planilla es el de arranque: después lo lleva Depósito. Cuando",
+            "llegue mercadería, escribí en la charla:  ingreso 30 azucar   (también pregunta)",
+            "OJO: el stock se guarda cuando el programa termina. Terminá siempre la charla",
+            "con chau: si cerrás la ventana con la X, se pierde lo anotado en esa charla.",
+            f"Arriba de todo, {programa} dice qué más se puede cambiar (el mínimo de stock,",
+            f"por ejemplo). Para abrirlo:  notepad {programa}")
+    else:
+        renglones = (
             f"Listo. Creé tres archivos en {para_pegar(os.getcwd())}:",
             f"  {programa.ljust(ancho)}   el programa del mostrador",
             f"  {planilla.ljust(ancho)}   la planilla de precios, con productos de muestra",
@@ -8776,7 +11217,8 @@ def orden_nuevo(args, avisar, mostrar=print):
             "",
             f"Arriba de todo, {programa} dice qué más se puede cambiar (desde cuántas "
             "unidades",
-            f"hay envío, por ejemplo). Para abrirlo:  notepad {programa}"):
+            f"hay envío, por ejemplo). Para abrirlo:  notepad {programa}")
+    for renglon in renglones:
         mostrar(renglon)
     return 0
 
@@ -8809,6 +11251,7 @@ def orden_nuevo(args, avisar, mostrar=print):
 
 MAX_VECES = 20  # --veces=N: cuántas veces se repite cada caso, como mucho
 MAX_CASOS = 200  # preguntas en un archivo de casos
+MAX_RENGLONES_DE_CHARLA = 60  # de la conversación de un caso que falla, en el informe
 _REGLA_DE_CASO = re.compile(
     r"(?is)(?:[-*•·]\s*)?(no\s+)?(tiene\s+que|debe|puede)\s+decir\s*:(.*)")
 _PARECE_REGLA = ("tiene que decir", "no tiene que decir", "debe decir", "no debe decir",
@@ -8822,6 +11265,48 @@ _TODO_ENTRE_COMILLAS = re.compile(
     rf"(?i)(?:{_ENTRE_COMILLAS})(?:\s*(?:\||,|o\b|ni\b)?\s*(?:{_ENTRE_COMILLAS}))*")
 COMO_VAN_LAS_REGLAS = ('Las reglas van debajo de la pregunta y se escriben así:  '
                        'tiene que decir: sin envío   o   no puede decir: descuento')
+# (0.7) Lo que tiene que viajar entre agentes, o no, mientras se atiende esa pregunta:
+#     tiene que viajar: Reservar de Ventas a Deposito
+#     no tiene que viajar: Reponer
+# Va el nombre del mensaje y, si se quiere, quién lo manda ('de') y quién lo recibe ('a').
+# Las respuestas ('responder') también son mensajes que viajan. Con | se dan opciones.
+_REGLA_DE_VIAJE = re.compile(
+    r"(?is)(?:[-*•·]\s*)?(no\s+)?(tiene\s+que|debe|puede)\s+viajar\s*:(.*)")
+_UN_VIAJE = re.compile(r"(?i)(\w+)(?:\s+de\s+(?!a\s)(.+?))?(?:\s+a\s+(.+?))?")
+_PARECE_VIAJE = ("tiene que viajar", "no tiene que viajar", "debe viajar", "no debe viajar",
+                 "puede viajar", "no puede viajar")
+# ("viaja" no va: es una palabra bien escrita, de una pregunta como "mi pedido viaja: hoy?")
+_VIAJAR_MAL_ESCRITO = ("viajar", "biajar", "viajr", "viagar", "vajar", "viajarr")
+# Lo que sigue a "viajar" en una regla: Mensaje, Mensaje de Agente, Mensaje a Agente...
+_FORMA_DE_VIAJE = re.compile(
+    r"(?i)\w+(?:\s+de\s+\w+(?:\s+\w+)?)?(?:\s+a\s+\w+(?:\s+\w+)?)?\.?")
+UN_MENSAJE_POR_REGLA = ("En cada regla va un solo mensaje. Si tienen que viajar los dos, "
+                        "escribí un renglón 'tiene que viajar:' para cada uno; si alcanza "
+                        "con cualquiera, separalos con una barra |")
+# Así empieza una regla (bien o mal escrita). Un renglón que empieza así, está debajo de
+# una pregunta y nombra un mensaje del programa es una regla de mensajes mal escrita
+# ("no tiene que viaja: Reponer"), no otra pregunta de un cliente.
+_EMPIEZA_COMO_REGLA = ("no tiene que ", "tiene que ", "no puede ", "no debe ", "debe ",
+                       "no viaja", "viaja ", "viaja:", "viajar")
+_EL_PROGRAMA = "(programa)"  # así figura en la traza lo que manda el programa, no un agente
+# (0.7) Un caso de más de un renglón: lo que el cliente escribe DESPUÉS de la pregunta, en
+# la misma charla (el "si" a un pedido que el programa repite antes de anotar):
+#     quiero 3 yerbas
+#         después: si
+#         tiene que decir: anotado: 3 x
+# Las reglas miran lo que el programa contesta (y lo que viaja) desde el ÚLTIMO renglón.
+_SIGUE_DE_CASO = re.compile(
+    r"(?is)(?:[-*•·]\s*)?(?:y\s+)?despu[eé]s(?:\s+(?:escribe|contesta|dice|responde))?\s*:(.*)")
+# "después si", debajo de una pregunta y sin los dos puntos: quedaría como otra pregunta.
+_SIGUE_SIN_DOS_PUNTOS = re.compile(
+    r"(?i)(?:[-*•·]\s*)?(?:y\s+)?despu[eé]s(?:\s+(?:escribe|contesta|dice|responde))?\s+"
+    r"[\"'“”«»]?(?:s[ií]|no|dale|ok)[\"'“”«»]?\.?")
+MAX_SIGUEN = 10  # renglones 'después:' en un caso
+COMO_VA_LO_QUE_SIGUE = ('Lo que el cliente escribe después, en la misma charla, va debajo '
+                        'de la pregunta, así:  después: si')
+COMO_VAN_LOS_MENSAJES = ('Lo que tiene que viajar entre agentes se escribe así:  '
+                         'tiene que viajar: Reservar de Ventas a Deposito   o   '
+                         'no tiene que viajar: Reponer')
 
 
 class _FinDelEnsayo(BaseException):
@@ -8852,12 +11337,233 @@ def regla_de_caso(renglon):
         return not regla.group(1), opciones
     suelto = para_comparar(renglon).lstrip("-*•· ")
     antes = suelto.split(":")[0].split()  # "no puede desir: ...", "tiene q decir: ..."
+    resto = quizas_viaje(renglon)
+    if resto is not None and _FORMA_DE_VIAJE.fullmatch(resto) and (
+            ":" in renglon or resto[0].isupper()):
+        raise viaje_mal_escrito(renglon)
     if suelto.startswith(_PARECE_REGLA) or (
             ":" in suelto and 1 <= len(antes) <= 5 and antes[-1] in _DECIR_MAL_ESCRITO):
         raise ErrorMate("este renglón parece una regla, pero no la entiendo"
                         + ("" if ":" in renglon else " (le faltan los dos puntos)")
                         + ". " + COMO_VAN_LAS_REGLAS)
     return None
+
+
+def quizas_viaje(renglon):
+    """Si el renglón (que no es una regla bien escrita) podría ser una regla de mensajes
+    mal escrita ("tiene que viajar Reponer", sin los dos puntos; "puede viajar: Reponer";
+    "tiene que biajar: Reponer"), lo que sigue a 'viajar'. Si no, None. Solo con esto no
+    alcanza para decir que es una regla: un cliente también pregunta "puede viajar mi
+    pedido hoy" (regla_de_caso() mira la forma y revisar_viajes() si nombra un mensaje)."""
+    sin_marca = renglon.lstrip("-*•· ")
+    suelto = para_comparar(sin_marca)
+    if ":" in sin_marca:
+        antes = suelto.split(":")[0].split()
+        if 1 <= len(antes) <= 5 and antes[-1] in _VIAJAR_MAL_ESCRITO:
+            return sin_marca.split(":", 1)[1].strip()
+    if "?" not in renglon:
+        for principio in sorted(_PARECE_VIAJE, key=len, reverse=True):
+            if suelto.startswith(principio + " ") or suelto == principio:
+                return " ".join(sin_marca.split()[len(principio.split()):]).lstrip(": ")
+    return None
+
+
+def viaje_mal_escrito(renglon, faltan_los_dos_puntos=None):
+    if faltan_los_dos_puntos is None:
+        faltan_los_dos_puntos = ":" not in renglon
+    return ErrorMate("este renglón parece una regla de mensajes, pero no la entiendo"
+                     + (" (le faltan los dos puntos)" if faltan_los_dos_puntos else "")
+                     + ". " + COMO_VAN_LOS_MENSAJES
+                     + ". (Si es una pregunta de un cliente, terminala con un signo de "
+                     "pregunta: ?)")
+
+
+def empieza_como_regla(caso):
+    """Si ese renglón, que quedó como pregunta, tiene pinta de regla mal escrita: está
+    debajo de otra pregunta, empieza como una regla ("no tiene que...", "no puede...") y
+    no lleva signo de pregunta."""
+    return bool(caso.get("debajo") and "?" not in caso["pregunta"] and (para_comparar(
+        caso["pregunta"].lstrip("-*•· ")) + " ").startswith(_EMPIEZA_COMO_REGLA))
+
+
+def habla_de_viajar(renglon):
+    """Si alguna palabra del renglón es 'viajar' o se le parece: viaja, vijar, biajar."""
+    import difflib
+    return any(palabra.startswith("viaj") or difflib.SequenceMatcher(
+        None, palabra, "viajar").ratio() >= 0.8
+        for palabra in re.findall(r"\w+", para_comparar(renglon)))
+
+
+def viaje_de_caso(renglon):
+    """Si el renglón es una regla de mensajes ('tiene que viajar: Reponer de Deposito a
+    Compras'): (verdadero si tiene que viajar, las opciones). Cada opción es (mensaje, de,
+    a), con None donde no se dijo quién. Si no lo es, None. Mal escrita, un ErrorMate."""
+    regla = _REGLA_DE_VIAJE.fullmatch(renglon)
+    if not regla or not (regla.group(1) or regla.group(2).lower() != "puede"):
+        return None
+    opciones = []
+    for parte in regla.group(3).split("|"):
+        parte = " ".join(parte.split()).rstrip(".")
+        for abre, cierra in _PARES_DE_COMILLAS:  # (copiada del informe, o con comillas)
+            if len(parte) > 1 and parte.startswith(abre) and parte.endswith(cierra):
+                parte = parte[1:-1].strip()
+        if not parte:
+            continue
+        if re.search(r"(?i)^\w+\s+del\s+programa\b|\s+al\s+programa$", parte):
+            # (una sola forma de escribirlo: se explica cómo va, no se aceptan dos)
+            raise ErrorMate(f"no entiendo '{parte}': lo que manda o recibe el programa se "
+                            "escribe 'de el programa' y 'a el programa', separado (no 'del' "
+                            "ni 'al'):  tiene que viajar: ConsultaDeCliente de el programa "
+                            "a Ventas")
+        viaje = _UN_VIAJE.fullmatch(parte)
+        if not viaje:
+            raise ErrorMate(f"no entiendo qué mensaje es '{parte}': va el nombre del "
+                            "mensaje, y si querés quién lo manda y quién lo recibe. "
+                            + (UN_MENSAJE_POR_REGLA + ". " if "," in parte else "")
+                            + COMO_VAN_LOS_MENSAJES)
+        opciones.append((viaje.group(1),) + tuple(
+            _EL_PROGRAMA if quien and para_comparar(quien).strip("()") in (
+                "programa", "el programa") else quien for quien in viaje.groups()[1:]))
+    if not opciones:
+        raise ErrorMate("a esta regla le falta el nombre del mensaje, después de los dos "
+                        "puntos. " + COMO_VAN_LOS_MENSAJES)
+    return not regla.group(1), tuple(opciones)
+
+
+def viaje_escrito(regla):
+    """La regla de mensajes como se escribe en el archivo de casos (se puede copiar)."""
+    debe, opciones = regla
+    def quien(nombre):
+        return "el programa" if nombre == _EL_PROGRAMA else nombre
+    return ("tiene que viajar: " if debe else "no tiene que viajar: ") + " | ".join(
+        tipo + (f" de {quien(de)}" if de else "") + (f" a {quien(a)}" if a else "")
+        for tipo, de, a in opciones)
+
+
+def viajes_incumplidos(viajes, reglas):
+    """Las reglas de mensajes del caso que no se cumplen con lo que viajó. viajes: lo que
+    anotó el intérprete, (mensaje, de, a, molde de, molde a). Una copia de un agente
+    ('crear Vendedor llamado "Centro"') vale por su nombre entero o por el del agente."""
+    def es(pedido, nombre, molde):
+        return pedido is None or para_comparar(pedido) in (
+            para_comparar(nombre), para_comparar(molde))
+
+    def viajo(opcion):
+        return any(para_comparar(opcion[0]) == para_comparar(tipo)
+                   and es(opcion[1], de, molde_de) and es(opcion[2], a, molde_a)
+                   for tipo, de, a, molde_de, molde_a in viajes)
+    return [regla for regla in reglas if any(map(viajo, regla[1])) != regla[0]]
+
+
+def copias_del_programa(programa, con_armadas=False):
+    """Las copias de agentes que el programa crea con 'crear ... llamado': {agente: los
+    nombres completos ("Vendedor Centro"), o None si alguno se arma al correr (llamado
+    "Sucursal " + nombre) y no se puede saber acá}. Con con_armadas: ({agente: los
+    nombres que sí están escritos en el programa}, los agentes con algún nombre armado)."""
+    copias, armadas, por_ver = {}, set(), [programa]
+    while por_ver:
+        nodo = por_ver.pop()
+        if _es_nodo(nodo, "crear", 5) and nodo[3] is not None:
+            copias.setdefault(nodo[2], [])
+            if nodo[3][0] == "str":
+                copias[nodo[2]].append(f"{nodo[2]} {nodo[3][2]}")
+            else:
+                armadas.add(nodo[2])
+        if isinstance(nodo, (list, tuple)):
+            por_ver.extend(reversed(nodo))  # (en el orden del programa)
+    if con_armadas:
+        return copias, armadas
+    return {agente: None if agente in armadas else nombres
+            for agente, nombres in copias.items()}
+
+
+def consulta_a_la_ia(programa):
+    """Si en el programa hay alguna llamada a consultar_ia()."""
+    por_ver = [programa]
+    while por_ver:
+        nodo = por_ver.pop()
+        if _es_nodo(nodo, "llamar", 4) and _es_nodo(nodo[2], "nombre", 3) \
+                and nodo[2][2] == "consultar_ia":
+            return True
+        if isinstance(nodo, (list, tuple)):
+            por_ver.extend(nodo)
+    return False
+
+
+def revisar_viajes(casos, programa, ruta):
+    """Que cada regla de mensajes nombre un mensaje y agentes que el programa tiene: un
+    nombre mal escrito (o una regla mal armada: 'Reservar a Deposito de Ventas') haría que
+    'no tiene que viajar' pasara siempre. Deja los nombres escritos como en el programa.
+    Falla con un ErrorMate que dice el renglón. También avisa una pregunta que en realidad
+    es una regla de mensajes mal escrita (nombra un mensaje del programa). Devuelve lo
+    que no se pudo revisar, [(renglón, nombre)]: una copia cuyo nombre se arma al correr."""
+    def el_de(nombre, declarados, que, renglon):
+        igual = [d for d in declarados if para_comparar(d) == para_comparar(nombre)]
+        if igual:
+            return igual[0]
+        raise ErrorMate(con_sugerencia(
+            f"{ruta}:{renglon}: el programa no tiene {que} '{nombre}'", nombre, declarados)
+            + (f" (tiene: {', '.join(declarados)})" if 0 < len(declarados) <= 12 else ""))
+
+    def el_agente(nombre, renglon):
+        if nombre in (None, _EL_PROGRAMA):
+            return nombre
+        dicho = para_comparar(nombre)
+        for agente in agentes:
+            if dicho == para_comparar(agente):
+                return agente
+        for agente in agentes:  # una copia: "Vendedor Centro"
+            if dicho.startswith(para_comparar(agente) + " ") and agente in copias:
+                de_ese = copias[agente]
+                if agente in armadas and dicho not in map(para_comparar, de_ese):
+                    # El nombre se arma al correr: no se puede revisar acá. Se mira después
+                    # de ensayar el caso (con el nombre mal escrito, un 'no tiene que
+                    # viajar' pasaría siempre).
+                    sin_revisar.append((renglon, nombre))
+                    return nombre
+                return el_de(nombre, de_ese, f"ningún {agente} llamado", renglon)
+        palabras, tiene = dicho.split(), ""
+        if 0 < len(agentes) <= 12:
+            tiene = f" El programa tiene: {', '.join(agentes)}."
+        if "," in nombre:
+            raise ErrorMate(f"{ruta}:{renglon}: no entiendo '{nombre}'. "
+                            + UN_MENSAJE_POR_REGLA + ".")
+        if "de" in palabras or "a" in palabras:
+            raise ErrorMate(
+                f"{ruta}:{renglon}: no entiendo '{nombre}'. Primero va quién manda el "
+                "mensaje (de) y después quién lo recibe (a), una sola vez cada uno y con "
+                "el nombre del agente:  tiene que viajar: Reservar de Ventas a Deposito")
+        if len(palabras) > 1:
+            raise ErrorMate(
+                f"{ruta}:{renglon}: no entiendo '{nombre}'. Después de 'de' y de 'a' va "
+                "solo el nombre de un agente (o 'el programa')." + tiene
+                + "".join(f" {agente} no tiene copias con nombre en el programa."
+                          for agente in agentes if palabras[0] == para_comparar(agente)))
+        return el_de(nombre, agentes, "ningún agente llamado", renglon)
+
+    mensajes = [s[2] for s in programa if s[0] == "mensaje"]
+    agentes = [s[2] for s in programa if s[0] in ("agente", "agente_ajeno")]
+    (copias, armadas), sin_revisar = copias_del_programa(programa, True), []
+    de_mensajes = {para_comparar(mensaje) for mensaje in mensajes}
+    for caso in casos:
+        # "tiene que viajar reponer" (sin los dos puntos) quedó como pregunta: no lo es.
+        resto = quizas_viaje(caso["pregunta"])
+        if resto and para_comparar(resto.split()[0].strip(".,;:|\"'")) in de_mensajes:
+            raise ErrorMate(f"{ruta}:{caso['renglon']}: "
+                            + viaje_mal_escrito(caso["pregunta"]).mensaje)
+        # "no tiene que viaja: Reponer", "no tiene que viajar el reponer", debajo de una
+        # pregunta: si no se avisa, queda como una pregunta más y la regla no se mira.
+        if empieza_como_regla(caso) and habla_de_viajar(caso["pregunta"]) and \
+                de_mensajes.intersection(re.findall(r"\w+", para_comparar(caso["pregunta"]))):
+            raise ErrorMate(f"{ruta}:{caso['renglon']}: " + viaje_mal_escrito(
+                caso["pregunta"], faltan_los_dos_puntos=False).mensaje)
+        for i, (debe, opciones, renglon) in enumerate(caso["mensajes"]):
+            nuevas = []
+            for tipo, de, a in opciones:
+                tipo = el_de(tipo, mensajes, "ningún mensaje llamado", renglon)
+                nuevas.append((tipo, el_agente(de, renglon), el_agente(a, renglon)))
+            caso["mensajes"][i] = (debe, tuple(nuevas), renglon)
+    return sin_revisar
 
 
 def sin_comillas_alrededor(opcion):
@@ -8884,9 +11590,11 @@ def regla_escrita(regla):
 
 
 def casos_de_archivo(ruta):
-    """Lee el archivo de casos de 'ensayar'. Devuelve [{"renglon", "pregunta", "reglas"}],
-    o falla con un ErrorMate que dice el renglón. Una o más preguntas seguidas (una por
-    renglón) comparten las reglas que tienen debajo; # es una nota."""
+    """Lee el archivo de casos de 'ensayar'. Devuelve [{"renglon", "pregunta", "reglas",
+    "mensajes"}], o falla con un ErrorMate que dice el renglón. Una o más preguntas
+    seguidas (una por renglón) comparten las reglas que tienen debajo; # es una nota.
+    reglas: lo que la respuesta tiene que decir o no. mensajes: lo que tiene que viajar
+    entre agentes o no, cada una con su renglón: (debe, opciones, renglón)."""
     try:
         contenido = leer_fuente(ruta)
     except FileNotFoundError:
@@ -8895,17 +11603,57 @@ def casos_de_archivo(ruta):
         raise ErrorMate(f"no pude leer el archivo de casos '{ruta}'")
     casos, grupo, con_reglas = [], [], False
     for numero, renglon in enumerate(contenido.split("\n"), 1):
-        renglon = "".join(c for c in renglon if c not in _INVISIBLES).strip()
+        entero = "".join(c for c in renglon if c not in _INVISIBLES)
+        renglon = entero.strip()
         if not renglon or renglon.startswith("#"):
             continue
+        sigue = _SIGUE_DE_CASO.fullmatch(renglon)
+        if sigue:
+            # Lo que el cliente escribe después: vale para las preguntas de arriba, como
+            # una regla (y, como una regla, cierra la lista de preguntas del grupo).
+            dicho = sin_comillas_de_charla(sigue.group(1).strip())
+            if not grupo:
+                raise ErrorMate(f"{ruta}:{numero}: este 'después:' no tiene una pregunta "
+                                "arriba. " + COMO_VA_LO_QUE_SIGUE)
+            if not dicho:
+                raise ErrorMate(f"{ruta}:{numero}: a este 'después:' le falta lo que escribe "
+                                "el cliente, después de los dos puntos. " + COMO_VA_LO_QUE_SIGUE)
+            if not sin_reglas(grupo):
+                # Las reglas miran la respuesta al ÚLTIMO renglón: una regla escrita arriba
+                # de un 'después:' parece mirar la respuesta anterior, y no lo hace.
+                raise ErrorMate(
+                    f"{ruta}:{numero}: este 'después:' está debajo de una regla. Las reglas "
+                    "de un caso miran lo que el programa contesta al ÚLTIMO renglón, así "
+                    "que los 'después:' van todos arriba, pegados a la pregunta, y las "
+                    "reglas debajo. Para revisar también la respuesta de antes, escribí "
+                    "otro caso con la misma pregunta y sin ese 'después:'")
+            if len(grupo[0]["siguen"]) >= MAX_SIGUEN:
+                raise ErrorMate(f"{ruta}:{numero}: un caso lleva hasta {MAX_SIGUEN} renglones "
+                                "'después:'")
+            for caso in grupo:
+                caso["siguen"].append(dicho)
+            con_reglas = True
+            continue
         try:
-            regla = regla_de_caso(renglon)
+            viaje = viaje_de_caso(renglon)
+            regla = viaje or regla_de_caso(renglon)
         except ErrorMate as e:
             raise ErrorMate(f"{ruta}:{numero}: {e.mensaje}")
         if regla is None:
+            if grupo and _SIGUE_SIN_DOS_PUNTOS.fullmatch(renglon):
+                raise ErrorMate(f"{ruta}:{numero}: a este 'después' le faltan los dos puntos "
+                                "(así queda como otra pregunta del cliente). "
+                                + COMO_VA_LO_QUE_SIGUE)
             if con_reglas:  # las reglas de arriba cerraron el grupo: acá empieza otro
+                if sin_reglas(grupo):  # (tenía un 'después:' y ninguna regla)
+                    raise ErrorMate(
+                        f"{ruta}:{grupo[0]['renglon']}: a esta pregunta le falta decir qué "
+                        "se espera de la respuesta. " + COMO_VAN_LAS_REGLAS)
                 grupo, con_reglas = [], False
-            grupo.append({"renglon": numero, "pregunta": renglon, "reglas": []})
+            # sangria y debajo (de otra pregunta): para avisar una regla mal escrita
+            grupo.append({"renglon": numero, "pregunta": renglon, "reglas": [],
+                          "mensajes": [], "siguen": [], "sangria": entero[:1] in (" ", "\t"),
+                          "debajo": bool(grupo)})
             casos.append(grupo[-1])
         elif not grupo:
             raise ErrorMate(f"{ruta}:{numero}: esta regla no tiene una pregunta arriba. "
@@ -8913,9 +11661,21 @@ def casos_de_archivo(ruta):
                             "sus reglas")
         else:
             for caso in grupo:
-                caso["reglas"].append(regla)
+                if viaje:
+                    caso["mensajes"].append(viaje + (numero,))
+                else:
+                    caso["reglas"].append(regla)
             con_reglas = True
-    if grupo and not con_reglas:
+    if grupo and sin_reglas(grupo):
+        for caso in grupo[1:]:  # "hola" y debajo "tiene que viajar reponer": no es otra pregunta
+            if quizas_viaje(caso["pregunta"]) is not None:
+                raise ErrorMate(f"{ruta}:{caso['renglon']}: "
+                                + viaje_mal_escrito(caso["pregunta"]).mensaje)
+            if caso["sangria"] and empieza_como_regla(caso):
+                # "hola" y debajo, con sangría, "no tiene que viaja: Reponer"
+                raise ErrorMate(
+                    f"{ruta}:{caso['renglon']}: este renglón parece una regla, pero no la "
+                    f"entiendo. {COMO_VAN_LAS_REGLAS}. {COMO_VAN_LOS_MENSAJES}")
         raise ErrorMate(
             f"{ruta}:{grupo[0]['renglon']}: a esta pregunta le falta decir qué se espera de "
             "la respuesta. " + COMO_VAN_LAS_REGLAS)
@@ -8929,6 +11689,25 @@ def casos_de_archivo(ruta):
     return casos
 
 
+def sin_reglas(grupo):
+    """Si a las preguntas de ese grupo todavía no se les puso ninguna regla."""
+    return not (grupo[0]["reglas"] or grupo[0]["mensajes"])
+
+
+def sin_comillas_de_charla(dicho):
+    """Lo que escribe el cliente en un 'después:', sin las comillas que lo envuelvan."""
+    for abre, cierra in _PARES_DE_COMILLAS:
+        if len(dicho) > 1 and dicho.startswith(abre) and dicho.endswith(cierra):
+            return dicho[1:-1].strip()
+    return dicho
+
+
+def caso_escrito(caso):
+    """El caso como se muestra en el informe: la pregunta y, si los hay, los renglones que
+    el cliente escribe después."""
+    return caso["pregunta"] + "".join(f"  →  {dicho}" for dicho in caso.get("siguen", ()))
+
+
 def reglas_incumplidas(respuesta, reglas):
     """Las reglas del caso que esa respuesta no cumple."""
     dicho = para_comparar(respuesta)
@@ -8937,25 +11716,80 @@ def reglas_incumplidas(respuesta, reglas):
 
 
 def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=(),
-                          consultas=0, sin_limite=False):
+                          consultas=0, sin_limite=False, entregar_lo_enviado=False,
+                          siguen=()):
     """Corre el programa de cero y le 'teclea' esa pregunta en su primer leer(). Devuelve
     un mapa: pidio (si llegó a pedir algo por teclado), respuesta (lo que mostró desde ahí
     hasta que volvió a pedir, o hasta el final), cartel (lo que decía ese leer()), otra (si volvió a pedir), antes (lo
     que mostró antes), error (el
     texto, o None), limite (si lo cortó un tope de Mate), consultas (las que le hizo a la
     IA, como en consultas_ia()), agentes (los que consultaron), gasto y hechas (las
-    cuentas, para la pregunta que sigue). No toca el disco: ni memoria, ni bitácora, ni
-    los archivos que el programa escriba."""
-    mostrado, corte = [], {}
+    cuentas, para la pregunta que sigue), viajes (los mensajes que viajaron entre agentes
+    desde que leyó la pregunta, como en viajes_incumplidos()) y charla (los renglones de
+    la traza de esos mensajes, numerados desde 1) y sin_entregar (lo mandado con 'enviar'
+    por esa pregunta que quedó en la cola: (mensaje, de, a)). No toca el disco: ni memoria,
+    ni bitácora, ni los archivos que el programa escriba.
+    Con siguen (los renglones 'después:' del caso), cada vez que el programa vuelve a pedir
+    por teclado se le escribe el renglón que sigue, en la misma corrida. La respuesta, los
+    viajes y la charla son los del ÚLTIMO renglón; lo que contestó a los anteriores queda
+    en previas: [(lo que se le escribió, lo que contestó)]. Si el programa termina antes
+    de pedir alguno, es un error del caso.
+    Un mensaje mandado con 'enviar' no llega en el momento: en la corrida de verdad se
+    entrega cuando el programa vuelve a preguntarle a un agente, o al terminar. Con
+    entregar_lo_enviado (un caso con reglas de mensajes), si quedó algo mandado por ESTA
+    pregunta, la cola se vacía entera y en su orden cuando el programa vuelve a pedir por
+    teclado. Lo de esta pregunta cuenta en viajes y en charla; lo que estaba mandado de
+    antes también se entrega (el agente lo recibe primero, como en la corrida de verdad),
+    pero ni cuenta ni se muestra. Lo que muestren los agentes en ese momento no entra en
+    la respuesta (el cliente lo vería después). Sin eso queda sin entregar, como siempre."""
+    mostrado, corte, charla = [], {}, []
+    faltan, previas, escrito = list(siguen), [], [pregunta]
+
+    def de_este_caso(en_cola):
+        return en_cola[3][0] > interprete.desde[1]
 
     def entrada(cartel):
+        if "desde" in corte and faltan:
+            # Un caso de varios renglones: lo que contestó hasta acá queda aparte, y el
+            # caso pasa a ser lo que conteste (y lo que viaje) desde el renglón que sigue.
+            previas.append((escrito[-1], "\n".join(mostrado[corte["desde"]:]).strip()))
+            escrito.append(faltan.pop(0))
+            corte["desde"] = len(mostrado)
+            del interprete.viajes[:], charla[:]
+            interprete.desde = (interprete.cuenta["enviar"] + interprete.cuenta["preguntar"],
+                                interprete.conversaciones)
+            return escrito[-1]
         if "desde" not in corte:
             corte["desde"], corte["cartel"] = len(mostrado), str(cartel or "")
+            # Lo que se habló antes (cargar la planilla, por ejemplo) no es de este caso.
+            # Lo que el programa ya había mandado con 'enviar' sigue en la cola, como en una
+            # corrida de verdad: si llega mientras se atiende la pregunta, entregar() no lo
+            # cuenta ni lo muestra (es de una conversación de antes).
+            del interprete.viajes[:], charla[:]
+            interprete.desde = (interprete.cuenta["enviar"] + interprete.cuenta["preguntar"],
+                                interprete.conversaciones)
             return pregunta
-        corte.setdefault("hasta", len(mostrado))
+        if "hasta" not in corte:
+            corte["hasta"] = len(mostrado)
+            cola = interprete.cola
+            if entregar_lo_enviado and any(map(de_este_caso, cola)):
+                # La cola se vacía entera y en su orden, como en la corrida de verdad: si
+                # antes de la pregunta quedó algo mandado (un inventario), llega primero.
+                # entregar() no lo cuenta ni lo muestra, pero el agente lo recibe.
+                charla.append("  ·     (lo que sigue quedó mandado con 'enviar': llega "
+                              "después de contestarle al cliente)")
+                try:
+                    interprete.vaciar_cola()
+                except ErrorMate as e:  # (un tope de Mate: se informa como cualquier otro)
+                    corte["error"] = e
+            corte["sin_entregar"] = [
+                (msg.tipo, rem.nombre if rem else _EL_PROGRAMA, dest.nombre)
+                for rem, dest, msg, sobre in cola
+                if msg.tipo != AL_FALLAR and de_este_caso((rem, dest, msg, sobre))]
         raise _FinDelEnsayo()
 
-    interprete = Interprete(salida=lambda texto: mostrado.append(str(texto)))
+    interprete = Interprete(salida=lambda texto: mostrado.append(str(texto)), traza=True)
+    interprete.anotar, interprete.viajes = charla.append, []
     interprete.archivo, interprete.entrada, interprete.ensayando = ruta, entrada, True
     interprete.archivos_de_prueba = {}  # lo que escriba no llega al disco
     interprete.ia_simulada, interprete.ia_respuestas = bool(simulada), list(respuestas)
@@ -8969,14 +11803,21 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
     try:
         interprete.correr(analizar(leer_fuente(ruta), ruta))
     except _FinDelEnsayo:
-        pass
-    except ErrorMate as e:
+        e = corte.get("error")
+    except ErrorMate as tarde:
+        e = tarde
+    except OSError:
+        e, error = None, f"no pude abrir {ruta}"
+    else:
+        e = None
+    if e is not None:
         error = error_escrito(ruta, e.linea, interprete.con_camino(e.mensaje, e))[0]
         limite = e.clase == "limite"
-    except OSError:
-        error = f"no pude abrir {ruta}"
     if error is None and interprete.errores_agentes:
         error = interprete.errores_agentes[0]
+    if error is None and faltan and "desde" in corte:
+        error = ("no volvió a pedir nada por teclado, y faltaba escribirle lo que sigue en "
+                 f"el caso: {faltan[0]}")
     desde = corte.get("desde", len(mostrado))
     molde_de = {agente.nombre: agente.decl[2] for agente in interprete.vivos}
     agentes = []
@@ -8988,6 +11829,10 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
             "respuesta": "\n".join(mostrado[desde:corte.get("hasta")]).strip(),
             "antes": mostrado[:desde], "error": error, "limite": bool(limite),
             "consultas": list(interprete.ia_historial), "agentes": agentes,
+            "viajes": list(interprete.viajes) if "desde" in corte else [],
+            "charla": list(charla) if "desde" in corte else [],
+            "vivos": [agente.nombre for agente in interprete.vivos],
+            "sin_entregar": corte.get("sin_entregar", []), "previas": previas,
             "gasto": {nombre: gasto_limpio(agente.gasto)
                       for nombre, agente in interprete.agentes.items() if agente.gasto},
             "hechas": interprete.ia_consultas}
@@ -8995,7 +11840,7 @@ def preguntar_al_programa(ruta, pregunta, memoria, simulada=False, respuestas=()
 
 def leccion_de_un_caso(caso, incumplidas):
     """La lección que se propone cuando un caso falla: la pregunta y lo que no cumplió."""
-    return (f"Cuando te pregunten algo como {recortado(caso['pregunta'], 80)}, tu respuesta "
+    return (f"Cuando te pregunten algo como {recortado(caso_escrito(caso), 80)}, tu respuesta "
             + " y ".join(regla_escrita(regla) for regla in incumplidas) + ".")
 
 
@@ -9018,7 +11863,8 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                   if len(args) > 2 else "") + f". Por ejemplo:  {ejemplo}",
                "al escribir la orden: 'ensayar' sin el programa o sin los casos", True)
         return 2
-    for opcion, por_que in (("--traza", "muestra un informe, no la conversación"),
+    for opcion, por_que in (("--traza", "muestra un informe, con la conversación de los "
+                                        "casos que fallan en un equipo"),
                             ("--olvidar", "nunca cambia lo que recuerdan los agentes")):
         if opcion in opciones:
             avisar(f"{opcion} no va con 'ensayar' ({por_que}). Para ver una charla paso a "
@@ -9055,7 +11901,8 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         avisar(e.mensaje)
         return 2
     try:
-        con_errores = bool(verificar(analizar(leer_fuente(ruta), ruta)))
+        arbol = analizar(leer_fuente(ruta), ruta)
+        con_errores = bool(verificar(arbol))
     except OSError:
         avisar(f"no pude abrir {ruta}")
         return 2
@@ -9067,19 +11914,26 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         return 1
     archivo_memoria = archivo_de(ruta, "memoria.json")
     try:
+        sin_revisar = revisar_viajes(casos, arbol, args[1])
         memoria = leer_memoria(archivo_memoria)[0]
     except ErrorMate as e:
         avisar(e.mensaje)
         return 2
 
     veces = veces or 1
-    total = len(casos) * veces
+    # (cada renglón 'después:' es una vuelta más por el programa, y puede consultar)
+    total = sum(1 + len(caso["siguen"]) for caso in casos) * veces
     mostrar(f"Ensayo de {programa} con {de_casos}: {len(casos)} pregunta(s)"
             + (f", {veces} veces cada una" if veces > 1 else "") + ".")
     mostrar(f"Contesta {contesta}.")
     mostrar(f"Va a hacer hasta {total} consulta(s) a la IA: una por cada pregunta que el "
             "programa no")
     mostrar("conteste solo (si salta un freno, esa pregunta consulta una vez más).")
+    if any(caso["mensajes"] for caso in casos) and consulta_a_la_ia(arbol):
+        # (P124) ahí también se entrega lo mandado con 'enviar': puede haber más consultas
+        mostrar("Pueden ser más: en los casos con reglas de mensajes también se entrega lo "
+                "mandado con")
+        mostrar("'enviar', y un agente que consulta a la IA al recibirlo suma una consulta.")
     if not simulada and total > MAX_CONSULTAS_IA and "--sin-limite" not in opciones:
         mostrar(f"Ojo: Mate corta el ensayo a las {MAX_CONSULTAS_IA} consultas de verdad. "
                 "Si hacen falta más, agregá --sin-limite.")
@@ -9098,7 +11952,8 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
         pasadas, mudas, falla, muda, con_freno = 0, 0, None, None, False
         for vez in range(1, veces + 1):
             dado = preguntar_al_programa(ruta, caso["pregunta"], viva, simulada, preparadas,
-                                         hechas, "--sin-limite" in opciones)
+                                         hechas, "--sin-limite" in opciones,
+                                         bool(caso["mensajes"]), caso["siguen"])
             # (se cuentan las que la IA contestó: no las que frenó un tope antes de salir)
             contestadas = sum(c["respuesta"] is not None for c in dado["consultas"])
             sin_ia = [c for c in dado["consultas"] if c["respuesta"] is None]
@@ -9130,7 +11985,7 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 return 2
             if dado["limite"]:
                 if falla is None:
-                    falla = dict(dado, vez=vez, incumplidas=[])
+                    falla = dict(dado, vez=vez, incumplidas=[], sin_viajar=[])
                 cortado = dado["error"]
                 break
             if sin_ia:
@@ -9150,20 +12005,30 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 mudas_seguidas = 0
             incumplidas = [] if dado["error"] else reglas_incumplidas(
                 dado["respuesta"], caso["reglas"])
-            if not dado["error"] and not incumplidas:
+            sin_viajar = [] if dado["error"] else viajes_incumplidos(
+                dado["viajes"], [regla[:2] for regla in caso["mensajes"]])
+            if not dado["error"] and not incumplidas and not sin_viajar:
                 pasadas += 1
             elif falla is None:
-                falla = dict(dado, vez=vez, incumplidas=incumplidas)
+                falla = dict(dado, vez=vez, incumplidas=incumplidas, sin_viajar=sin_viajar)
         pasaron += pasadas == veces
         sin_comprobar += bool(mudas) and falla is None
         frenadas += con_freno
         hecho = mal if falla is not None else simbolo("?", "SIN COMPROBAR") if mudas else bien
-        mostrar(f"  {hecho} {caso['pregunta']}"
+        mostrar(f"  {hecho} {caso_escrito(caso)}"
                 + (f": pasó {pasadas} de {veces}" if veces > 1 else "")
                 + ("" if not mudas else ": no se pudo comprobar" if veces == 1 else
                    f", y {mudas} sin comprobar")
                 + ("" if falla is None and not mudas else
                    f"   (renglón {caso['renglon']} de {de_casos})"))
+        for renglon, nombre in sin_revisar[:]:
+            # (P121) Una copia con el nombre armado al correr: recién ahora se sabe si existe.
+            if any(regla[2] == renglon for regla in caso["mensajes"]) and not dado["error"] \
+                    and para_comparar(nombre) not in map(para_comparar, dado["vivos"]):
+                sin_revisar.remove((renglon, nombre))
+                mostrar(f"      Ojo: en este caso no hubo ningún agente llamado '{nombre}' "
+                        f"(renglón {renglon} de {de_casos}).")
+                mostrar("      Si el nombre está mal escrito, esa regla no mira nada.")
         if muda is not None:
             # El motivo se muestra entero una sola vez: con el modelo apagado es el mismo
             # en todos los casos.
@@ -9188,14 +12053,48 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                         + recortado(muda["respuesta"], 55))
         if falla is not None:
             cual = f" (la vez {falla['vez']})" if veces > 1 else ""
+            for dicho, contestado in falla["previas"]:
+                # (un caso de varios renglones: lo que había contestado a los de antes)
+                partes = contestado.split("\n") if contestado else ["(nada)"]
+                mostrar(f"      A \"{dicho}\" había contestado: {partes[0]}")
+                for parte in partes[1:]:
+                    mostrar(f"          {parte}")
             partes = falla["respuesta"].split("\n") if falla["respuesta"] else ["(nada)"]
             mostrar(f"      Contestó{cual}: {partes[0]}")
             for parte in partes[1:]:
                 mostrar(f"          {parte}")
             for regla in falla["incumplidas"]:
                 mostrar(f"      No cumple: {regla_escrita(regla)}")
+            for regla in falla["sin_viajar"]:
+                mostrar(f"      No cumple: {viaje_escrito(regla)}")
             if falla["error"]:
                 mostrar(f"      El programa falló: {falla['error']}")
+            # La conversación del caso: si el caso pide algo de los mensajes, o si hubo
+            # agentes hablando entre ellos (un mostrador solo se informa como siempre).
+            if caso["mensajes"] or any(_EL_PROGRAMA not in viaje[1:3]
+                                       for viaje in falla["viajes"]):
+                if falla["charla"]:
+                    mostrar("      La conversación de este caso (lo que se dijeron los "
+                            "agentes, en orden):")
+                    charla, salteados = falla["charla"], 0
+                    if len(charla) > MAX_RENGLONES_DE_CHARLA:  # (agentes en bucle)
+                        salteados = len(charla) - MAX_RENGLONES_DE_CHARLA
+                        charla = charla[:MAX_RENGLONES_DE_CHARLA - 10] + [None] + charla[-10:]
+                    for renglon in charla:
+                        if renglon is None:
+                            renglon = (f"  ·     ... (acá van {salteados} renglones más, "
+                                       "que no se muestran) ...")
+                        mostrar("        " + (renglon if len(renglon) <= 300
+                                              else renglon[:300].rstrip() + "..."))
+                else:
+                    mostrar("      En este caso no viajó ningún mensaje: nadie le habló a "
+                            "ningún agente.")
+                if falla["sin_entregar"]:
+                    # (un caso sin reglas de mensajes: lo enviado queda en la cola)
+                    mostrar("          (quedó mandado con 'enviar' y llega después: "
+                            + ", ".join(viaje_escrito((True, (viaje,)))[len(
+                                "tiene que viajar: "):] for viaje in falla["sin_entregar"])
+                            + ")")
             frenos_dichos = []
             for consulta in falla["consultas"]:
                 freno = consulta.get("freno") and (
@@ -9205,12 +12104,17 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 if freno and freno not in frenos_dichos:  # (dos intentos iguales: una vez)
                     frenos_dichos.append(freno)
                     mostrar(freno)
-            if falla["error"]:
+            if falla["sin_viajar"]:
+                mostrar("      Qué mensajes viajan lo decide el programa, no la IA: una "
+                        "lección no lo cambia.")
+                mostrar("      Hay que cambiar el programa (o el caso).")
+            if falla["error"] or not falla["incumplidas"] and falla["sin_viajar"]:
                 pass
             elif not falla["consultas"]:
-                mostrar("      Esta respuesta la dio el programa, sin consultar a la IA: una "
-                        "lección no la cambia.")
-                mostrar("      Hay que cambiar el programa (o el caso).")
+                if not falla["sin_viajar"]:  # (si no, ya se dijo recién)
+                    mostrar("      Esta respuesta la dio el programa, sin consultar a la "
+                            "IA: una lección no la cambia.")
+                    mostrar("      Hay que cambiar el programa (o el caso).")
                 if not falla["respuesta"] and falla["otra"]:
                     mostrar("      (El programa volvió a pedir algo por teclado sin mostrar "
                             "nada: quizás su primer")
@@ -9243,6 +12147,17 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
             + (f" Consultas a la IA: {consultas}" + (" (simuladas: no se pagan)." if simulada
                                                     else ".") if consultas else
                "" if motivos_dichos else " No hizo falta consultar a la IA."))
+    con_memoria = [agente for agente, ficha in memoria.items() if ficha.get("estado")]
+    if con_memoria and pasaron < len(casos):
+        # (P89) Un caso puede fallar por lo que quedó guardado, y no por el programa.
+        varios = "n" if len(con_memoria) > 1 else ""
+        mostrar(f"Ojo: {' y '.join(con_memoria)} arranca{varios} cada pregunta con lo que "
+                f"recuerda{varios} de las corridas de verdad")
+        mostrar(f"({os.path.basename(archivo_memoria)}). Si un caso falló por eso (stock "
+                "que ya se vendió, por ejemplo), no hay")
+        mostrar("que cambiar el programa: cambiá el caso, o empezá de nuevo corriendo el "
+                "programa con --olvidar")
+        mostrar("(borra lo que recuerdan los agentes, no sus lecciones).")
     if sin_comprobar:
         mostrar(f"{sin_comprobar} caso(s) no se pudieron comprobar porque la IA no contestó: "
                 "no cuentan como")
@@ -9257,50 +12172,60 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 "IA de verdad (y que")
         mostrar("lo que falle quede propuesto), ensayá sin --ia-simulada.")
     if a_proponer:
-        # Las propuestas van a la memoria que está AHORA en el disco (pudo cambiar mientras
-        # se ensayaba), y es lo único que se le agrega.
-        try:
-            en_disco = leer_memoria(archivo_memoria)[0]
-        except ErrorMate as e:
-            avisar(f"aviso: no dejé las lecciones propuestas: {e.mensaje}")
+        candado = pedir_candado_de_memoria(ruta, avisar,
+                                           "aviso: no dejé las lecciones propuestas")
+        if candado is None:
             return 1
-        fecha, nuevas, repetidas = datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), 0, 0
-        ya_aprobadas = []  # los agentes que ya tenían aprobada la lección de un caso fallado
-        for agente, texto, motivo in a_proponer:
-            ficha = en_disco.setdefault(agente, {"estado": {}, "lecciones": []})
-            if any(leccion["texto"] == en_un_renglon(texto, LARGO_DE_LECCION)
-                   for leccion in ficha["lecciones"]):
-                ya_aprobadas += [agente] if agente not in ya_aprobadas else []
-                continue
-            antes = ficha.get("propuestas", [])
-            ficha["propuestas"] = sumar_propuesta(antes, ficha["lecciones"], texto, motivo, fecha)
-            nuevas += ficha["propuestas"] is not antes
-            repetidas += ficha["propuestas"] is antes
-            if not ficha["propuestas"]:
-                del ficha["propuestas"]
-        for agente in ya_aprobadas:
-            mostrar(f"{agente} ya tiene aprobada la lección de un caso que volvió a fallar: "
-                    "no alcanzó.")
-            mostrar("Una lección es un pedido, no una garantía. Escribila de otra forma (se "
-                    "ven con la orden de")
-            mostrar("abajo y se anotan con 'corregir'), o pasá la regla al programa o a un "
-                    "freno del agente:")
-            mostrar(f"  {orden} lecciones {para_pegar(args[0])}")
-        if nuevas:
-            problema = guardar_memoria(archivo_memoria, programa, en_disco)
-            if problema:
-                avisar(f"aviso: {problema}")
+        try:
+            # Las propuestas van a la memoria que está AHORA en el disco (pudo cambiar
+            # mientras se ensayaba), leída con el candado ya tomado, y es lo único que se
+            # le agrega.
+            try:
+                en_disco = leer_memoria(archivo_memoria)[0]
+            except ErrorMate as e:
+                avisar(f"aviso: no dejé las lecciones propuestas: {e.mensaje}")
                 return 1
-            mostrar(f"Por los casos que fallaron quedó {nuevas} lección(es) propuesta(s). "
-                    "Ningún agente las usa")
-            mostrar("hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):")
-        elif repetidas:
-            mostrar("Las lecciones de los casos que fallaron ya estaban propuestas, sin "
-                    "aprobar. Para verlas:")
-        if nuevas or repetidas:
-            mostrar(f"  {orden} propuestas {para_pegar(args[0])}")
-            mostrar("Una propuesta es un borrador: si la aprobás, ensayá de nuevo para ver "
-                    "si alcanzó.")
+            fecha, nuevas, repetidas = datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), 0, 0
+            ya_aprobadas = []  # los agentes que ya tenían aprobada la lección de un caso fallado
+            for agente, texto, motivo in a_proponer:
+                ficha = en_disco.setdefault(agente, {"estado": {}, "lecciones": []})
+                if any(leccion["texto"] == en_un_renglon(texto, LARGO_DE_LECCION)
+                       for leccion in ficha["lecciones"]):
+                    ya_aprobadas += [agente] if agente not in ya_aprobadas else []
+                    continue
+                antes = ficha.get("propuestas", [])
+                ficha["propuestas"] = sumar_propuesta(antes, ficha["lecciones"], texto,
+                                                      motivo, fecha)
+                nuevas += ficha["propuestas"] is not antes
+                repetidas += ficha["propuestas"] is antes
+                if not ficha["propuestas"]:
+                    del ficha["propuestas"]
+            for agente in ya_aprobadas:
+                mostrar(f"{agente} ya tiene aprobada la lección de un caso que volvió a fallar: "
+                        "no alcanzó.")
+                mostrar("Una lección es un pedido, no una garantía. Escribila de otra forma (se "
+                        "ven con la orden de")
+                mostrar("abajo y se anotan con 'corregir'), o pasá la regla al programa o a un "
+                        "freno del agente:")
+                mostrar(f"  {orden} lecciones {para_pegar(args[0])}")
+            if nuevas:
+                problema = guardar_memoria(archivo_memoria, programa, en_disco,
+                                          candado=candado)
+                if problema:
+                    avisar(f"aviso: {problema}")
+                    return 1
+                mostrar(f"Por los casos que fallaron quedó {nuevas} lección(es) propuesta(s). "
+                        "Ningún agente las usa")
+                mostrar("hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):")
+            elif repetidas:
+                mostrar("Las lecciones de los casos que fallaron ya estaban propuestas, sin "
+                        "aprobar. Para verlas:")
+            if nuevas or repetidas:
+                mostrar(f"  {orden} propuestas {para_pegar(args[0])}")
+                mostrar("Una propuesta es un borrador: si la aprobás, ensayá de nuevo para ver "
+                        "si alcanzó.")
+        finally:
+            soltar_candado_de_memoria(candado, archivo_de(ruta, "memoria.candado"))
     return 0 if pasaron == len(casos) and not cortado else 1
 
 
@@ -9327,12 +12252,22 @@ def texto_de_ayuda():
         "  nuevo mostrador mi_negocio   crea en esta carpeta un mostrador propio, listo para",
         "                           usar: mi_negocio.mate y su planilla de muestra,",
         "                           mi_negocio_precios.csv. No pisa archivos que ya estén",
+        "  nuevo equipo mi_negocio   crea en esta carpeta un equipo de tres agentes que se",
+        "                           hablan (Ventas, Depósito y Compras), con su planilla y",
+        "                           sus casos. Tampoco pisa archivos que ya estén",
         "  ensayar mi_negocio.mate mi_negocio_casos.txt   le hace al programa las preguntas",
         "                           de ese archivo (se escribe con el Bloc de notas: la",
         "                           pregunta del cliente y, debajo, 'tiene que decir: ...' o",
         "                           'no puede decir: ...') y dice cuáles contestó bien. Con",
         "                           --ia-simulada no gasta; sin eso contesta la IA de verdad,",
-        "                           y los casos que fallan quedan como lección propuesta",
+        "                           y los casos que fallan quedan como lección propuesta.",
+        "                           En un equipo, un caso también puede exigir qué mensajes",
+        "                           viajan entre los agentes: 'tiene que viajar: Reservar de",
+        "                           Ventas a Deposito' o 'no tiene que viajar: Reponer'. Si un",
+        "                           caso falla, el informe muestra la conversación.",
+        "                           Si el cliente tiene que escribir algo más en la misma",
+        "                           charla (el 'si' a un pedido), va debajo de la pregunta:",
+        "                           'después: si'",
         "",
         "Para que un agente aprenda (mirá 'ayuda recordado'):",
         '  corregir  archivo.mate Mostrador "la lección"   le anota una lección a ese agente',
@@ -9361,6 +12296,13 @@ def texto_de_ayuda():
         '  leer_tabla("precios.csv")   la planilla de Excel guardada como CSV, fila por fila',
         '  agregar_a_archivo("pedidos.txt", t)   anota un renglón más al final de ese archivo',
         '  leer("Cliente:", "chau")    espera que escribas y aprietes Enter (Ctrl+C termina)',
+        "",
+        "Para que dos programas de la misma carpeta se manden mensajes (mirá 'ayuda buzon'):",
+        '  usar buzon "deposito.mate"   va en el programa: los agentes de ese otro programa',
+        "                           quedan como destino de 'enviar'. El mensaje sale cuando",
+        "                           el programa termina, y el otro lo atiende cuando corre",
+        "  buzon deposito.mate      muestra qué hay en el buzón de ese programa: los mensajes",
+        "                           que esperan, los que están por salir y los rechazados",
         "",
         "Para sumar lo que Mate no trae (mirá 'ayuda python'):",
         '  usar python "ayudas.py"  va en el programa: trae las funciones de ese archivo de',
@@ -9469,6 +12411,66 @@ def avisar_pendientes(interprete, avisar):
         avisar(f"  ... y {len(cola) - 5} más")
 
 
+def nombres_de_un_camino(camino):
+    """Los nombres con que hay que mirar el último tramo de un camino: tal cual y como lo
+    ve Windows (sin puntos ni espacios al final, sin lo que sigue a un ':'). En minúsculas."""
+    nombre = camino.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
+    return {nombre, nombre.rstrip(". "), nombre.split(":")[0].rstrip(". ")}
+
+
+def traza_pisaria_la_memoria(destino, programa=None):
+    """¿Ese destino de --traza= es un archivo que lleva Mate (la memoria de un programa, su
+    provisorio, la apartada por rota, el candado, la bitácora o un sobre del buzón)? La
+    traza se escribe sin candado, así que ahí no va nunca: pisaría lo que recuerdan los
+    agentes (el stock, por ejemplo). Mira el nombre (entero y como lo ve Windows), adónde
+    lleva de verdad (por si es un acceso a otro archivo) y, si se sabe qué programa corre,
+    si es el mismo archivo que alguno de los suyos aunque se llame distinto."""
+    def lo_lleva_mate(camino):
+        tramos = camino.replace("\\", "/").lower().split("/")
+        if any(t.split(":")[0].rstrip(". ").endswith(".buzon") for t in tramos[:-1]):
+            return True
+        return any(".memoria.json" in n or ".bitacora.txt" in n or n.endswith(
+            (".memoria.rota.json", ".memoria.candado")) for n in nombres_de_un_camino(camino))
+    try:
+        real = os.path.realpath(destino)
+    except (OSError, ValueError):
+        real = destino
+    if lo_lleva_mate(destino) or lo_lleva_mate(real):
+        return True
+    for que in (("memoria.json", "memoria.rota.json", "memoria.candado", "bitacora.txt")
+                if programa else ()):
+        try:
+            if os.path.samefile(destino, archivo_de(programa, que)):
+                return True
+        except (OSError, ValueError):
+            pass
+    return False
+
+
+def traza_no_va_ahi(destino, programa):
+    """Antes de correr 'programa': ¿la traza iría a parar a un archivo que no se pisa,
+    aunque el nombre no lo diga (un acceso o un enlace a la memoria, a la bitácora o a un
+    programa)? Devuelve el aviso, o None si el destino sirve. Se mira ANTES de correr,
+    para no atender nada y terminar con error en vez de avisar al final."""
+    if traza_pisaria_la_memoria(destino, programa):
+        return (f"no guardo la conversación en '{destino}': ese archivo lo lleva Mate (la "
+                "memoria de los agentes, como el stock, la bitácora o el buzón). Elegí "
+                "otro nombre, por ejemplo --traza=conversacion.txt")
+    try:
+        real = os.path.realpath(destino)
+    except (OSError, ValueError):
+        real = destino
+    es_programa = any(n.endswith(NO_SE_PISAN) for n in nombres_de_un_camino(real))
+    try:
+        es_programa = es_programa or os.path.samefile(destino, programa)
+    except (OSError, ValueError):
+        pass
+    if es_programa:
+        return (f"no guardo la conversación en '{destino}' para no pisar un programa: "
+                "elegí otro nombre, por ejemplo --traza=conversacion.txt")
+    return None
+
+
 def guardar_conversacion(destino, programa, renglones, cuenta, sumar=False):
     """Deja la conversación en un archivo de texto, con un resumen al final. Devuelve
     None si salió bien o la explicación de por qué no se pudo. Con sumar=True la agrega
@@ -9479,6 +12481,9 @@ def guardar_conversacion(destino, programa, renglones, cuenta, sumar=False):
     resumen += ("Ninguno falló." if not cuenta["fallaron"]
                 else f"Fallaron {cuenta['fallaron']}.")
     texto = "\n".join([f"Conversación de {programa}", ""] + renglones + ["", resumen, ""])
+    if traza_pisaria_la_memoria(destino, programa):
+        return (f"no guardé la conversación en '{destino}': ese archivo lo lleva Mate "
+                "(la memoria de los agentes, la bitácora o el buzón)")
     try:
         # con la marca del principio, para que el Bloc de notas muestre bien las tildes
         with open(destino, "a" if sumar else "w",
@@ -9641,7 +12646,19 @@ def mostrar_bitacora(ruta, avisar):
 
 def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
     """Las órdenes 'corregir', 'lecciones', 'bitacora', 'propuestas' y 'proponer': miran (o
-    cambian) lo que aprendió un programa, sin correrlo. Devuelven el código de salida."""
+    cambian) lo que aprendió un programa, sin correrlo. Devuelven el código de salida.
+    Las que cambian la memoria toman su candado, la leen de nuevo y recién ahí la cambian
+    y la guardan (ver escribir_memoria); acá se suelta, salga como salga la orden."""
+    tomado = {"candado": None, "ruta": None}
+    try:
+        return _orden_de_memoria(orden, args, borrar, avisar, opciones, respuestas, tomado)
+    finally:
+        if tomado["candado"] is not None:
+            soltar_candado_de_memoria(tomado["candado"], tomado["ruta"])
+            tomado["candado"] = None
+
+
+def _orden_de_memoria(orden, args, borrar, avisar, opciones, respuestas, tomado):
     ejemplos = {"bitacora": "bitacora mi_mostrador.mate",
                 "lecciones": "lecciones mi_mostrador.mate",
                 "corregir": 'corregir mi_mostrador.mate Mostrador "Los lunes no hay pan"',
@@ -9671,6 +12688,7 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
         fuente = leer_fuente(ruta)
         arbol = analizar(fuente, ruta)
         declarados = [s[2] for s in arbol if s[0] == "agente"]
+        ajenos = {s[2].lower(): s for s in arbol if s[0] == "agente_ajeno"}
     except OSError:
         avisar(f"no pude abrir {ruta}")
         return 2
@@ -9678,9 +12696,9 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
         avisar(f"{ruta} tiene un error y no puedo ver qué agentes tiene. Miralo con:  "
                f"{como_se_llama()} verificar {args[0]}")
         return 2
-    archivo = archivo_de(ruta, "memoria.json")
+    archivo_memoria = archivo_de(ruta, "memoria.json")
     try:
-        memoria, avisos = leer_memoria(archivo)
+        memoria, avisos = leer_memoria(archivo_memoria)
     except ErrorMate as e:
         avisar(e.mensaje)
         return 2
@@ -9706,13 +12724,42 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
             print(f"  {i}. {leccion['texto']}"
                   + (f"   (del {leccion['fecha']})" if leccion["fecha"] else ""))
 
+    def tomar_y_releer(para_que, espera=None):
+        """Antes de cambiar la memoria: toma su candado y la lee DE NUEVO, ya con el
+        candado tomado ('memoria' pasa a ser lo que dice el archivo ahora, no lo que se
+        leyó al empezar: en el medio pudo guardar una caja abierta en otra ventana). Si
+        el candado lo tiene otra ventana, o la memoria ya no se entiende, avisa y
+        devuelve False: no se cambia nada."""
+        if tomado["candado"] is None:
+            tomado["ruta"] = archivo_de(ruta, "memoria.candado")
+            tomado["candado"] = pedir_candado_de_memoria(ruta, avisar, para_que, espera)
+            if tomado["candado"] is None:
+                return False
+        try:
+            releida = leer_memoria(archivo_memoria)[0]
+        except ErrorMate as e:
+            avisar(e.mensaje)
+            return False
+        memoria.clear()
+        memoria.update(releida)
+        return True
+
+    def soltar():
+        if tomado["candado"] is not None:
+            soltar_candado_de_memoria(tomado["candado"], tomado["ruta"])
+            tomado["candado"] = None
+
     def guardar():
-        problema = guardar_memoria(archivo, programa, memoria)
+        problema = guardar_memoria(archivo_memoria, programa, memoria,
+                                   candado=tomado["candado"])
         if problema:
             avisar(problema)
         return problema
 
     if orden == "propuestas":
+        if len(args) > 1 and sin_tildes(args[1].lower()) in ("aprobar", "descartar") \
+                and not tomar_y_releer("no cambié las propuestas"):
+            return 2
         return orden_propuestas(args, memoria, guardar, listar, avisar)
 
     # Una copia se nombra con el agente y su nombre: "Mostrador Centro". Si se escribió sin
@@ -9729,6 +12776,11 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
     agente = None
     if len(args) > 1:
         agente = conocido(args[1])
+        if agente is None and " ".join(args[1].split()).lower() in ajenos:
+            otro = ajenos[" ".join(args[1].split()).lower()]
+            avisar(de_otro_programa(otro[2], otro[4], f"usar '{orden}' con él")
+                   + f". Probá con:  {como_se_llama()} {orden} {otro[4]} {otro[2]} ...")
+            return 2
         if agente is None:
             avisar(f"{programa} no tiene un agente '{args[1]}'.{sugerir(args[1], declarados)}"
                    + (" Sus agentes son: " + ", ".join(declarados) if declarados
@@ -9766,12 +12818,22 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
         elif "tokens_por_dia" in topes and gastado.get("tokens", 0) >= topes["tokens_por_dia"]:
             en_el_tope = (f"{molde} ya gastó {gastado.get('tokens', 0)} tokens hoy y su tope "
                           f"es {topes['tokens_por_dia']} por día")
+        # Antes de consultar a la IA se mira que el candado de la memoria se pueda tomar:
+        # si el programa está abierto en otra ventana, la propuesta no se va a poder
+        # anotar, y no se gasta una consulta para nada. Se suelta enseguida: la consulta
+        # puede tardar, y no se hace con el candado tomado.
+        if not tomar_y_releer("no dejé la propuesta"):
+            return 2
+        soltar()
         try:
             texto, como, tokens = redactar_leccion(
                 queja, en_un_renglon(args[3], 600) if len(args) > 3 else "", opciones,
                 respuestas, en_el_tope)
         except ErrorMate as e:
             avisar(e.mensaje)
+            return 2
+        # Y para anotarla: el candado de nuevo, y la memoria leída de nuevo con él tomado.
+        if not tomar_y_releer("no dejé la propuesta", espera=10):
             return 2
         ficha = memoria.setdefault(agente, {"estado": {}, "lecciones": []})
         if tokens is not None:  # fue una consulta de verdad: entra en la cuenta de hoy
@@ -9817,6 +12879,8 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
         except ErrorMate as e:
             avisar(e.mensaje)
             return 2
+        if not tomar_y_releer("no anoté la lección"):
+            return 2
         ficha = memoria.setdefault(agente, {"estado": {}, "lecciones": []})
         nuevas, olvidadas = sumar_leccion(
             ficha["lecciones"], texto, datetime.datetime.now().strftime("%d/%m/%Y %H:%M"))
@@ -9824,9 +12888,7 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
             print(f"{agente} ya tenía anotada esa lección: no la repito.")
             return 0
         ficha["lecciones"] = nuevas
-        problema = guardar_memoria(archivo, programa, memoria)
-        if problema:
-            avisar(problema)
+        if guardar():
             return 1
         print(f"Anotado. {agente} tiene {len(nuevas)} lección(es):")
         listar(agente)
@@ -9845,6 +12907,8 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
             avisar("para borrar una lección hay que decir de qué agente, por ejemplo: "
                    "lecciones mi_mostrador.mate Mostrador --borrar=2")
             return 2
+        if not tomar_y_releer("no borré nada"):
+            return 2
         suyas = memoria.get(agente, {"lecciones": []})["lecciones"]
         if borrar.lower() == "todas" and suyas:
             quedan = []
@@ -9856,9 +12920,7 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
                    f"'todas', y recibió '{borrar}'")
             return 2
         memoria[agente]["lecciones"] = quedan
-        problema = guardar_memoria(archivo, programa, memoria)
-        if problema:
-            avisar(problema)
+        if guardar():
             return 1
         print(f"Borrada. A {agente} le quedan {len(quedan)} lección(es)"
               + (":" if quedan else "."))
@@ -9960,6 +13022,87 @@ def orden_propuestas(args, memoria, guardar, listar, avisar):
     return 0
 
 
+def orden_buzon(args, avisar, mostrar=print):
+    """La orden 'buzon programa.mate': cuenta qué hay en el buzón de ese programa (los
+    mensajes que esperan y de quién, los que tiene por salir y los rechazados, con su
+    motivo). Solo mira: no atiende, no crea ni cambia ningún archivo."""
+    if len(args) != 1:
+        avisar("'buzon' lleva el programa, por ejemplo: buzon deposito.mate (muestra los "
+               "mensajes de otros programas que esperan, los que están por salir y los que "
+               "no se pudieron entregar)")
+        return 2
+    ruta, problema = _ubicar(args[0])
+    if problema:
+        avisar(problema)
+        return 2
+    if not ruta.lower().endswith((".mate", ".mate.txt")):
+        avisar(f"'buzon' lleva un programa de Mate (un archivo .mate), y "
+               f"'{os.path.basename(ruta)}' no lo es. Por ejemplo: buzon deposito.mate")
+        return 2
+    buzon = Buzon(ruta)
+    carpeta = os.path.basename(buzon.carpeta)
+    mostrar(f"Buzón de {buzon.archivo} (la carpeta {carpeta}):")
+    if os.path.lexists(buzon.carpeta) and not es_carpeta_de_verdad(buzon.carpeta):
+        avisar(f"{carpeta} existe y no es una carpeta: ahí va el buzón de {buzon.archivo}. "
+               "Borralo o cambiale el nombre")
+        return 1
+    anotado = leer_buzon_de_memoria(archivo_de(ruta, "memoria.json"))[0]
+    de_quien, raros, repetidos, sin_mirar = buzon.contar(anotado["recibidos"])
+    esperan = sum(de_quien.values()) + raros + sin_mirar
+    if esperan:
+        detalle = [f"{n} de {origen}" for origen, n in de_quien.items()] \
+            + ([f"{raros} que no se entienden"] if raros else [])
+        mostrar(f"  Esperan: {cuantos_mensajes(esperan)}"
+                + (f" ({', '.join(detalle)})" if detalle else "")
+                + f". Se atienden la próxima vez que corra {buzon.archivo}.")
+    else:
+        mostrar("  Esperan: ninguno.")
+    if repetidos:  # (no cuentan como que esperan: no se van a entregar otra vez)
+        mostrar(f"  Ya atendidos o repetidos: {repetidos} "
+                f"({'sigue' if repetidos == 1 else 'siguen'} en la carpeta; se "
+                f"{'borra' if repetidos == 1 else 'borran'} sin entregar la próxima vez que "
+                f"corra {buzon.archivo}).")
+    intrusos = buzon.intrusos()
+    if intrusos:
+        mostrar(f"  No son mensajes: {len(intrusos)} (una carpeta o un acceso directo con "
+                f"nombre terminado en .json: {', '.join(intrusos[:5])}"
+                + (", ..." if len(intrusos) > 5 else "")
+                + "). Mate no los atiende ni los borra: sacalos a mano.")
+    por_salir, para_quien = anotado["por_salir"], {}
+    for pendiente in por_salir:
+        destino = buzon.visible(pendiente["sobre"]["para"]["programa"])
+        para_quien[destino] = para_quien.get(destino, 0) + 1
+    if por_salir:
+        mostrar(f"  Por salir: {cuantos_mensajes(len(por_salir))} ("
+                + ", ".join(f"{n} para {destino}" for destino, n in para_quien.items())
+                + f"). Salen la próxima vez que corra {buzon.archivo}.")
+    else:
+        mostrar("  Por salir: ninguno.")
+    rechazados = os.path.join(buzon.carpeta, "rechazados")
+    try:
+        nombres = sorted(n for n in os.listdir(rechazados) if n.lower().endswith(".json"))
+    except OSError:
+        nombres = []
+    if not nombres:
+        mostrar("  Rechazados: ninguno.")
+        return 0
+    mostrar(f"  Rechazados: {len(nombres)} (están en {buzon.donde_van_los_rechazados()}; "
+            "para intentar uno de nuevo, movelo a la carpeta de arriba)")
+    for nombre in nombres[:20]:
+        motivo = "(sin motivo anotado)"
+        try:
+            for renglon in leer_fuente(os.path.join(
+                    rechazados, nombre[:-len(".json")] + ".motivo.txt")).splitlines():
+                if renglon.startswith("Motivo: "):
+                    motivo = renglon[len("Motivo: "):]
+        except (OSError, ErrorMate):
+            pass
+        mostrar(f"    - {nombre}: {en_un_renglon(motivo, 300)}")
+    if len(nombres) > 20:
+        mostrar(f"    ... y {len(nombres) - 20} más")
+    return 0
+
+
 def probar_varios(pedidos, opciones, avisar):
     """'probar' con varios archivos o con una carpeta: corre las pruebas de cada uno y
     da un total general."""
@@ -9977,6 +13120,16 @@ def probar_varios(pedidos, opciones, avisar):
             avisar(f"en la carpeta '{pedido}' no hay ningún archivo .mate")
             return 2
         archivos += [os.path.join(pedido, a) for a in adentro]
+    # Con --traza=archivo la conversación es una sola para todos: si iría a parar a un
+    # archivo de alguno de ellos (aunque se llame distinto), no se prueba ninguno.
+    destinos = [o[len("--traza="):].strip('"') for o in opciones
+                if o.lower().startswith("--traza=")]
+    for archivo in archivos if destinos and destinos[-1] else ():
+        ubicado, problema = _ubicar(archivo)
+        problema = not problema and traza_no_va_ahi(destinos[-1], ubicado)
+        if problema:
+            avisar(problema)
+            return 2
     pasaron = total = 0
     con_problemas = []
     guardadas = []  # con --traza=archivo: las conversaciones ya guardadas (van una tras otra)
@@ -10005,7 +13158,7 @@ def probar_varios(pedidos, opciones, avisar):
 # no), nunca con la orden 'probar', y se apaga con MATE_SIN_REGISTRO=1 o --sin-registro.
 
 ORDENES_SABIDAS = ORDENES + ORDENES_DE_MEMORIA + ("ayuda", "guia", "consola", "informe",
-                                                  "curso", "nuevo", "ensayar")
+                                                  "curso", "nuevo", "ensayar", "buzon")
 _FECHA_DE_REGISTRO = "%d/%m/%Y %H:%M"
 _LARGO_A_TAPAR = 800
 # Cómo es una opción ('--traza', '-h', '--borrar=2'). Lo que empieza con guion y no tiene
@@ -10619,9 +13772,14 @@ def _main(argv, donde):
                 avisar("a --traza= le falta el nombre del archivo, por ejemplo: "
                        "--traza=conversacion.txt")
                 return 2
-            if conversacion.lower().endswith((".mate", ".py", ".pyw")):
+            if any(n.endswith(NO_SE_PISAN) for n in nombres_de_un_camino(conversacion)):
                 avisar(f"no guardo la conversación en '{conversacion}' para no pisar un "
                        "programa: elegí otro nombre, por ejemplo --traza=conversacion.txt")
+                return 2
+            if traza_pisaria_la_memoria(conversacion):
+                avisar(f"no guardo la conversación en '{conversacion}': ese archivo lo "
+                       "lleva Mate (la memoria de los agentes, como el stock, la "
+                       "bitácora o el buzón). Elegí otro nombre, por ejemplo --traza=conversacion.txt")
                 return 2
         elif corrige and len(args) >= 3 and a.startswith("-") and (
                 not _FORMA_DE_OPCION.fullmatch(a)):
@@ -10742,6 +13900,8 @@ def _main(argv, donde):
     if "--para-mejorar" in opciones:
         avisar("--para-mejorar va con 'informe', sin archivo: informe --para-mejorar")
         return 2
+    if sin_tildes(args[0].lower()) == "buzon":
+        return orden_buzon(args[1:], avisar)
     if sin_tildes(args[0].lower()) in ORDENES_DE_MEMORIA:
         return orden_de_memoria(sin_tildes(args[0].lower()), args[1:], borrar, avisar,
                                 opciones, respuestas)
@@ -10768,7 +13928,7 @@ def _main(argv, donde):
             f", ¿quisiste decir '{parecidas[0]}'?" if parecidas
             else ". Las órdenes son: correr, probar, verificar, consola, guia, ayuda, "
                  "curso, nuevo, ensayar, corregir, lecciones, propuestas, proponer, "
-                 "bitacora e informe"),
+                 "bitacora, buzon e informe"),
             "al escribir la orden: orden que no existe")
         return 2
     if not archivos:
@@ -10792,6 +13952,10 @@ def _main(argv, donde):
     if problema:
         avisar(problema, "al escribir la orden: no está el archivo"
                if problema.startswith("no encuentro") else None)
+        return 2
+    problema = conversacion and traza_no_va_ahi(conversacion, ruta)
+    if problema:  # antes de correr nada: ni se atiende ni se toca la memoria
+        avisar(problema)
         return 2
     donde["ruta"] = ruta
     if ruta.lower().endswith(".mate.txt"):
@@ -10839,7 +14003,191 @@ def _main(argv, donde):
         guardadas.append(ruta)
 
     archivo_memoria = archivo_de(ruta, "memoria.json")
-    aprendido = {"leida": None, "abierta": False}  # leida: lo que decía el archivo al abrirlo
+    archivo_candado = archivo_de(ruta, "memoria.candado")
+    # leida: lo que decía el archivo al abrirlo. buzon: el buzón entre programas (0.7).
+    # candado: el de la memoria, si esta corrida lo tiene (ver tomar_candado_de_memoria).
+    aprendido = {"leida": None, "abierta": False, "buzon": None, "candado": None,
+                 "sin_candado": None}
+
+    def con_candado(hacer, espera):
+        """Hace eso con el candado de la memoria tomado: nadie más lee y reescribe la
+        memoria de este programa mientras tanto. Si esta corrida ya lo tiene (un programa
+        con 'estado recordado' lo tiene toda la corrida), lo hace y listo. Devuelve False,
+        SIN HACER NADA, si no se pudo tomar: porque lo tiene otra corrida y no lo soltó en
+        'espera' segundos, o porque acá no se puede tener un candado (el sistema no los da
+        en esa carpeta, no se puede crear el archivo, o con ese nombre hay otra cosa). Sin
+        candado no se hace nunca: el porqué queda en aprendido["sin_candado"] (None si es
+        que lo tiene otra corrida), para que el que llama avise."""
+        if aprendido["candado"] is not None:
+            hacer()
+            return True
+        aprendido["sin_candado"] = None
+        try:
+            candado = tomar_candado_de_memoria(archivo_candado, espera)
+        except OSError as e:
+            aprendido["sin_candado"] = e
+            return False
+        if candado is None:
+            return False
+        # (mientras dura, es el candado de esta corrida: con él se escribe la memoria)
+        aprendido["candado"] = candado
+        try:
+            hacer()
+        finally:
+            aprendido["candado"] = None
+            soltar_candado_de_memoria(candado, archivo_candado)
+        return True
+
+    def guardar(agentes, buzon=None):
+        """Escribe la memoria de este programa. Solo se llama con el candado tomado (toda
+        la corrida, o adentro de con_candado) y con lo que se leyó ya con él tomado: sin
+        candado, guardar_memoria se niega."""
+        return guardar_memoria(archivo_memoria, os.path.basename(ruta), agentes, buzon,
+                               candado=aprendido["candado"])
+
+    def por_que_no_hay_candado(e):
+        return por_que_no_se_tomo_el_candado(ruta, e)
+
+    def avisar_que_no_salen(cuantos):
+        """Sin el candado de la memoria no se reparte ni se recupera nada del buzón: se
+        avisa por qué (una vez) y que los mensajes quedan anotados para la próxima."""
+        e = aprendido.get("sin_candado")
+        quedan = (f"{cuantos_mensajes(cuantos)} para otros programas "
+                  f"{'queda anotado' if cuantos == 1 else 'quedan anotados'} en "
+                  f"{os.path.basename(archivo_memoria)} y "
+                  f"{'sale' if cuantos == 1 else 'salen'} la próxima vez que "
+                  f"{os.path.basename(ruta)} corra y pueda tomar el candado")
+        if e is None:
+            avisar(f"aviso: otra ventana de {os.path.basename(ruta)} tiene tomado el "
+                   f"candado de la memoria, y sin candado no reparto mensajes: {quedan}")
+        elif aprendido.get("avisado"):
+            avisar(f"aviso: sigo sin el candado de la memoria, así que no reparto "
+                   f"mensajes: {quedan}")
+        else:
+            aprendido["avisado"] = True
+            que_paso, que_hacer = por_que_no_hay_candado(e)
+            avisar(f"aviso: {que_paso}. Sin candado no reparto mensajes: {quedan}. "
+                   f"{que_hacer}")
+
+    def avisar_que_no_se_guardo(buzon):
+        """Al terminar, con cosas del buzón para guardar y sin el candado de la memoria: no
+        se escribió nada. Se dice qué se perdió y qué queda como estaba, y la corrida
+        termina con código distinto de 0 (aprendido["sin_guardar"])."""
+        aprendido["sin_guardar"] = True
+        e = aprendido.get("sin_candado")
+        nombre = os.path.basename(ruta)
+        if e is None:
+            que_paso = (f"otra ventana de {nombre} tiene tomado el candado de la memoria "
+                        "y no lo soltó en 10 segundos")
+            que_hacer = (f"Fijate si quedó otra ventana de {nombre} colgada, cerrala y "
+                         "corré esto de nuevo")
+        else:
+            que_paso, que_hacer = por_que_no_hay_candado(e)
+        partes = []
+        enviados = len(buzon.por_salir)
+        if enviados:
+            partes.append(
+                f"{cuantos_mensajes(enviados)} que este programa envió a otros programas "
+                f"en esta corrida NO {'salió' if enviados == 1 else 'salieron'} y NO "
+                f"{'quedó anotado' if enviados == 1 else 'quedaron anotados'}: "
+                f"{'se perdió' if enviados == 1 else 'se perdieron'}, hay que hacerlo de "
+                "nuevo")
+        recibidos = len(buzon.atendidos) + len(buzon.rechazos)
+        if recibidos:
+            partes.append(
+                f"{cuantos_mensajes(recibidos)} del buzón "
+                f"{'sigue' if recibidos == 1 else 'siguen'} en "
+                f"{os.path.basename(buzon.carpeta)} como si no se "
+                f"{'hubiera' if recibidos == 1 else 'hubieran'} atendido, y se "
+                f"{'atiende' if recibidos == 1 else 'atienden'} de nuevo la próxima vez")
+        # (del resumen queda solo lo que de verdad salió, al arrancar y con candado)
+        buzon.atendi, buzon.no_entregados = {}, 0
+        avisar(f"error: {que_paso}. Sin candado no escribo la memoria ni el buzón, así "
+               f"que lo que pasó con el buzón en esta corrida NO se guardó: "
+               + "; ".join(partes or ["no quedó anotado nada"]) + f". {que_hacer}")
+
+    def cerrar_buzon(buzon, nueva):
+        """Al terminar 'correr', si en esta corrida hubo buzón. La memoria es el punto de
+        compromiso: en UNA escritura quedan el estado de los agentes, los mensajes que ya
+        se atendieron y los que hay que dejarles a otros programas. Recién después se
+        reparten esos, se mueven los rechazados y se borran los atendidos. Si se corta en
+        el medio, la corrida siguiente termina el trabajo sin repetir ni perder nada.
+        Se llama SIEMPRE con el candado de la memoria tomado (ver con_candado)."""
+        leida = aprendido["leida"]
+        try:
+            en_disco = leer_memoria(archivo_memoria)[0]
+        except ErrorMate:
+            avisar(f"aviso: no guardé la memoria: {os.path.basename(archivo_memoria)} "
+                   "cambió mientras el programa corría y ahora no se entiende. Lo que pasó "
+                   "en esta corrida no va a estar en la próxima, y los mensajes del buzón "
+                   "quedan como estaban; abrilo con el Bloc de notas y arreglalo")
+            return
+        if nueva != leida:
+            agentes = fundir_memoria(leida or {}, nueva, en_disco) \
+                if en_disco != (leida or {}) else nueva
+        else:
+            agentes = en_disco
+        en_buzon = leer_buzon_de_memoria(archivo_memoria)[0]
+        parte = buzon.fundido(en_buzon)
+        if agentes != en_disco or parte != en_buzon:
+            problema = guardar(agentes, parte)
+            if problema:
+                avisar(f"aviso: {problema}. Los mensajes del buzón no se tocaron: los que "
+                       "llegaron se atienden de nuevo la próxima vez, y no salió ninguno")
+                return
+        quedan = buzon.repartir(parte["por_salir"])
+        buzon.acomodar()
+        if len(quedan) != len(parte["por_salir"]):
+            # Lo repartido deja de estar "por salir". Se mira el archivo de nuevo, por si
+            # otra ventana guardó algo mientras tanto. (Si esto falla no pasa nada: se
+            # reparten otra vez, con el mismo nombre de archivo, y el que recibe descarta
+            # los que ya atendió.)
+            try:
+                ahora = leer_memoria(archivo_memoria)[0]
+            except ErrorMate:
+                return
+            guardar(ahora, buzon.fundido(leer_buzon_de_memoria(archivo_memoria)[0]))
+
+    def guardar_lo_nuevo(nueva):
+        """Al terminar, con el candado de la memoria tomado: lee el archivo de nuevo, le
+        suma lo de esta corrida y lo escribe."""
+        try:
+            en_disco = leer_memoria(archivo_memoria)[0]
+        except ErrorMate:
+            en_disco = None
+        if en_disco is None and aprendido["leida"] is not None:
+            avisar(f"aviso: no guardé la memoria: {os.path.basename(archivo_memoria)} "
+                   "cambió mientras el programa corría y ahora no se entiende. Lo que "
+                   "pasó en esta corrida no va a estar en la próxima; abrilo con el Bloc "
+                   "de notas y arreglalo")
+            return
+        if en_disco is not None and en_disco != (aprendido["leida"] or {}):
+            nueva = fundir_memoria(aprendido["leida"] or {}, nueva, en_disco)
+            if nueva == en_disco:
+                return
+        if nueva != aprendido["leida"] and (nueva or os.path.lexists(archivo_memoria)):
+            problema = guardar(nueva)
+            if problema:
+                avisar(f"aviso: {problema}")
+
+    def avisar_que_no_se_guardo_la_memoria():
+        """Al terminar, con algo para guardar en la memoria y sin poder tomar su candado:
+        no se escribió nada. Se dice, y la corrida termina con código distinto de 0."""
+        aprendido["sin_guardar"] = True
+        e = aprendido.get("sin_candado")
+        nombre = os.path.basename(ruta)
+        if e is None:
+            que_paso = (f"otra ventana de {nombre} tiene tomado el candado de la memoria "
+                        "y no lo soltó en 10 segundos")
+            que_hacer = (f"Fijate si quedó otra ventana de {nombre} colgada, cerrala y "
+                         "corré esto de nuevo")
+        else:
+            que_paso, que_hacer = por_que_no_hay_candado(e)
+        avisar(f"error: {que_paso}. Sin candado no escribo la memoria, así que lo que "
+               f"los agentes de {nombre} anotaron en esta corrida (lo que aprendieron y la "
+               f"cuenta de consultas a la IA) NO se guardó en "
+               f"{os.path.basename(archivo_memoria)}: no va a estar en la próxima. "
+               f"{que_hacer}")
 
     def cerrar_memoria():
         """Al terminar 'correr': guarda lo que recuerdan los agentes (si cambió) y suma
@@ -10848,30 +14196,51 @@ def _main(argv, donde):
         if not aprendido["abierta"]:
             return
         aprendido["abierta"] = False
+        buzon = aprendido["buzon"]
+        if buzon is not None:
+            # Lo que un agente ya dejó para otro programa sale aunque la corrida se haya
+            # cortado: se guarda junto con el estado de ese agente.
+            interprete.sacar_lo_del_buzon()
         nueva = interprete.memoria_actual()
-        if nueva != aprendido["leida"]:
-            # Antes de guardar se mira el archivo de nuevo: si cambió mientras el programa
-            # corría (otra ventana anotó una lección o sumó consultas), se suma lo de esta
-            # corrida a lo que dice ahora, en vez de pisarlo.
+        if buzon is not None and buzon.cambio():
             try:
-                en_disco = leer_memoria(archivo_memoria)[0]
-            except ErrorMate:
-                en_disco = None
-            if en_disco is None and aprendido["leida"] is not None:
-                avisar(f"aviso: no guardé la memoria: {os.path.basename(archivo_memoria)} "
-                       "cambió mientras el programa corría y ahora no se entiende. Lo que "
-                       "pasó en esta corrida no va a estar en la próxima; abrilo con el Bloc "
-                       "de notas y arreglalo")
-                nueva = None
-            elif en_disco is not None and en_disco != (aprendido["leida"] or {}):
-                nueva = fundir_memoria(aprendido["leida"] or {}, nueva, en_disco)
-                if nueva == en_disco:
-                    nueva = None
-        if nueva is not None and nueva != aprendido["leida"] and (
-                nueva or os.path.lexists(archivo_memoria)):
-            problema = guardar_memoria(archivo_memoria, os.path.basename(ruta), nueva)
-            if problema:
-                avisar(f"aviso: {problema}")
+                # Leer la memoria, guardarla y repartir va de un tirón, con el candado de
+                # la memoria: dos corridas del mismo programa que terminan a la vez no se
+                # pisan. Sin candado (lo tiene otra hace rato, o dejó de poder tomarse)
+                # no se escribe NADA: ni la memoria, ni un sobre, ni se borra lo recibido.
+                # Anotar "por salir" sin candado sería pisarle lo anotado a otra corrida
+                # que termina a la vez, y perder un mensaje callado. Se dice fuerte y la
+                # corrida termina con código distinto de 0.
+                if not con_candado(lambda: cerrar_buzon(buzon, nueva), 10):
+                    avisar_que_no_se_guardo(buzon)
+            finally:
+                buzon.soltar()
+            for renglon in buzon.resumen():
+                print(renglon)
+            nueva = aprendido["leida"]  # (la memoria ya quedó guardada, o avisada)
+        elif buzon is not None:
+            buzon.soltar()
+        if buzon is not None and not buzon.atendio:
+            # El programa se cortó antes de terminar sus renglones (un error, o Ctrl+C):
+            # lo que le dejaron en el buzón no se atendió. Que no quede esperando callado.
+            de_quien, raros, _, sin_mirar = buzon.contar(
+                leer_buzon_de_memoria(archivo_memoria)[0]["recibidos"])
+            esperan = sum(de_quien.values()) + raros + sin_mirar
+            if esperan:
+                avisar(f"aviso: en el buzón {'quedó' if esperan == 1 else 'quedaron'} "
+                       f"{cuantos_mensajes(esperan)} sin atender, porque el programa se "
+                       "cortó antes de terminar: el buzón se atiende cuando el programa "
+                       "termina solo (un mostrador, cuando se sale con su palabra de "
+                       "salida, no con Ctrl+C). "
+                       f"{'Sigue' if esperan == 1 else 'Siguen'} ahí para la próxima vez")
+        if nueva != aprendido["leida"] and (nueva or os.path.lexists(archivo_memoria)):
+            # Hay algo para guardar. Va con el candado de la memoria tomado (un programa con
+            # 'estado recordado' ya lo tiene; uno sin, lo toma ahora, por un momento) y sobre
+            # lo que dice el archivo AHORA, leído con el candado ya tomado: si cambió
+            # mientras el programa corría (otra ventana anotó una lección o sumó consultas),
+            # se suma lo de esta corrida a eso, en vez de pisarlo. Sin candado no se escribe.
+            if not con_candado(lambda: guardar_lo_nuevo(nueva), 10):
+                avisar_que_no_se_guardo_la_memoria()
         problema = guardar_bitacora(archivo_de(ruta, "bitacora.txt"), os.path.basename(ruta),
                                     interprete.bitacora or [], escrito=ruta)
         if problema:
@@ -10912,29 +14281,139 @@ def _main(argv, donde):
                 avisar(e.mensaje)
                 return 2
         if orden == "correr":
-            # Lo que aprendieron los agentes (0.4): solo 'correr' lee y escribe su memoria.
-            try:
-                memoria, avisos = leer_memoria(archivo_memoria)
-                aprendido["leida"] = json.loads(json.dumps(memoria))
-            except ErrorMate as e:
-                if "--olvidar" not in opciones:
-                    avisar(e.mensaje)
+            # Un programa con 'estado recordado' se corre de a una ventana por vez: al
+            # terminar, cada corrida guarda el estado entero de sus agentes, y con dos
+            # abiertas la última pisaría lo que anotó la otra (dos cajas venderían la misma
+            # última unidad). El candado se tiene toda la corrida y el sistema lo suelta
+            # solo si el proceso muere. 'probar', 'verificar' y 'ensayar' no lo piden.
+            if tiene_estado_recordado(programa):
+                try:
+                    aprendido["candado"] = tomar_candado_de_memoria(archivo_candado,
+                                                                    ESPERA_AL_ABRIR)
+                    ocupado = aprendido["candado"] is None
+                except OSError as e:
+                    # No se pudo tomar, y no es por otra ventana: el sistema no da candados
+                    # en esa carpeta, no se puede crear el archivo, o con ese nombre hay
+                    # algo que no sirve (una carpeta, un archivo ajeno sin permiso). Por lo
+                    # que sea: no se puede saber si hay otra ventana, y atender igual sería
+                    # perder justo lo que el candado cuida (dos cajas venderían la misma
+                    # última unidad). No se arranca: se dice qué pasó y qué se puede hacer.
+                    que_paso, que_hacer = por_que_no_hay_candado(e)
+                    if getattr(e, "motivo", ""):
+                        que_paso += (". Este programa recuerda cosas de una corrida a la "
+                                     "otra ('estado recordado') y sin candado no puedo "
+                                     "fijarme si ya está abierto en otra ventana (dos a la "
+                                     "vez se pisarían lo anotado), así que no lo corro")
+                    avisar(f"{que_paso}. {que_hacer}. Acá no se tocó nada: ni la memoria "
+                           "ni el buzón")
                     return 2
+                if ocupado:
+                    nombre = os.path.basename(ruta)
+                    avisar(f"ya hay otra ventana abierta con {nombre}. Este programa "
+                           "recuerda cosas de una corrida a la otra ('estado recordado'), y "
+                           "con dos ventanas a la vez una pisaría lo que anotó la otra. "
+                           "Terminá la charla de la otra ventana (o cerrala) y corré esto de "
+                           "nuevo. "
+                           # (Windows contesta lo mismo cuando el candado lo tiene otro
+                           # que cuando una carpeta de red no los da: no se distinguen.)
+                           + ("Si no hay ninguna otra ventana abierta, puede ser que esta "
+                              "carpeta no dé candados (pasa en algunas carpetas de red): "
+                              "copiá la carpeta del programa a un disco de esta "
+                              "computadora y corrélo desde ahí. " if os.name == "nt" else "")
+                           + "Acá no se tocó nada: ni la memoria ni el buzón")
+                    return 2
+            # Lo que aprendieron los agentes (0.4): solo 'correr' lee y escribe su memoria.
+            # La lectura del arranque se hace CON el candado de la memoria tomado: así no
+            # cae justo mientras otra corrida reemplaza el archivo (en Windows eso es un
+            # "no hay permiso" y la corrida no arrancaba), ni lee una memoria a medio
+            # cambiar. Un programa con 'estado recordado' ya lo tiene. Uno sin, lo toma
+            # para leer y lo suelta (se puede abrir en dos ventanas), y solo si hay algo
+            # que cuidar: el archivo de memoria existe, o el programa les envía mensajes a
+            # otros ('usar buzon'). Un programa que no recuerda nada no crea ningún archivo.
+            inicio = {}
+
+            def leer_al_arrancar():
+                try:
+                    inicio["memoria"], inicio["avisos"] = leer_memoria(archivo_memoria)
+                    inicio.pop("error", None)
+                except ErrorMate as e:
+                    inicio["error"] = e
+                inicio["buzon"] = leer_buzon_de_memoria(archivo_memoria)
+
+            envia_a_otros = any(s[0] == "agente_ajeno" for s in programa)
+            if aprendido["candado"] is not None:
+                leer_al_arrancar()
+            elif envia_a_otros or os.path.lexists(archivo_memoria):
+                if not con_candado(leer_al_arrancar, 2):
+                    # Un programa sin 'estado recordado' que les envía mensajes a otros
+                    # programas necesita el candado al terminar, para anotarlos y
+                    # repartirlos. Si acá no se puede tener un candado, se sabe ahora: no
+                    # se arranca, en vez de atender y perder al final lo que se envió.
+                    if envia_a_otros and aprendido["sin_candado"] is not None:
+                        que_paso, que_hacer = por_que_no_hay_candado(aprendido["sin_candado"])
+                        if getattr(aprendido["sin_candado"], "motivo", ""):
+                            que_paso += (". Este programa les envía mensajes a otros "
+                                         "programas ('usar buzon') y sin candado no los "
+                                         "puedo anotar ni repartir sin riesgo de perder "
+                                         "alguno, así que no lo corro")
+                        avisar(f"{que_paso}. {que_hacer}. Acá no se tocó nada: ni la "
+                               "memoria ni el buzón")
+                        return 2
+                    # (Lo tiene otra corrida y no lo soltó en 2 segundos, o acá no hay
+                    # candados y el programa no envía nada: se lee sin candado, que para
+                    # leer alcanza; leer_archivo_de_memoria insiste si el archivo está
+                    # siendo reemplazado. Para ESCRIBIR va a hacer falta el candado.)
+                    leer_al_arrancar()
+            else:
+                leer_al_arrancar()
+            if "error" in inicio and "--olvidar" in opciones:
                 # No se entendía, y pidieron empezar de cero: ahí adentro puede haber
                 # lecciones, así que el archivo roto no se pisa: queda guardado aparte.
-                memoria, avisos, rota = {}, [], archivo_de(ruta, "memoria.rota.json")
-                try:
-                    os.replace(archivo_memoria, rota)
-                except OSError:
-                    avisar(f"{e.mensaje}\n(--olvidar no lo pisa: ahí pueden estar las "
-                           "lecciones, y no pude guardarlo aparte)")
+                # Moverlo es cambiar la memoria: va con el candado tomado, y después de
+                # leerla de nuevo (si otra ventana la arregló recién, no se mueve nada).
+                rota = archivo_de(ruta, "memoria.rota.json")
+
+                def apartar_la_rota():
+                    leer_al_arrancar()
+                    if "error" not in inicio:
+                        return
+                    try:
+                        escribir_memoria(archivo_memoria, aprendido["candado"], mover_a=rota)
+                        inicio["apartada"] = True
+                    except OSError:
+                        pass
+
+                if not con_candado(apartar_la_rota, 2):
+                    if aprendido["sin_candado"] is None:
+                        por_que = (f"otra ventana de {os.path.basename(ruta)} tiene tomado "
+                                   "el candado de la memoria: cerrala y probá de nuevo")
+                    else:
+                        por_que = ". ".join(por_que_no_hay_candado(aprendido["sin_candado"]))
+                    avisar(f"{inicio['error'].mensaje}\n(--olvidar no lo pisa: ahí pueden "
+                           "estar las lecciones, y no lo pude guardar aparte sin el candado "
+                           f"de la memoria: {por_que})")
                     return 2
-                avisar("aviso: --olvidar: los agentes arrancan de cero. "
-                       f"{os.path.basename(archivo_memoria)} estaba mal escrito y no se "
-                       "entendía, así que esta vez se pierden también las "
-                       f"lecciones. Lo dejé como estaba en {rota} (se abre con el Bloc de "
-                       "notas) por si querés rescatar alguna y anotarla de nuevo con "
-                       "'corregir'")
+                if "error" in inicio and not inicio.get("apartada"):
+                    avisar(f"{inicio['error'].mensaje}\n(--olvidar no lo pisa: ahí pueden "
+                           "estar las lecciones, y no pude guardarlo aparte)")
+                    return 2
+                if "error" in inicio:
+                    inicio["memoria"], inicio["avisos"] = {}, []
+                    inicio["buzon"] = leer_buzon_de_memoria(archivo_memoria)
+                    avisar("aviso: --olvidar: los agentes arrancan de cero. "
+                           f"{os.path.basename(archivo_memoria)} estaba mal escrito y no se "
+                           "entendía, así que esta vez se pierden también las "
+                           f"lecciones. Lo dejé como estaba en {rota} (se abre con el Bloc "
+                           "de notas) por si querés rescatar alguna y anotarla de nuevo con "
+                           "'corregir'")
+                else:  # (otra ventana la arregló justo: vale lo que dice ahora)
+                    aprendido["leida"] = json.loads(json.dumps(inicio["memoria"]))
+            elif "error" in inicio:
+                avisar(inicio["error"].mensaje)
+                return 2
+            else:
+                aprendido["leida"] = json.loads(json.dumps(inicio["memoria"]))
+            memoria, avisos = inicio["memoria"], inicio["avisos"]
             for aviso in avisos:
                 avisar(f"aviso: {aviso}")
             if "--olvidar" in opciones:
@@ -10959,6 +14438,95 @@ def _main(argv, donde):
                            f"programa:  {como_se_llama()} corregir {para_pegar(ruta)} "
                            f'{agente} "la lección"')
             interprete.memoria, interprete.recordando = memoria, True
+            # El buzón entre programas (0.7): lo que quedó "por salir" de una corrida que
+            # se cortó entre guardar y repartir sale ahora, antes que nada.
+            buzon = aprendido["buzon"] = interprete.buzon = Buzon(
+                ruta, lambda texto: avisar(f"aviso: {texto}"))
+            buzon.leido, avisos = inicio["buzon"]
+            for aviso in avisos:
+                avisar(f"aviso: {aviso}")
+            def recuperar_lo_por_salir():
+                """Con el candado de la memoria tomado: se lee de nuevo lo que quedó por
+                salir (otra corrida pudo repartirlo recién), se reparte y se guarda la
+                memoria como está AHORA en el archivo, sin lo repartido: no la que esta
+                corrida leyó al arrancar."""
+                pendientes = leer_buzon_de_memoria(archivo_memoria)[0]["por_salir"]
+                if not pendientes:
+                    return
+                quedan = buzon.repartir(pendientes)
+                if len(quedan) == len(pendientes):
+                    return
+                try:
+                    ahora = leer_memoria(archivo_memoria)[0]
+                except ErrorMate:
+                    return  # (cambió y no se entiende: no se pisa; se avisa al terminar)
+                en_buzon = leer_buzon_de_memoria(archivo_memoria)[0]
+                guardar(ahora, dict(en_buzon, por_salir=[
+                    p for p in en_buzon["por_salir"]
+                    if (p["carpeta"], p["sobre"]["id"]) not in buzon.repartidos]))
+
+            if buzon.leido["por_salir"]:
+                # (Si otra corrida de este programa tiene el candado, lo está repartiendo
+                # ella: acá no se toca. Y si acá no se puede tener candado, tampoco: sin
+                # candado no se reparte nada. Queda anotado, se avisa, y sale otra vez.)
+                if not con_candado(recuperar_lo_por_salir, 2) \
+                        and aprendido["sin_candado"] is not None:
+                    avisar_que_no_salen(len(buzon.leido["por_salir"]))
+                buzon.leido = leer_buzon_de_memoria(archivo_memoria)[0]
+
+            def cambio_la_memoria():
+                """¿Otra ventana de este programa guardó un estado distinto del que leyó
+                esta al empezar? (y los mensajes del buzón que el archivo ya da por atendidos)"""
+                try:
+                    en_disco = leer_memoria(archivo_memoria)[0]
+                except ErrorMate:
+                    return True, []
+                leida = aprendido["leida"] or {}
+                cambio = any(en_disco.get(a, {}).get("estado", {})
+                             != leida.get(a, {}).get("estado", {})
+                             for a in set(en_disco) | set(leida))
+                return cambio, leer_buzon_de_memoria(archivo_memoria)[0]["recibidos"]
+
+            buzon.cambio_la_memoria = cambio_la_memoria
+
+            def se_puede_guardar(cuantos):
+                """Antes de atender lo que llegó al buzón: se toma el candado de la memoria
+                y NO se suelta hasta que la corrida termina de guardar. Atender un mensaje
+                es anotar después, en la memoria, que se atendió: si al terminar el candado
+                no se pudiera tomar, el mensaje quedaría en el buzón ya atendido y se
+                atendería otra vez. Por eso el manejador de un sobre no corre nunca sin el
+                candado ya en la mano.
+                Devuelve True si esta corrida lo tiene; None si lo tiene otra corrida y no
+                lo soltó en 2 segundos (no se atiende nada, avisa el buzón); False si acá
+                no se puede tener un candado (no se atiende nada, y ya se avisó)."""
+                if aprendido["candado"] is not None:
+                    return True
+                aprendido["sin_candado"] = None
+                try:
+                    candado = tomar_candado_de_memoria(archivo_candado, 2)
+                except OSError as e:
+                    aprendido["sin_candado"], candado = e, None
+                if candado is not None:
+                    aprendido["candado"] = candado  # (se suelta al final de la corrida)
+                    return True
+                if aprendido["sin_candado"] is None:
+                    return None
+                esperan = (f"{cuantos_mensajes(cuantos)} "
+                           f"{'queda' if cuantos == 1 else 'quedan'} en "
+                           f"{os.path.basename(buzon.carpeta)} y se "
+                           f"{'atiende' if cuantos == 1 else 'atienden'} la próxima vez que "
+                           f"{os.path.basename(ruta)} corra y pueda tomar el candado")
+                if aprendido.get("avisado"):
+                    avisar("aviso: sigo sin el candado de la memoria, así que tampoco "
+                           f"atiendo el buzón: {esperan}")
+                else:
+                    aprendido["avisado"] = True
+                    que_paso, que_hacer = por_que_no_hay_candado(aprendido["sin_candado"])
+                    avisar(f"aviso: {que_paso}. Sin candado no atiendo el buzón: {esperan}. "
+                           f"{que_hacer}")
+                return False
+
+            buzon.se_puede_guardar = se_puede_guardar
 
             def guardar_cuenta():
                 """Antes y después de cada consulta de verdad de un agente con frenos: la
@@ -10966,41 +14534,64 @@ def _main(argv, donde):
                 terminar, y se suma lo que haya anotado otra ventana (el mismo programa
                 abierto dos veces, o la orden 'proponer'): el tope es uno solo. Lo demás
                 de la memoria queda como estaba; se guarda al final."""
-                leida = aprendido["leida"] or {}
-                nueva = json.loads(json.dumps(leida))
-                for nombre, agente in interprete.agentes.items():
-                    gasto = gasto_limpio(agente.gasto)
-                    if gasto:
-                        nueva.setdefault(nombre, {"estado": {}, "lecciones": []})["gasto"] = gasto
-                try:
-                    en_disco = leer_memoria(archivo_memoria)[0]
+                def con_la_cuenta(leida):
+                    nueva = json.loads(json.dumps(leida))
+                    for nombre, agente in interprete.agentes.items():
+                        gasto = gasto_limpio(agente.gasto)
+                        if gasto:
+                            nueva.setdefault(
+                                nombre, {"estado": {}, "lecciones": []})["gasto"] = gasto
+                    return nueva
+
+                def anotar():
+                    """(con el candado de la memoria tomado: lee el archivo de nuevo)"""
+                    leida = aprendido["leida"] or {}
+                    nueva = con_la_cuenta(leida)
+                    try:
+                        en_disco = leer_memoria(archivo_memoria)[0]
+                    except ErrorMate:
+                        return  # (cambió y no se entiende: no se pisa; se avisa al terminar)
+                    if en_disco == leida:
+                        if nueva != leida and not guardar(nueva):
+                            aprendido["leida"] = nueva
+                        return
+                    junta = fundir_memoria(leida, nueva, en_disco)
+                    if junta != en_disco and guardar(junta):
+                        return
+                    # La cuenta de los agentes pasa a ser la del archivo (con lo de la otra
+                    # ventana adentro). Lecciones y estado siguen como al empezar la corrida.
+                    for nombre, agente in interprete.agentes.items():
+                        gasto = junta.get(nombre, {}).get("gasto", {})
+                        for dia, cuenta in gasto.items():
+                            agente.ensayo_desde[dia] = (
+                                agente.ensayo_desde.get(dia, 0) + cuenta["simuladas"]
+                                - agente.gasto.get(dia, {}).get("simuladas", 0))
+                        agente.gasto = {dia: dict(cuenta) for dia, cuenta in gasto.items()}
+                        ficha = nueva.get(nombre)
+                        if ficha is not None:
+                            ficha.pop("gasto", None)
+                        if gasto:
+                            nueva.setdefault(nombre, {"estado": {}, "lecciones": []})[
+                                "gasto"] = json.loads(json.dumps(gasto))
+                    aprendido["leida"] = {a: f for a, f in nueva.items() if any(f.values())}
+
+                try:  # (si no hay nada que anotar ni que sumar, no se pide el candado)
+                    leida = aprendido["leida"] or {}
+                    if leer_memoria(archivo_memoria)[0] == leida == con_la_cuenta(leida):
+                        return
                 except ErrorMate:
                     return  # (cambió y no se entiende: no se pisa; se avisa al terminar)
-                if en_disco == leida:
-                    if nueva != leida and not guardar_memoria(
-                            archivo_memoria, os.path.basename(ruta), nueva):
-                        aprendido["leida"] = nueva
+                if con_candado(anotar, 2) or aprendido.get("cuenta_avisada"):
                     return
-                junta = fundir_memoria(leida, nueva, en_disco)
-                if junta != en_disco and guardar_memoria(
-                        archivo_memoria, os.path.basename(ruta), junta):
-                    return
-                # La cuenta de los agentes pasa a ser la del archivo (con lo de la otra
-                # ventana adentro). Lecciones y estado siguen como al empezar la corrida.
-                for nombre, agente in interprete.agentes.items():
-                    gasto = junta.get(nombre, {}).get("gasto", {})
-                    for dia, cuenta in gasto.items():
-                        agente.ensayo_desde[dia] = (
-                            agente.ensayo_desde.get(dia, 0) + cuenta["simuladas"]
-                            - agente.gasto.get(dia, {}).get("simuladas", 0))
-                    agente.gasto = {dia: dict(cuenta) for dia, cuenta in gasto.items()}
-                    ficha = nueva.get(nombre)
-                    if ficha is not None:
-                        ficha.pop("gasto", None)
-                    if gasto:
-                        nueva.setdefault(nombre, {"estado": {}, "lecciones": []})[
-                            "gasto"] = json.loads(json.dumps(gasto))
-                aprendido["leida"] = {a: f for a, f in nueva.items() if any(f.values())}
+                # Sin candado no se escribe. La cuenta sigue en la mano y se anota al
+                # terminar (ahí, si tampoco se puede, se dice fuerte y el código no es 0).
+                aprendido["cuenta_avisada"] = True
+                e = aprendido["sin_candado"]
+                avisar("aviso: no pude anotar ahora la cuenta de consultas a la IA en "
+                       f"{os.path.basename(archivo_memoria)}: "
+                       + (f"otra ventana de {os.path.basename(ruta)} tiene tomado el candado "
+                          "de la memoria" if e is None else por_que_no_hay_candado(e)[0])
+                       + ". Sin candado no escribo la memoria: la anoto al terminar")
 
             interprete.guardar_cuenta = guardar_cuenta
             interprete.avisar = lambda texto: avisar(f"aviso: {texto}")
@@ -11009,6 +14600,10 @@ def _main(argv, donde):
             aprendido["abierta"] = True
         try:
             resultados = interprete.correr(programa, pruebas=orden == "probar")
+            if orden == "correr":
+                # Los renglones del programa terminaron: ahora se atiende lo que otros
+                # programas le dejaron en el buzón (0.7).
+                interprete.atender_buzon()
         finally:  # también si el programa termina con un error, o lo cortan con Ctrl+C
             cerrar_memoria()
     except ErrorMate as e:
@@ -11022,6 +14617,10 @@ def _main(argv, donde):
         avisar_pendientes(donde["interprete"], avisar)
         cerrar_conversacion()
         return 1
+    finally:
+        if aprendido["candado"] is not None:
+            soltar_candado_de_memoria(aprendido["candado"], archivo_candado)
+            aprendido["candado"] = None
 
     cerrar_conversacion()
     if orden == "probar":
@@ -11054,7 +14653,7 @@ def _main(argv, donde):
         return 1 if fallidas or interprete.errores_principal else 0
     for linea, texto in interprete.errores_agentes_det:
         reportar(linea, texto)
-    return 1 if interprete.errores_agentes else 0
+    return 1 if interprete.errores_agentes or aprendido.get("sin_guardar") else 0
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ Mate es un lenguaje de programación chico, con palabras en castellano. Sirve pa
 escribís las reglas (qué precios puede nombrar, qué no puede prometer, cuánto puede gastar por
 día) y Mate revisa cada respuesta de la IA antes de que salga.
 
-Versión 0.6. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
+Versión 0.7. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
 Se escribe con el Bloc de notas y se corre desde PowerShell.
 
 ```
@@ -98,22 +98,23 @@ o la página `docs\index.html`, que explica los pasos.
 
 | Si querés... | Hacé esto |
 |---|---|
-| Aprender desde cero, sin saber programar | El **curso**: `python mate\mate.py curso`. Son 12 clases cortas, de "hola" a un mostrador con IA, lista de precios, frenos y lecciones. Están en `mate\curso` (ver [El curso](#el-curso)) |
+| Aprender desde cero, sin saber programar | El **curso**: `python mate\mate.py curso`. Son 13 clases cortas, de "hola" a un mostrador con IA, lista de precios, frenos y lecciones, y un equipo de agentes que se hablan. Están en `mate\curso` (ver [El curso](#el-curso)) |
 | Armar el mostrador de tu negocio sin copiar archivos a mano | `python mate\mate.py nuevo mostrador mi_negocio` crea el programa y su planilla de precios en la carpeta donde estás (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
+| Armar un equipo de agentes que se reparten el trabajo (Ventas, Depósito y Compras) | `python mate\mate.py nuevo equipo mi_negocio` crea el programa, su planilla y sus casos en la carpeta donde estás (ver [Un equipo propio](#un-equipo-propio-nuevo-equipo)) |
 | Saber si una lección funcionó, sin tipear pregunta por pregunta | `python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` le hace al mostrador las preguntas que anotaste y dice cuáles contestó bien (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)) |
-| Ver programas terminados | `mate\ejemplos`: once programas comentados renglón por renglón (la tabla está en [Primeros pasos en Windows](#primeros-pasos-en-windows)) |
+| Ver programas terminados | `mate\ejemplos`: trece programas comentados renglón por renglón (la tabla está en [Primeros pasos en Windows](#primeros-pasos-en-windows)) |
 | Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
 | Que una IA te escriba un programa en Mate | `python mate\mate.py guia` imprime una página para pegarle antes de pedírselo |
 | Contarle a otra persona qué es Mate | La página `docs\index.html` (está fuera de la carpeta `mate`): un solo archivo que se ve bien en el celular |
-| Saber qué cambió en esta versión | [Qué cambió en la 0.6](#qué-cambió-en-la-06) |
+| Saber qué cambió en esta versión | [Qué cambió en la 0.7](#qué-cambió-en-la-07) |
 
 **Para qué no sirve todavía:** no atiende por WhatsApp ni por una página web (la charla es por
 teclado, en PowerShell); es un proyecto nuevo, de una sola persona, sin comunidad; y es lento
-y chico al lado de Python. El detalle está en [Límites de la versión 0.6](#límites-de-la-versión-06).
+y chico al lado de Python. El detalle está en [Límites de la versión 0.7](#límites-de-la-versión-07).
 
 ## El curso
 
-En `mate\curso` hay doce clases. Cada una es un texto para leer (`clase_01_hola.md`, se abre
+En `mate\curso` hay trece clases. Cada una es un texto para leer (`clase_01_hola.md`, se abre
 con el Bloc de notas) y un programa para correr (`clase_01_hola.mate`), y trae siempre lo
 mismo: qué vas a lograr, el programa completo, el comando de PowerShell, lo que tiene que
 salir, el error más común con su arreglo, y un ejercicio con la solución
@@ -147,6 +148,7 @@ comandos ya reescritos para donde estás, listos para copiar.
 | 10 | Frenos, para poder confiar en la IA (`frenos`) |
 | 11 | Un agente que recuerda y aprende (`estado recordado`, `corregir`, `propuestas`) |
 | 12 | El mostrador completo |
+| 13 | Un equipo de agentes que se hablan (`contrato conversacion`, `--traza`) |
 
 ## Qué busca Mate
 
@@ -253,7 +255,7 @@ usa una palabra, preguntale a Mate: `python mate\mate.py ayuda si` (o `ayuda par
 `ayuda largo`...) muestra una explicación corta con un ejemplo para copiar.
 
 **7. Seguir aprendiendo.** Lo mejor para arrancar es [el curso](#el-curso)
-(`python mate\mate.py curso`). Además, en `mate\ejemplos` hay once programas cortos, explicados renglón por
+(`python mate\mate.py curso`). Además, en `mate\ejemplos` hay trece programas cortos, explicados renglón por
 renglón, para leer y correr en orden:
 
 | Archivo | Qué enseña |
@@ -270,6 +272,7 @@ renglón, para leer y correr en orden:
 | `10_mostrador_mayorista.mate` | un mostrador que lee tu lista de precios de Excel (usa `precios.csv`, que está al lado), charla por teclado y contesta con la IA (se prueba sin clave) |
 | `11_mostrador_con_frenos.mate` | un mostrador con frenos: Mate revisa cada respuesta de la IA (precios, palabras prohibidas, largo), le pone tope al gasto del día y propone lecciones (se prueba sin clave) |
 | `12_mostrador_con_reglas.mate` | un mostrador donde la plata y las reglas las resuelve el programa: si piden una cantidad de un producto, Mate hace la cuenta, mira el stock y aplica la regla del envío sin consultar a la IA; la IA queda para el resto, con frenos (se prueba sin clave; se explica en "Qué va en una lección, qué en un freno y qué en el programa") |
+| `13_equipo_del_negocio.mate` | un equipo de tres agentes que se hablan: Ventas atiende (con la lógica de pedidos del 12), Depósito es el único dueño del stock y lo recuerda, y Compras anota lo que hay que reponer; un `contrato conversacion` dice en qué orden se pueden hablar (se prueba sin clave; con `--traza` se ve la conversación) |
 
 ```
 python mate\mate.py correr mate\ejemplos\01_hola.mate
@@ -307,6 +310,7 @@ notepad guia.txt
 | `consola` | abre la consola, para probar renglones sueltos sin crear un archivo |
 | `curso` | lista las clases del curso y dice cómo abrir cada una; `curso 3` muestra la clase 3 (ver [El curso](#el-curso)) |
 | `nuevo mostrador mi_negocio` | crea en la carpeta donde estás un mostrador propio, listo para usar: `mi_negocio.mate` y su planilla de muestra `mi_negocio_precios.csv`. No pisa archivos que ya estén (ver [Un mostrador propio](#un-mostrador-propio-nuevo-mostrador)) |
+| `nuevo equipo mi_negocio` | crea en la carpeta donde estás un equipo de tres agentes que se hablan (Ventas, Depósito y Compras): `mi_negocio.mate`, su planilla `mi_negocio_precios.csv` y sus casos `mi_negocio_casos.txt`. No pisa archivos que ya estén (ver [Un equipo propio](#un-equipo-propio-nuevo-equipo)) |
 | `ensayar mi_negocio.mate mi_negocio_casos.txt` | le hace al programa las preguntas de ese archivo de casos y dice cuáles contestó bien; los casos que fallan quedan como lección propuesta. Con `--veces=5` repite cada caso (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)) |
 | `corregir archivo.mate Mostrador "..."` | le anota una lección a ese agente, sin tocar el programa (ver [Mate aprende](#mate-aprende)) |
 | `lecciones archivo.mate` | muestra las lecciones de cada agente; con `Mostrador --borrar=2` le borra la 2 |
@@ -314,6 +318,7 @@ notepad guia.txt
 | `propuestas archivo.mate` | muestra las lecciones propuestas, que ningún agente usa hasta que las aprobás (ver [Lecciones propuestas](#lecciones-propuestas)) |
 | `propuestas archivo.mate aprobar 1` | aprueba la propuesta 1 (pasa a ser una lección); con `descartar 1` la saca |
 | `proponer archivo.mate Mostrador "..."` | le contás qué estuvo mal y Mate redacta la lección y la deja propuesta |
+| `buzon deposito.mate` | muestra qué hay en el buzón de ese programa, sin tocarlo: los mensajes de otros programas que esperan, los que tiene por salir y los rechazados con su motivo (ver [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón)) |
 | `informe` | resume los errores de uso que Mate fue anotando en esta computadora (ver [El lenguaje también aprende](#el-lenguaje-también-aprende-el-registro-de-errores-de-uso)) |
 | `informe --para-mejorar` | arma un texto listo para pegarle a un asistente o a un equipo de agentes y pedirle mejoras para Mate |
 | `informe --borrar` | borra el registro de errores de uso |
@@ -739,6 +744,268 @@ incluye un contrato completo y sus pruebas. Para ver la traza:
 python mate\mate.py correr mate\ejemplos\contrato_deposito.mate --traza
 ```
 
+El ejemplo `13_equipo_del_negocio.mate` usa un contrato así para un equipo entero (ver la
+sección que sigue).
+
+### Un equipo propio: `nuevo equipo`
+
+Un agente solo le contesta a una persona. Un **equipo** son varios agentes del mismo negocio
+que se reparten el trabajo hablándose entre ellos. El ejemplo `13_equipo_del_negocio.mate`
+tiene tres:
+
+| Agente | Qué hace | Qué guarda |
+|---|---|---|
+| **Ventas** | da la cara al cliente, por teclado. Si le piden una cantidad de un producto, entiende el pedido y hace la cuenta con las funciones del ejemplo 12, sin IA. **No anota directo**: repite el pedido, con la cuenta y los bultos, y lo anota recién cuando el cliente contesta `si`. Lo demás lo contesta la IA, con frenos | la lista de precios y el pedido que espera el `si` (no se recuerda entre corridas) |
+| **Depósito** | es el **único dueño del stock**: lo descuenta con cada pedido y no vende lo que no hay | el stock (`estado recordado`: sobrevive de una corrida a la otra) |
+| **Compras** | deja anotado lo que hay que reponer | esa lista (también recordada) |
+
+Ninguno toca el estado de otro: Ventas no sabe cuánto stock hay, se lo **pregunta** a Depósito;
+y cuando un producto baja del mínimo, Depósito le pide la reposición a Compras **una sola
+vez**, no una por cada venta. Con `--traza` se ve la conversación. Un pedido son dos
+renglones del cliente: con el primero Ventas contesta sola (repite el pedido y pregunta
+"¿Lo anoto?"), y recién con el `si` le habla a Depósito:
+
+```
+  ·  6. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-3", cliente: "teclado", dicho: "quiero 20 azucar" }   (conversación 6)
+  ·  6. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-3", respuesta: "Entendí: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00. Son 20 bolsas enteras. ¿Lo anoto? Contestá si o no.", aviso: nada }
+  ·  7. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-4", cliente: "teclado", dicho: "si" }   (conversación 7)
+  ·  8.    Ventas pregunta a Deposito: Reservar { charla: "consulta-4", producto: "Azúcar", cantidad: 20 }
+  ·  9.       Deposito pregunta a Compras: Reponer { charla: "consulta-4", producto: "Azúcar", quedan: 5 }
+  ·  9.       Compras responde a Deposito: Anotado { charla: "consulta-4", producto: "Azúcar" }
+  ·  8.    Deposito responde a Ventas: Reserva { charla: "consulta-4", producto: "Azúcar", reservadas: 20, quedan: 5 }
+  ·  7. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-4", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
+```
+
+Para probarlo sin clave ni internet:
+
+```
+python mate\mate.py correr mate\ejemplos\13_equipo_del_negocio.mate --ia-simulada --traza
+python mate\mate.py probar mate\ejemplos\13_equipo_del_negocio.mate
+```
+
+(Correr el ejemplo ahí mismo deja su memoria, `13_equipo_del_negocio.memoria.json`, en la
+carpeta de los ejemplos de Mate. Sirve para mirar; para usarlo en serio, creá el tuyo en otra
+carpeta, como sigue.)
+
+**Para tu negocio**, parado en la carpeta donde lo querés tener:
+
+```
+python mate\mate.py nuevo equipo mi_negocio
+```
+
+Tiene la misma forma y los mismos cuidados que [`nuevo mostrador`](#un-mostrador-propio-nuevo-mostrador):
+crea `mi_negocio.mate`, `mi_negocio_precios.csv` y `mi_negocio_casos.txt`, **nunca pisa un
+archivo** (tampoco la memoria de un programa viejo con ese nombre: el equipo nuevo heredaría
+su stock), el nombre va en una sola palabra, y al terminar muestra los pasos que siguen con
+los comandos listos para copiar. El programa pasa `verificar` y `probar` tal como sale, y sus
+pruebas usan una lista fija: siguen pasando cuando cambiás los productos, el número del envío
+o el mínimo de stock.
+
+Lo que hay que saber:
+
+- **Terminá siempre la charla con `chau`.** El stock y lo anotado para reponer se guardan
+  **cuando el programa termina** (con `chau`, o con Ctrl+C). Si cerrás la ventana con la X, se
+  apaga la máquina o se corta la luz, **se pierde lo anotado en esa charla**: al cliente se le
+  dijo `Anotado` y en la corrida siguiente el stock está como al abrir. El programa lo recuerda
+  cada vez que arranca. Si atendés todo el día, conviene escribir `chau` y volver a entrar
+  cada tanto.
+- **Una ventana por vez.** El mismo equipo no se abre en **dos ventanas** a la vez: la
+  segunda avisa `ya hay otra ventana abierta con mi_negocio.mate`, termina y no toca nada.
+  (Si las dos anotaran, la que cierra última pisaría el stock que guardó la otra, y dos
+  cajas podrían vender la misma última unidad.) Vale para cualquier programa con `estado
+  recordado`: ver [Memoria](#memoria-estado-recordado). `probar`, `verificar` y `ensayar` se
+  pueden usar igual con la charla abierta; `corregir` y aprobar una propuesta, no: cambian
+  la memoria, y esperan a que cierres la charla.
+- **Nada se anota sin un `si`.** Ventas no anota directo. Cuando entiende un pedido lo
+  repite con la cuenta completa y con cuántos **bultos** son, usando la unidad en que se
+  vende, y pregunta:
+
+  ```
+  Cliente: quiero 6 cervezas
+  Ventas: Entendí: 6 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 43.200,00. Son 6 packs enteros. ¿Lo anoto? Contestá si o no.
+  Cliente: si
+  Ventas: Anotado: 6 x Cerveza rubia (pack x 6) a $ 7.200,00 cada uno: total $ 43.200,00.
+  ```
+
+  Solo con un **sí claro, y nada más** ("si", "sí", "dale", "ok", "confirmo", "anotalo"; con
+  "por favor" o "gracias" también vale, y con ninguna otra palabra) le pide a Depósito que
+  lo reserve: recién ahí se descuenta el stock. Con "no" contesta `Listo: no anoté nada.`
+  También es un no el que se dice de otra manera: "dejá", "no, dejá nomás", "mejor no",
+  "cancelalo", y también "ok, dejá", "dale, dejá nomás" o "si, mejor deja", donde el "ok" y
+  el "dale" son una muletilla (lo que contesta quien vio en la pregunta que Ventas entendió
+  mal). "Ok, mejor" o "por confirmar" no son ni sí ni no: no anotan. Con **cualquier otra cosa**
+  ("si, pero que sean 5", "si?", "1", "bueno") tampoco anota: avisa `No anoté lo de antes (6 x
+  Cerveza rubia): no me contestaste que sí.` y atiende lo que se escribió ahora; si es un
+  pedido nuevo, lo trata como pedido nuevo, con su propia pregunta. Un `si` suelto, sin
+  ningún pedido esperando (el segundo `si` de un cliente apurado), no anota nada y lo dice.
+  Las palabras del sí están en `palabras_de_si()`, arriba en el programa.
+- **El pedido que espera el `si` es de un cliente.** Cada consulta que le llega a Ventas
+  lleva dos nombres: `charla` (el de esa consulta: cada renglón es una) y `cliente` (quién
+  habla, el mismo en todas sus consultas). Ventas guarda un pedido pendiente por cliente, y
+  el `si` de un cliente confirma solo su pedido: si Ana pide y Beto contesta "si", a Beto
+  le dice que no tiene ningún pedido esperando, el stock no se toca, y Ana todavía puede
+  confirmar el suyo. En la charla por teclado el cliente es uno solo y siempre el mismo
+  (`"teclado"`). Si conectás a Ventas con algo donde escriben varios a la vez, cada consulta
+  tiene que venir con el nombre de su cliente (su número, o el de su sesión):
+  `consultar_a_ventas(charla, dicho, cliente)`. Una consulta con el `cliente` vacío no se
+  atiende.
+
+  La pregunta deja de esperar con lo primero que se escriba, sea lo que sea: un texto que
+  parece un comando de PowerShell no es un sí (avisa `No anoté lo de antes (...)`), y si la
+  charla se termina con `chau` o `listo` sin haber contestado, lo avisa antes de
+  despedirse: `(Ojo, antes de irte. Ventas: No anoté lo de antes (...): no me contestaste
+  que sí.)` ("listo" cierra la charla: no es un sí). El ingreso que esperaba el `si`
+  hace igual. La única excepción es un **Enter solo**, que no contesta nada: la pregunta
+  sigue en pie y el `si` que venga después la contesta.
+
+  Para qué sirve: hay frases que Ventas **entiende mal**, y antes las anotaba y descontaba
+  stock sin vuelta atrás. "Quiero un pack x 6 de cerveza" (el cliente quiere **un** pack)
+  se entiende como 6 packs; "quiero un bolson x 10 de yerba" y "quiero 10 unidades de yerba",
+  como 10 bolsones; "compro 10 yerbas" puede ser "compró"; "hola, 5 yerbas para retirar"
+  puede ser el cliente que viene a buscar lo que ya pidió. Ahora todas esas reciben la
+  pregunta, y el error **se ve antes de anotar**: `Son 10 bolsones enteros (no 10
+  paquetes).` (cuando la cantidad es justo un número de los de adentro del bulto, lo dice
+  así). Si la presentación no nombra el bulto ("6 botellas de 2 litros", o vacía), dice
+  "bultos". Lo que no cambia: Ventas sigue sin entender esas frases; lo que cambia es que
+  el cliente, o quien tenga el teclado, tiene que leer la pregunta y decir que sí. **Un `si`
+  dicho sin leer anota lo que Ventas entendió.**
+
+  El pedido que espera el `si` es estado del agente Ventas y **no se recuerda** de una
+  corrida a la otra: si se cierra el programa antes del `si`, no quedó anotado. Y un `si`
+  contesta siempre lo **último** que se preguntó: si en el medio se escribe un `ingreso`,
+  el pedido deja de esperar (Ventas lo avisa).
+- **A un pedido claro Ventas le pregunta "¿Lo anoto?"; a lo demás, ni eso.** "quiero 20
+  azucar", "20 azucar" a secas, "me das 20 azucar", "quiero comprar 20 azucar", "hago un
+  pedido de 20 azucar", "dame 12 yerbas con envío" o "5 yerbas, las retiro yo" son pedidos:
+  Ventas los repite y, con el `si`, Depósito descuenta y Ventas contesta `Anotado: 20 x
+  Azúcar ...`. Las reglas que deciden qué es un pedido claro son las mismas de antes de que
+  existiera la pregunta (la confirmación se suma, no las reemplaza). Para eso, Ventas mira la frase
+  palabra por palabra: además de la cantidad y el producto solo puede traer palabras de
+  cuatro listas que están en el programa. Las de **pedir** (`palabras_de_pedir()`: "quiero",
+  "dame", "me das", "pido", "llevo", "comprar"...), las **sueltas** de saludar y contar
+  ("hola", "buen día", "por favor", "de"), las que **acompañan** a una de pedir ("me", "te",
+  "otras") y las de **cómo se lo lleva** (el envío, el retiro y el "gracias" del final), que
+  valen solo **después** de la cantidad. Con cualquier otra cosa, Ventas le consulta a
+  Depósito cuánto hay, contesta la cuenta y agrega `Todavía no
+  anoté nada: para pedirlo, escribí "quiero 20 azucar"`. Eso pasa con:
+  - una pregunta ("¿cuánto salen 20 azúcar?", "2 azúcar?"), un "no" ("no me mandes 2
+    arroz"), una duda ("quería saber si puedo pedir 2 azúcar") o un número con un menos
+    adelante ("quiero - 3 azucar");
+  - una palabra que no está en las listas ("recibí 10 yerbas", "haceme un descuento en 20
+    yerbas", "a las 3 paso a buscar la yerba", "necesito 12 arroz para mañana");
+  - una frase que habla de un pedido que **ya está hecho**: "retiro el pedido de 5 azucar",
+    "gracias por las 10 yerbas", "mi pedido de 20 azucar", "ya me mandan los 10 arroz", "te
+    llevo 10 yerbas". Vale cuando el retiro o el artículo van **adelante** de la cantidad.
+    Con la cantidad adelante ("hola, 5 yerbas para retirar", "10 yerbas retiro") Ventas lo
+    toma por un pedido con retiro y **pregunta**: el cliente que venía a buscar lo ya
+    pedido no lo compra dos veces mientras conteste que no;
+  - algo que **ya pasó o que hizo otro**, escrito con tilde ("compró 10 yerbas", "llevó 10
+    yerbas": sin la tilde serían "compro" y "llevo"), un "hago" sin "un pedido" atrás ("hago
+    5 yerbas"), un "de" pegado adelante de la cantidad ("encargo de 5 yerbas", "de 5
+    yerbas") o "5 yerbas de más". El "de" de un producto no molesta: "aceite de girasol 3
+    cajas" y "de yerba quiero 2" se anotan;
+  - un pedido dicho en la unidad de **adentro del bulto**: "quiero 10 paquetes de yerba"
+    cuando la yerba se vende por "bolsón de 10 paquetes de 1 kg", o "quiero 6 botellas de
+    aceite" con "caja de 12 botellas". No se sabe si son 10 bolsones o 1: Ventas no anota ni
+    cotiza, y pregunta diciendo cómo se vende (`Todavía no anoté nada, para no equivocarme:
+    dijiste "paquetes", y Yerba mate se vende por bolsón de 10 paquetes de 1 kg... ¿Cuántos
+    querés de esos?`). La unidad de venta es la **primera palabra** de la columna
+    `presentacion`; si esa palabra va adelante ("2 bolsas de azucar de 10 kg"), lo demás
+    describe el bulto y el pedido se anota. "2 azucar de 10 kg", sin la unidad, pregunta.
+    Lo de adentro son las palabras de la presentación que llevan **un número adelante**
+    ("10 paquetes", "1 kg"); las demás describen y no frenan ("3 galletitas sin sal", con
+    "paquete de 3 unidades sin sal", se anota). Tres casos para saber, si armás tu planilla:
+    (1) si la presentación **arranca con un número** ("6 botellas de 2 litros", "12
+    unidades", "x 6 latas") no hay palabra para el bulto: "quiero 6 botellas de agua"
+    pregunta, y se pide con el nombre ("quiero 2 aguas") o con "bultos" ("quiero 2 bultos
+    de agua"). Conviene escribirla con el bulto adelante: "pack de 6 botellas de 2 litros";
+    (2) si lo de adentro se llama como el producto ("Huevos", "maple de 30 huevos"), "quiero
+    30 huevos" pregunta siempre: se pide "quiero 2 maples de huevos"; (3) una presentación
+    sin ningún número ("caja de botellas") toma por lo de adentro todas sus palabras menos
+    la primera. Una abreviatura o un diminutivo ("10 paq de yerba", "6 botellitas") no
+    recibe esta pregunta: recibe la cuenta por bultos enteros, y tampoco anota;
+  - un pedido **con envío que no llega a las unidades de la regla**: primero el cliente
+    decide si lo retira o suma más.
+
+  Ante la duda no se anota: es el error que no le saca stock a nadie. El costo es que un
+  pedido bien dicho con una palabra que no está en las listas no recibe la pregunta, y el
+  cliente lo tiene que escribir de nuevo como le dice Ventas. Si tus clientes usan otra palabra para
+  pedir, agregala en `palabras_de_pedir()` (en minúsculas y sin tildes).
+
+  Lo que la pregunta **no** arregla, para saber: con una presentación que trae la cuenta
+  sin un sustantivo ("caja x 6", "pack x 6", "x 12"), "quiero 6 vinos" se entiende como 6
+  cajas, y la pregunta dice `Son 6 cajas enteras.` sin el "(no 6 ...)", porque no hay
+  palabra para lo de adentro; "quiero 2 bultos de huevos", con "maple de 30 huevos",
+  pregunta por la unidad aunque más arriba dice que con "bultos" se pide (ahí se pide
+  "quiero 2 maples de huevos"); y contestar "1" o "uno solo" a una pregunta de Ventas no
+  retoma el pedido: hay que escribirlo de nuevo.
+- **Un pedido anotado no se anula desde la charla.** A "devuelvo 5 yerbas", "cancelame 5
+  yerbas", "anulame el pedido" o "ya no quiero 5 yerbas", Ventas contesta, sin IA y sin tocar
+  el stock: `No anoté nada. Y si es por un pedido que ya está anotado: desde esta charla no
+  se anula ni se devuelve, eso lo arregla una persona del negocio.` (La mercadería que
+  vuelve se suma con un `ingreso`.)
+- **Pedir más de lo que hay no vende nada** (no se vende una parte): `De Yerba mate quedan
+  40; no llego a 100.`
+- **El mínimo** es el número de `stock_minimo`, arriba en el programa (un número entero, 0 o
+  más). Si ese número, el del envío (`unidades_para_envio`) o el tope de un ingreso
+  (`ingreso_maximo`) quedan mal puestos (con comillas, con decimales, negativos), el equipo
+  no atiende y dice cuál es y cómo va; `probar` falla en todas las pruebas con ese mismo
+  aviso. (`verificar` no lo mira: solo revisa que el programa esté bien escrito.) Cuando por una
+  venta de un producto quedan **menos** unidades que esas, Depósito le avisa a Compras, una
+  vez. También le avisa si alguien pide un producto que está en cero. Un producto que ya
+  arranca por debajo del mínimo en la planilla **no** se anota hasta que alguien lo pide. Si
+  Compras falla, la venta no se cae: Depósito lo intenta de nuevo con el pedido que sigue. Al
+  abrir y al cerrar, el programa muestra lo que Compras tiene anotado, con lo que queda ese
+  día (se lo pregunta a Depósito): `Compras: hay que reponer Azúcar (quedan 5).`
+- **El stock de la planilla es el de arranque.** Depósito lo toma la primera vez que ve cada
+  producto y de ahí en más lo lleva él: queda en `mi_negocio.memoria.json`, que se puede
+  mirar con el Bloc de notas (ver [Memoria](#memoria-estado-recordado)). Cambiar el número en
+  la planilla **no** cambia lo que Depósito recuerda. Un producto nuevo en la planilla sí
+  entra, con su stock (en unidades enteras). Si sacás un producto de la planilla o le cambiás
+  el nombre, lo que Depósito y Compras recordaban de él queda guardado: se limpia con
+  `--olvidar`.
+- **La mercadería que llega** se anota en la misma charla: `ingreso 30 azucar`. Va la
+  palabra `ingreso` (así, primera y sin tilde), la cantidad y el nombre del producto, y nada
+  más. Con un signo menos, un signo de pregunta, un punto, cualquier otra palabra ("ingreso 5
+  de yerba", "ingreso 30 azucar gracias") o un número disparatado (más de `ingreso_maximo`,
+  100000) no suma nada y explica cómo va. Lo mismo si está escrito parecido ("ingresó 30
+  azucar", con la tilde que pone el celular; "ingreso: 30 azucar"): no suma y lo explica, en
+  vez de tratarlo como una consulta de un cliente. Bien escrito, **Depósito también pregunta
+  antes de sumar**: `Entendí: entran 30 x Azúcar (bolsa de 10 kg). Son 30 bolsas enteras.
+  ¿Lo sumo? Contestá si o no.` Con `si` lo suma; con `no`, o con cualquier otra cosa, no
+  suma nada (un cero de más se ve antes de tocar el stock). Si con eso el producto llega al mínimo, Compras lo
+  tacha de su lista (y si vuelve a bajar, se pide de nuevo); si entró poco y **sigue por
+  debajo del mínimo, el pedido de reposición queda anotado**, con el número nuevo. Ojo: lo
+  puede escribir cualquiera que tenga el teclado, así que sirve mientras el teclado lo maneja
+  alguien del negocio.
+- **Para empezar de nuevo con el stock de la planilla**: `correr mi_negocio.mate --olvidar`,
+  una vez. Borra lo que recuerdan Depósito y Compras (las lecciones no).
+- **El contrato** (`contrato conversacion`, arriba en el programa) dice quién le puede hablar
+  a quién y en qué orden: el cliente solo a Ventas, Ventas a Depósito, Depósito a Compras. Si
+  el programa le pide una reserva a Depósito salteándose a Ventas, Mate lo frena:
+  `charla 'a' en 'llega_el_cliente' no admite pregunta de (programa) a Deposito con 'Reservar'`.
+  Cada renglón del cliente lleva su propio nombre de charla (`consulta-1`, `consulta-2`...).
+  Un pedido son dos: en la primera Ventas contesta sola (repite el pedido y pide el `si`) y
+  en la segunda, la del `si`, le pide la reserva a Depósito. El contrato no cambió de forma:
+  el único camino a `Reservar` sigue saliendo de Ventas, y Ventas lo toma solo con el `si`.
+- **`probar` y `ensayar` no tocan el stock.** En una prueba los agentes arrancan de cero y no
+  se guarda nada. Un ensayo lee lo que Depósito recuerda pero no lo cambia: si de un producto
+  ya se vendió casi todo, los casos que lo nombran van a contestar que no alcanza.
+- **En los casos, el `si` del cliente va en un segundo renglón**, debajo de la pregunta:
+  `después: si`. Sin eso, el caso mira la pregunta de Ventas ("Entendí: ... ¿Lo anoto?") y
+  no llega a anotar nada (ver [Ensayar un mostrador](#ensayar-un-mostrador-ensayar)).
+- **Un equipo creado antes de este cambio es una copia fija**: sigue anotando directo. Para
+  tener la confirmación hay que crearlo de nuevo con `nuevo equipo` (con otro nombre, o en
+  otra carpeta) y pasarle la planilla.
+- **Los casos del equipo también miran la conversación**: `mi_negocio_casos.txt` exige, para
+  cada pregunta, qué mensajes tienen que viajar entre los agentes y cuáles no (ver
+  [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo)).
+- **La lógica sale de los ejemplos 13 y 12**, en el momento de crear el equipo: hace falta la
+  carpeta `mate` completa, y un equipo ya creado no cambia cuando se actualiza Mate.
+- **Límites:** un pedido es de un producto por vez, como en el ejemplo 12; no hay precios ni
+  mínimos distintos por cliente o por producto; y los tres agentes corren dentro del mismo
+  programa, en la misma computadora.
+
 ### Varias copias de un agente
 
 Declarar un `agente` ya crea uno con ese nombre. Con `crear` nacen más, cada uno con su estado:
@@ -786,6 +1053,224 @@ guardada con `sea`) algo que no sabe recibir, o si le preguntás a un agente que
 nunca llega a un `responder` (un `fallar` adentro de un `si` no cuenta como respuesta; un
 `al recibir` que termina en `fallar` sí vale: falla siempre, a propósito). Lo que no se puede
 saber de antemano se valida al construir el mensaje.
+
+### Dos programas que se hablan: el buzón
+
+Hasta acá los agentes vivían todos en el mismo programa. Con el **buzón**, un agente de un
+programa le puede `enviar` un mensaje a un agente de **otro programa de la misma carpeta**:
+Ventas corre en la PC del mostrador a la mañana, Depósito corre más tarde, y se entienden
+igual. No hay red ni nada que instalar: el mensaje queda en un archivo y se entrega cuando
+el otro programa corre.
+
+```
+usar buzon "deposito.mate"
+```
+
+Con ese renglón (arriba de todo, fuera de agentes y funciones), los agentes de
+`deposito.mate` quedan como **destino de `enviar`**:
+
+```
+usar "mensajes.mate"
+usar buzon "deposito.mate"
+
+agente Ventas {
+    al recibir Vender como v {
+        enviar Reservar { pedido: v.pedido, producto: v.producto, cantidad: v.cantidad } a Deposito
+    }
+    al recibir Reservado como r { mostrar("Pedido {r.pedido}: quedan {r.quedan}.") }
+}
+```
+
+```powershell
+python mate\mate.py correr ventas.mate      # Buzón: dejé 1 mensaje para deposito.mate; le llega la próxima vez que corra.
+python mate\mate.py correr deposito.mate    # Buzón: atendí 1 mensaje (1 de ventas.mate).   (y deja la contestación)
+python mate\mate.py correr ventas.mate      # Pedido A-17: quedan 8.
+```
+
+El ejemplo completo está en `ejemplos/buzon_ventas.mate`, `ejemplos/buzon_deposito.mate` y
+`ejemplos/buzon_mensajes.mate`, con sus pruebas. **Para correrlo, copiá antes esos tres
+archivos a una carpeta tuya**: al correr, Mate deja al lado de cada programa su memoria
+(`.memoria.json`) y la carpeta de su buzón (`.buzon`), y entre los ejemplos molestan.
+
+**La regla, en un renglón:** los mensajes para otro programa **salen cuando el programa
+termina y guarda**; los que llegaron **se atienden cuando el programa termina sus
+renglones**. Si cerrás la ventana con la X, no sale ni se guarda nada. Si el programa se
+corta con un error o con Ctrl+C, lo que sus agentes ya habían dejado para otro programa
+**sale igual** (se guarda junto con su estado), pero lo que le llegó **no se atiende**: Mate
+avisa cuántos mensajes quedaron esperando.
+
+- **`buzon` no es una palabra nueva**: solo significa algo después de `usar` (como `python`),
+  así que sigue sirviendo como nombre de variable. Tampoco hay funciones incluidas nuevas.
+- **Qué trae `usar buzon`.** Mate lee el otro archivo (y lo que ese trae con `usar`) pero
+  **nunca lo ejecuta** ni carga su Python. De ahí toma sus agentes, con lo que cada uno sabe
+  recibir, y los mensajes **que cruzan**: los de esos `al recibir`, lo que `responde` cada
+  uno y los mensajes que llevan adentro. No trae funciones, variables, estado ni pruebas.
+  El otro programa tiene que estar en la misma carpeta (sin subcarpetas ni rutas). Dos
+  programas pueden nombrarse mutuamente.
+- **Los dos tienen que decir lo mismo.** Lo más cómodo es declarar los mensajes en un solo
+  archivo (`mensajes.mate`) y traerlo con `usar` desde los dos. Si un mensaje que cruza está
+  declarado distinto en cada programa, el error sale antes de correr y dice los dos
+  renglones. Tampoco puede haber dos agentes con el mismo nombre, aunque uno sea de otro
+  programa (lo que llega a los dos desde el mismo archivo traído con `usar` es lo mismo y no
+  choca).
+- **Para qué sirve un agente de otro programa**: como destino de `enviar` (suelto, en una
+  lista o guardado en una variable), en `simular` dentro de una prueba y para mostrar su
+  nombre. No se le puede `preguntar` (ese programa puede no estar corriendo: se le manda con
+  `enviar` y la contestación se recibe con un `al recibir`), ni `crear` una copia, ni usar
+  `aprender`, `lecciones` o `a_json` con él, ni mirarle el estado, ni ponerlo adentro de un
+  mensaje. Cada cosa da su error, antes de correr cuando se puede saber. En la `consola` se
+  puede escribir el `enviar`, pero no sale nada para el otro programa, y lo avisa.
+- **El contrato se controla dos veces.** Al enviar, como siempre: si el otro agente no tiene
+  ese `al recibir`, sale `Deposito no sabe recibir 'X'` en el renglón del `enviar`, y un valor
+  escrito a mano que rompe la regla de su campo frena antes de correr. Y **al llegar**, con
+  el contrato del que recibe: un programa nunca confía en lo que hay en su buzón.
+- **Contestar.** En el que recibe, `remitente` es el agente del otro programa, y `responder`
+  le manda la contestación por su buzón: no hace falta `usar buzon` para contestar. Para
+  mandarle otra cosa (`enviar X a remitente`) sí hay que agregar el `usar buzon` de su
+  programa. Si lo había mandado el programa suelto (no un agente), no hay a quién contestar,
+  como siempre.
+- **Un mensaje que no se puede entregar no corta el programa.** Si no cumple el contrato, o
+  el agente no existe, o no es un archivo que se entienda, Mate avisa
+  (`aviso: no entregué un mensaje del buzón: Reservar de Ventas (ventas.mate) para Deposito
+  no cumple el contrato: Reservar.cantidad no puede valer 500...`), sigue con los demás y
+  deja el archivo **tal como llegó** en la carpeta `rechazados`, con un `.motivo.txt` al
+  lado. Para intentarlo de nuevo alcanza con moverlo a la carpeta de arriba (si vuelve a
+  fallar, el que envió recibe otro aviso). Si el agente
+  **falla** mientras atiende un mensaje válido, pasa lo de siempre (su estado vuelve atrás y
+  el error queda anotado) y además el mensaje va a `rechazados`: no se reintenta para
+  siempre.
+- **El que envió se entera.** Cuando un mensaje se rechaza, vuelve un aviso por el buzón: en
+  su próxima corrida le llega al `al fallar` del agente que lo había mandado (`f.motivo`,
+  `f.mensaje`, `f.destino`). Sin `al fallar`, o si lo mandó el programa suelto, sale como un
+  `aviso:`. Un aviso de falla nunca se contesta con otro.
+- **`probar` y `ensayar` no escriben ni leen ningún buzón**, y `verificar` tampoco crea nada.
+  En una prueba, lo enviado a otro programa se ve con `mensajes_enviados()`; con
+  `simular Deposito al recibir Reservar como r { responder ... }` ese agente contesta ahí
+  mismo; y la llegada de una contestación se prueba mandándola desde la prueba
+  (`enviar Reservado { ... } a Ventas`). En el archivo de casos de `ensayar` vale
+  `tiene que viajar: Reservar de Ventas a Deposito`.
+- **Con `--traza`** se ve qué va y qué viene:
+
+  ```
+    ·  2. Ventas → Deposito (deposito.mate): Reservar { pedido: "A-17", ... }   (conversación 1, al buzón: sale al terminar)
+    ·  1. Ventas (ventas.mate) → Deposito: Reservar { pedido: "A-17", ... }   (conversación 1, del buzón)
+    ·  2. Deposito → Ventas (ventas.mate): Reservado { ... }   (conversación 1, al buzón: sale al terminar, en respuesta al 1)
+  ```
+
+- **Para mirar un buzón sin tocarlo**: `python mate\mate.py buzon deposito.mate` dice cuántos
+  mensajes esperan y de quién, cuántos están por salir y cuáles se rechazaron, con el motivo.
+  Lo que sigue en la carpeta pero ya se atendió (quedó de un corte) lo cuenta aparte: no se
+  entrega de nuevo.
+  (Si tenías un programa llamado `buzon.mate`, se corre con `correr buzon.mate`.)
+
+**Dónde queda cada cosa.** El buzón de `deposito.mate` es la carpeta `deposito.buzon`, al
+lado del programa: un archivo `.json` por mensaje (el "sobre": quién lo manda, para quién, a
+qué conversación pertenece, a cuál contesta y el mensaje como lo da `a_json`), la carpeta
+`rechazados` y un archivo `candado`. Esa carpeta la lleva Mate: `escribir_archivo` y
+`agregar_a_archivo` no escriben ahí, y Mate nunca escribe a través de un acceso directo
+que alguien haya dejado adentro (ni en los archivos provisorios `.tmp` ni en el `candado`):
+lo saca y crea un archivo de verdad. Tampoco lee a través de uno: cada sobre se abre una
+sola vez, sin seguir accesos directos, y se controla que sea un archivo común sobre ese
+mismo archivo ya abierto (así nadie lo cambia entre que Mate lo mira y lo lee); lo que no
+es un archivo común queda ahí, sin atender ni borrar. (En Windows el sistema no deja pedir
+"abrir sin seguir accesos directos": ahí Mate abre y después controla que lo que abrió sea
+el mismo archivo que está en la carpeta con ese nombre. Esa parte no se probó en una
+Windows de verdad.) Los provisorios llevan el número del
+proceso en el nombre: dos corridas que escriben a la vez no se pisan el suyo; si una
+corrida muere justo en el medio, el suyo puede quedar (`algo.1234-ab12cd34.tmp`): Mate lo
+borra solo cuando tiene más de un día. Lo que un programa ya atendió y lo que todavía tiene
+que repartir queda anotado en su archivo de memoria (`deposito.memoria.json`, en la parte
+`"buzon"`), que `corregir`, `lecciones` y `--olvidar` no tocan. Esas dos funciones tampoco
+escriben en la memoria de un programa nombrado con `usar buzon` (la de otros programas de
+la carpeta que no se nombran queda sin cuidar: no la uses como nombre de archivo).
+
+**Una sola vez, aunque se corte.** Al terminar, Mate guarda **en una sola escritura** el
+estado de los agentes, los mensajes que ya atendió y los que tiene que dejarles a otros
+programas; recién después los reparte, mueve los rechazados y borra los atendidos. Si el
+programa termina con un error o con Ctrl+C, guarda lo atendido hasta ahí y lo demás sigue
+en el buzón; y si un agente ya había anotado algo y dejado un mensaje para otro programa
+(un mostrador que anotó el último pedido y se cierra con Ctrl+C), ese mensaje sale junto
+con lo anotado: no queda un programa sabiendo algo que el otro no. Si se corta de golpe (la X de la ventana, un corte de luz), la corrida
+siguiente termina el trabajo: lo que no se guardó se atiende de nuevo, y lo que ya se había
+guardado no se repite (cada mensaje lleva un `id`, y el que recibe anota los que ya
+atendió). Lo único que se puede repetir es lo que el agente había mostrado en pantalla.
+
+**Lo que hay que saber (límites de esta versión):**
+
+- **Un programa no se queda escuchando.** Recibe cuando lo corren, y manda cuando termina.
+  Un mostrador abierto todo el día manda y recibe recién al salir con `chau`. **Si se lo
+  cierra con Ctrl+C manda, pero no recibe**: avisa cuántos mensajes quedaron esperando, y
+  se atienden la próxima vez que termine solo. Quien siempre sale con Ctrl+C no recibe nunca.
+- **El buzón se atiende al final**, después de los renglones del programa (así un agente ya
+  está preparado: su lista cargada, su planilla leída), en una sola pasada: lo que llegue
+  mientras tanto queda para la próxima corrida. En una corrida se atienden hasta 1.000
+  mensajes; si hay más, avisa y el resto espera.
+- **El orden**: los mensajes de un mismo programa llegan en el orden en que los envió,
+  dentro de una corrida y de una corrida a la siguiente, aunque se corran una atrás de la
+  otra (el nombre de cada sobre arranca con la hora en que empezó la corrida, con sus
+  millonésimas de segundo). Lo que puede desordenarlos: que el reloj de la PC se atrase
+  entre dos corridas, o dos ventanas del mismo programa abiertas a la vez. Entre programas
+  distintos no se promete orden, y el aviso de que un mensaje falló puede llegar antes que
+  las contestaciones de los demás.
+- **Correr dos veces un programa que envía manda dos mensajes.** Para que el negocio no lo
+  tome dos veces, el mensaje lleva un dato propio (`pedido: "A-17"`) y el que recibe lo
+  controla, como en el ejemplo.
+- **Dos ventanas del mismo programa a la vez**: si el programa tiene `estado recordado`
+  (como el Depósito del ejemplo), no se puede: la segunda avisa `ya hay otra ventana abierta
+  con deposito.mate`, termina y no toca la memoria ni el buzón; los mensajes los atiende la
+  que ya estaba, o la próxima corrida. Así una ventana vieja ya no pisa el efecto de un
+  mensaje atendido. Mientras tanto los demás programas le pueden seguir dejando mensajes, y
+  `buzon deposito.mate` se puede mirar siempre. Si el programa no tiene `estado recordado`,
+  las dos ventanas corren y el buzón lo atiende una sola (la otra avisa y no recibe); lo que
+  quedó por salir de una corrida cortada lo reparte una sola, con el candado de la memoria
+  tomado y leyendo la memoria de nuevo en ese momento. La ventana que atiende el buzón toma
+  el candado de la memoria **antes del primer mensaje y no lo suelta hasta guardar**: un
+  mensaje no se atiende nunca si después no se va a poder anotar que se atendió. Si ese
+  candado lo tiene otra corrida y no lo suelta en un par de segundos, no atiende nada: avisa
+  `sin candado no atiendo el buzón` y los mensajes quedan en su carpeta para la próxima vez.
+- **Sin candado no sale ni entra ningún mensaje.** Si Mate no puede tomar el candado de la
+  memoria (la carpeta está en un lugar donde el sistema no los da, como algunas carpetas de
+  red; no se puede crear el archivo; o con ese nombre hay otra cosa), no escribe nada de lo
+  que ese candado cuida: ni la memoria ni un solo sobre.
+  - Un programa con `estado recordado` no arranca (ver [Memoria](#memoria-estado-recordado)).
+  - Un programa que les envía mensajes a otros (tiene `usar buzon`) tampoco arranca, aunque
+    no tenga `estado recordado`: necesita el candado para anotar y repartir lo que envía.
+    Avisa qué pasó y qué podés hacer, termina con código 2 y no toca nada; lo que tenía por
+    salir sigue anotado (se ve con `buzon ventas.mate`, en "Por salir").
+  - Un programa que no envía nada corre igual, pero no reparte lo que le había quedado por
+    salir (avisa `Sin candado no reparto mensajes`; sigue anotado y sale la próxima vez que
+    corra y pueda tomar el candado) ni atiende lo que le dejaron (avisa `Sin candado no
+    atiendo el buzón`; los mensajes quedan en su carpeta). Lo mismo si lo que no puede tomar
+    es el candado de la carpeta del buzón.
+  - Si el candado andaba al arrancar y deja de poder tomarse justo al terminar (una falla
+    pasajera, u otra ventana del mismo programa que no lo suelta en 10 segundos), Mate
+    tampoco escribe: avisa con `error:` que lo que el programa envió en esa corrida **no
+    salió ni quedó anotado** (hay que hacerlo de nuevo), y termina con código 1. (Lo que
+    llegó al buzón ya no corre ese riesgo: se atiende con el candado en la mano.)
+
+  Nada sale ni se atiende dos veces; para destrabarlo, copiá la carpeta de los programas a
+  un disco de esa computadora.
+- **Carpetas sincronizadas** (OneDrive, Dropbox): no están cubiertas. El buzón está pensado
+  para una carpeta común de una misma PC.
+- **Si el archivo de memoria se rompe** (o se usa `--olvidar` sobre una memoria rota) se
+  pierde la lista de mensajes ya atendidos y los que estaban por salir.
+- **Un mensaje pesa hasta 1 MB** y **todavía no puede llevar un agente adentro** (ni un mapa
+  cuya única clave sea `agente`: esa forma está reservada). El `contrato conversacion` cubre
+  solo lo de adentro de un programa: un mensaje de ese contrato no puede ir a otro.
+- **Quién puede escribir en el buzón.** Cualquiera que pueda escribir un archivo en esa
+  carpeta puede hacerle llegar a un agente un mensaje que cumpla su contrato, haciéndose
+  pasar por otro programa, o mandar un aviso de falla inventado. No puede lograr que Mate
+  lea o escriba fuera de la carpeta, ni que ejecute algo, ni meter un agente adentro de un
+  mensaje, ni colgar el programa. Los sobres todavía no van firmados: quien puede escribir
+  en la carpeta ya puede editar los `.mate`. El motivo de una falla viaja tal cual al otro
+  programa (puede llevar texto de un error de adentro), y la carpeta `rechazados` no se
+  limpia sola.
+- **Sin probar en una Windows de verdad**: el candado del buzón y el paso a `rechazados` se
+  probaron en Linux. Si algo de esto falla con `py`, avisá.
+
+Es la base para conectar programas de distintas máquinas más adelante: el sobre nombra
+programa y agente (no rutas), todo es asíncrono, el que recibe valida y descarta lo repetido,
+y lo que está "por salir" es la bandeja de la que un día va a tomar un cartero.
 
 ### Funciones escritas en Python: `usar python`
 
@@ -1168,12 +1653,64 @@ python mate\mate.py correr mi_mostrador.mate          (arranca en 1 y termina en
   mensaje (las claves `tipo` y `campos`), en el archivo lo vas a ver envuelto en
   `{"mapa": {...}}`: es para no confundirlo.
 - `recordado` no es una palabra reservada: solo significa algo después de `estado`.
-- **Con el programa abierto en una ventana se puede seguir trabajando desde otra**: anotar
-  una lección con `corregir`, aprobar una propuesta, o correr el mismo programa otra vez. Al
-  guardar, Mate relee el archivo y le **suma** lo de esa corrida (lo que cambió del estado,
-  las lecciones y propuestas nuevas, las consultas que hizo) en vez de pisarlo. Lo anotado
-  desde la otra ventana lo usa el agente desde su próxima corrida. Si las dos ventanas
-  cambiaron el mismo estado recordado, queda el de la que terminó última.
+- **Un programa con `estado recordado` se corre de a una ventana por vez.** Al terminar,
+  cada corrida guarda el estado entero de sus agentes: con dos abiertas, la que cierra
+  última pisaría lo que anotó la otra. Por eso, si ya hay una corrida (`correr`) abierta, la
+  segunda no arranca: avisa `ya hay otra ventana abierta con mi_mostrador.mate`, termina
+  con código 2 y no toca nada. Mientras el programa corre vas a ver al lado un archivo
+  `mi_mostrador.memoria.candado`: es la marca de que está abierto. Se borra solo al
+  terminar; si la ventana se cierra de golpe (la X, un corte de luz) el archivo puede
+  quedar, pero el candado lo suelta el sistema y la corrida siguiente arranca normalmente.
+  No hace falta borrarlo, y borrarlo a mano con el programa abierto le saca la protección.
+  (En Windows, si ese archivo quedó marcado como de solo lectura, Mate no lo puede borrar
+  al terminar y queda en la carpeta: no molesta, la corrida siguiente toma el candado igual.
+  Y cuando el candado no se pudo tomar, el archivo también puede quedar, vacío: Mate solo
+  lo borra si es la corrida que lo tiene tomado, porque si no podría sacarle el candado a
+  otra ventana que sí lo tiene.)
+  **Sin candado, el programa no atiende.** Si Mate no puede tomar el candado, por el motivo
+  que sea, el programa **no arranca**: avisa qué pasó y qué podés hacer, termina con código
+  2 y no toca ni la memoria ni el buzón (atender sin candado sería perder la protección sin
+  enterarte: dos cajas venderían la misma última unidad). Son tres casos: si la carpeta está
+  en un lugar donde el sistema no da candados (pasa en algunas carpetas de red), avisa `no
+  pude tomar el candado de mi_mostrador.mate (mi_mostrador.memoria.candado): en esta carpeta
+  el sistema no da candados`: copiá la carpeta del programa a un disco de esa computadora
+  (por ejemplo, adentro de Documentos) y corrélo desde ahí. Si en la carpeta no se pueden
+  crear archivos (no hay permiso para escribir, o el disco está lleno), avisa `no pude crear
+  mi_mostrador.memoria.candado`: revisá los permisos o copiá la carpeta a un lugar donde
+  puedas escribir. Y si con ese nombre hay algo que Mate no puede usar (una carpeta, o un
+  archivo sobre el que no tenés permiso), avisa `no pude tomar
+  mi_mostrador.memoria.candado`: sacalo de ahí y corré de nuevo. Esto vale solo para
+  `correr`, y para los programas con `estado recordado` o que les envían mensajes a otros
+  programas (`usar buzon`; ver [el buzón](#dos-programas-que-se-hablan-el-buzón)): los demás
+  no necesitan el candado para correr, y `probar`, `verificar` y `ensayar` no lo piden
+  nunca. (En Windows, una carpeta de red que no da candados puede contestar lo mismo que un
+  candado ocupado: ahí el aviso es `ya hay otra ventana abierta`, y agrega qué hacer si no
+  hay ninguna.)
+- **Con el programa abierto en una ventana se puede seguir trabajando desde otra** en todo
+  lo que no cambia la memoria: `probar`, `verificar`, `ensayar`, `buzon`, y ver las
+  `lecciones` y las `propuestas`, no se traban.
+- **La memoria se escribe siempre con el candado tomado, y sobre lo recién leído.** Todo lo
+  que cambia el archivo de memoria (guardar al terminar, anotar la cuenta de consultas a la
+  IA, `corregir`, `lecciones --borrar`, `proponer`, aprobar o descartar una propuesta, las
+  propuestas que deja `ensayar`, y `--olvidar`) hace lo mismo: toma el candado, **lee el
+  archivo de nuevo**, le aplica el cambio y lo escribe. Así nadie guarda una copia vieja
+  encima de lo que otra ventana acaba de anotar (una caja no vuelve a vender la unidad que
+  ya vendió). Lo que eso significa para vos:
+  - **Con la charla abierta no se puede `corregir`** (ni `proponer`, ni borrar una lección,
+    ni aprobar o descartar una propuesta) en un programa con `estado recordado`: ese
+    programa tiene el candado mientras está abierto. La orden espera unos segundos y, si
+    sigue ocupado, avisa `está abierto en otra ventana ... Cerrá la otra ventana y probá de
+    nuevo`, termina con código 2 y no toca nada. Terminá la charla (`chau`) y repetí la
+    orden. `ensayar` corre igual; si tenía lecciones para proponer, avisa que no las dejó.
+  - Un programa **sin** `estado recordado` (uno que solo tiene lecciones o frenos) se puede
+    correr en dos ventanas a la vez, como antes: toma el candado solo un momento, al
+    arrancar (para leer la memoria) y cada vez que escribe, y le **suma** lo de esa corrida
+    (las lecciones y propuestas nuevas, las consultas que hizo) a lo que el archivo dice en
+    ese momento. Si justo no puede tomarlo (otra ventana no lo suelta en 10 segundos, o la
+    carpeta no da candados), **no escribe**: avisa con `error:` que lo que los agentes
+    anotaron en esa corrida no se guardó, y termina con código 1.
+  - `--olvidar` sobre una memoria mal escrita la deja aparte (`.memoria.rota.json`) también
+    con el candado tomado; si no lo puede tomar, no mueve nada y no corre.
 
 Así se ve el archivo:
 
@@ -1545,7 +2082,8 @@ frenos no tienen reserva, falla con un error que se ataja con `intentar`
   (`mi_mostrador.memoria.json`), después de cada consulta de verdad. Al día siguiente
   arranca de cero. Las copias de un agente (`crear`) cuentan todas juntas, con el original.
   Si el mismo programa está abierto en dos ventanas, el tope es uno solo: antes de cada
-  consulta Mate mira lo que ya anotó la otra.
+  consulta Mate mira lo que ya anotó la otra. La cuenta se anota con el candado de la
+  memoria tomado; si en ese momento no lo puede tomar, avisa y la anota al terminar.
 - **Cuenta toda consulta que se cobra**, también la que llegó a la IA y volvió sin servir
   (una respuesta cortada por lo larga, sin texto, o frenada por un filtro): Anthropic la
   cobra igual, y si no contara, un programa que reintenta podría gastar sin límite.
@@ -1887,6 +2425,28 @@ tenes cafe?
 
 - **Varias formas de preguntar lo mismo** van una abajo de la otra, y las reglas una sola
   vez, debajo de todas: valen para cada una de esas preguntas.
+- **Un caso de más de un renglón.** Si el cliente tiene que escribir algo más en la misma
+  charla (el `si` a un pedido que el programa repite antes de anotar), va debajo de la
+  pregunta, con `después:`
+
+  ```
+  quiero 3 yerbas
+      después: si
+      tiene que decir: anotado: 3 x
+  ```
+
+  Mate le escribe la pregunta al programa y, cuando el programa vuelve a pedir por teclado,
+  le escribe lo que sigue, en la misma corrida. Las reglas miran lo que el programa contesta
+  **al último renglón** (y, en un equipo, los mensajes que viajan desde ahí); si el caso
+  falla, el informe muestra también lo que había contestado a los renglones de antes. Un
+  `después:` vale para todas las preguntas que tiene arriba, como una regla, y puede haber
+  varios (hasta 10). En el informe el caso se ve así: `quiero 3 yerbas  →  si`. Si el
+  programa termina sin volver a pedir, el caso falla y lo dice. Como las reglas miran el
+  último renglón, los `después:` van **arriba de las reglas**, pegados a la pregunta: un
+  `después:` escrito debajo de una regla no se acepta (parecería que esa regla mira la
+  respuesta de antes, y no es así); para revisar también la respuesta de antes se escribe
+  otro caso con la misma pregunta. Y `después si`, sin los dos puntos, tampoco se acepta:
+  quedaría como otra pregunta.
 - `tiene que decir:` y `no puede decir:` buscan ese texto dentro de la respuesta. Da igual
   con mayúsculas o minúsculas y con tilde o sin tilde (`sin envio` encuentra "Sin envío").
 - Con una barra `|` se dan opciones: `tiene que decir:` se cumple con cualquiera de ellas;
@@ -1901,6 +2461,9 @@ tenes cafe?
 - **Ojo:** se busca el texto tal cual. `no puede decir: hay envío` también salta con "no hay
   envío", porque adentro dice "hay envío". Conviene pedir pedazos que no se presten a
   confusión: un importe (`$ 29.401,50`), "sin envío", "no hay stock".
+
+En un equipo de agentes, un caso también puede exigir qué mensajes viajan entre ellos: está
+más abajo, en [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo).
 
 **El informe** dice, de cada pregunta, si pasó; y de cada una que falló, la pregunta, lo que
 contestó el programa y la regla que no cumplió. Este es el de los casos de muestra, con un
@@ -1990,8 +2553,9 @@ Lo que hay que saber:
   programa pide otra cosa antes de la consulta (el nombre, por ejemplo), la pregunta va a
   parar ahí y el ensayo no sirve. Por eso
   sirve con cualquier programa que charle por teclado (el ejemplo 12, lo que crea `nuevo
-  mostrador`, los mostradores del curso) sin tocarlo; y no sirve para ensayar una charla de
-  varias idas y vueltas, ni un programa que no usa `leer`.
+  mostrador`, los mostradores del curso) sin tocarlo; y no sirve para un programa que no usa
+  `leer`. Una charla de varias idas y vueltas se ensaya con los renglones `después:` (más
+  arriba): cada uno entra en el `leer()` que sigue, en la misma corrida.
 - **Hay que decir quién contesta.** Sin `--ia-simulada`, sin modelo propio y sin clave, Mate
   no ensaya y te dice las tres maneras.
 - `mate\ejemplos\casos.txt` trae casos de muestra para el ejemplo 12, y `nuevo mostrador` te
@@ -2001,6 +2565,125 @@ Lo que hay que saber:
   `mate\ejemplos\casos.txt` al lado de tu mostrador, con el nombre que quieras (por ejemplo
   `mi_negocio_casos.txt`), y cambiale las preguntas. `nuevo mostrador` no lo crea solo
   porque nunca toca una carpeta donde ya está el programa.
+
+### Ensayar la conversación de un equipo
+
+Con un equipo (el ejemplo 13, o lo que crea `nuevo equipo`) no alcanza con mirar lo que se le
+contesta al cliente: la respuesta puede estar bien y que Depósito nunca le haya avisado a
+Compras. Por eso, en el mismo archivo de casos, debajo de la pregunta, se puede exigir **qué
+mensajes tienen que viajar entre los agentes** mientras la atienden, y cuáles no:
+
+```
+# Un pedido que deja el azúcar por debajo del mínimo: Depósito le avisa a Compras.
+# (Ventas repite el pedido y pregunta: el "si" del cliente va en un segundo renglón.)
+quiero 20 azucar
+    después: si
+    tiene que decir: anotado: 20 x
+    tiene que viajar: Reservar de Ventas a Deposito
+    tiene que viajar: Reponer de Deposito a Compras
+
+# Preguntar el precio no es pedir: se consulta el stock, pero no se reserva nada.
+cuanto salen 3 yerbas?
+    tiene que viajar: ConsultarStock de Ventas a Deposito
+    no tiene que viajar: Reservar
+```
+
+- Va el **nombre del mensaje** (el que está después de `mensaje` en el programa) y, si querés,
+  quién lo manda (`de`) y quién lo recibe (`a`), con los nombres de los agentes. Sin `de` ni
+  `a` vale lo mande quien lo mande: `no tiene que viajar: Reponer` falla si alguien, el que
+  sea, manda un `Reponer`.
+- Da igual con mayúsculas o minúsculas y con tilde o sin tilde (`depósito` es `Deposito`).
+- Las **respuestas** (`responder`) también son mensajes que viajan:
+  `tiene que viajar: Reserva de Deposito a Ventas`.
+- Lo que manda el programa, y no un agente, se escribe `el programa`:
+  `tiene que viajar: ConsultaDeCliente de el programa a Ventas`.
+- Con una barra `|` se dan opciones, como en las otras reglas: `tiene que viajar:` se cumple
+  con cualquiera; `no tiene que viajar:` falla si viaja alguno.
+- Se mira **solo lo que viaja por esa pregunta**: desde que el programa la lee hasta que
+  vuelve a pedir algo por teclado. (En un caso con renglones `después:`, desde que lee el
+  último: en el de arriba, lo que viaja por el `si`.) Lo que se hablaron antes (cargar la planilla) no cuenta,
+  y tampoco lo que el programa había mandado antes con `enviar`, aunque llegue en ese momento.
+- **Lo mandado con `enviar` también cuenta.** Un `enviar` no llega en el momento: queda
+  esperando y se entrega más tarde (cuando el programa le vuelve a preguntar a un agente, o
+  al terminar). Si un caso tiene reglas de mensajes, el ensayo entrega lo que quedó mandado
+  por esa pregunta antes de pasar a la siguiente, y lo cuenta: `tiene que viajar: Llego de
+  Deposito a Compras` se cumple, y `no tiene que viajar: Llego` falla. En la conversación
+  del informe esos mensajes van debajo del renglón "lo que sigue quedó mandado con 'enviar'".
+  Lo que un agente muestre al recibirlos no entra en `tiene que decir:` ni en `no puede
+  decir:`, porque el cliente lo vería después de su respuesta, no adentro.
+  La entrega va **en el mismo orden que en una corrida de verdad**: si el programa había
+  dejado algo mandado antes de la pregunta (un inventario que le manda a Depósito al
+  arrancar), eso llega primero y el agente lo recibe, aunque no se cuente ni se muestre.
+- **Un mensaje por regla.** Después de `de` y de `a` va solo el nombre de un agente (o `el
+  programa`, o una copia hecha con `crear ... llamado`, con su nombre entero: `Vendedor
+  Centro`). Si tienen que viajar dos mensajes, va un renglón `tiene que viajar:` para cada uno.
+- Las reglas de mensajes se pueden mezclar con las de `tiene que decir:`, y un caso puede
+  tener solo de unas o solo de otras. Los archivos de casos que ya tenías andan igual.
+- Si el nombre de un mensaje o de un agente no está en el programa, Mate no ensaya y dice en
+  qué renglón está (y cuál se parece): si no, un `no tiene que viajar:` con el nombre mal
+  escrito pasaría siempre. Lo mismo con una regla mal armada: el orden al revés (`Reservar a
+  Deposito de Ventas`), sin terminar (`Reservar de Ventas a`), con palabras de más (`de
+  Ventas hacia Deposito`), dos mensajes separados con coma, `del programa` en vez de `de el
+  programa`, o una copia que el programa no crea. La única que no se puede revisar antes es
+  una copia cuyo nombre se arma mientras el programa corre (`llamado "Sucursal " + nombre`):
+  esa se mira después de ensayar el caso, y si no hubo ningún agente con ese nombre el
+  informe lo avisa debajo del caso ("Ojo: en este caso no hubo ningún agente llamado
+  'Vendedor Oeste'..."), porque con el nombre mal escrito la regla no mira nada.
+- Una pregunta de un cliente que habla de viajar ("puede viajar mi pedido hoy", "el pedido
+  viaja: hoy o mañana?") sigue siendo una pregunta. Mate la toma por una regla mal escrita
+  solo si tiene la forma de una (`tiene que viajar Reponer`, sin los dos puntos; `tiene que
+  biajar: Reponer`) o si nombra un mensaje del programa. También si está debajo de otra
+  pregunta, empieza como una regla, habla de viajar y nombra un mensaje (`no tiene que
+  viaja: Reponer`, `no tiene que viajar el reponer`, `no viaja: Reponer`): antes quedaba
+  como una pregunta más y la regla no se miraba. Si un renglón así **es** una pregunta de
+  un cliente ("Tiene que viajar Juan"), terminala con un signo de pregunta y Mate la toma
+  como pregunta; el error lo recuerda.
+
+Cuando un caso de un equipo falla (por los mensajes o por lo que contestó), el informe muestra
+**la conversación de esa pregunta**: los mismos renglones que muestra `correr --traza`,
+numerados desde 1. Este es el del primer caso de arriba, con un equipo al que le pusieron
+`stock_minimo = 0` (así Depósito no pide nunca la reposición):
+
+```
+  ✗ quiero 20 azucar  →  si   (renglón 82 de mi_negocio_casos.txt)
+      A "quiero 20 azucar" había contestado: Ventas: Entendí: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00. Son 20 bolsas enteras. ¿Lo anoto? Contestá si o no.
+      Contestó: Ventas: Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.
+      No cumple: tiene que viajar: Reponer de Deposito a Compras
+      No cumple: tiene que viajar: Anotado de Compras a Deposito
+      La conversación de este caso (lo que se dijeron los agentes, en orden):
+          ·  1. (programa) pregunta a Ventas: ConsultaDeCliente { charla: "consulta-2", cliente: "teclado", dicho: "si" }   (conversación 1)
+          ·  2.    Ventas pregunta a Deposito: Reservar { charla: "consulta-2", producto: "Azúcar", cantidad: 20 }
+          ·  2.    Deposito responde a Ventas: Reserva { charla: "consulta-2", producto: "Azúcar", reservadas: 20, quedan: 5 }
+          ·  1. Ventas responde a (programa): RespuestaDeVentas { charla: "consulta-2", respuesta: "Anotado: 20 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 196.010,00.", aviso: nada }
+      Qué mensajes viajan lo decide el programa, no la IA: una lección no lo cambia.
+      Hay que cambiar el programa (o el caso).
+```
+
+Un caso que falla **solo** por los mensajes no deja una lección propuesta: qué mensajes viajan
+lo decide el programa, y una lección es un pedido a la IA. Con un mostrador de un solo agente
+el informe es el de siempre, sin la conversación (salvo que el caso tenga reglas de mensajes).
+
+Si los agentes se quedan mandándose mensajes sin parar, Mate corta ("se superaron 100000
+mensajes") y el informe muestra los primeros 50 renglones de la conversación y los últimos
+10, y dice cuántos hay en el medio.
+
+Antes de empezar, `ensayar` dice cuántas consultas a la IA va a hacer como mucho (una por
+pregunta). Si hay casos con reglas de mensajes y el programa consulta a la IA, avisa que
+"pueden ser más": al entregar lo mandado con `enviar`, un agente que consulta a la IA cuando
+lo recibe suma una consulta que en un caso sin reglas de mensajes no se hace.
+
+Dos cosas más del informe:
+
+- En un caso **sin** reglas de mensajes nada cambió: lo mandado con `enviar` queda sin
+  entregar, como antes. Si ese caso falla y se muestra la conversación, un renglón al final
+  dice qué quedó mandado ("quedó mandado con 'enviar' y llega después: Llego de Deposito a
+  Compras").
+- Un ensayo arranca cada pregunta con **lo que los agentes recuerdan** de las corridas de
+  verdad (en un equipo, el stock de Depósito). Si ya vendiste casi toda el azúcar, "quiero 20
+  azucar" va a fallar aunque el programa esté bien. Por eso, cuando algún caso falla y hay
+  algo recordado, el informe termina con un aviso ("Ojo: Deposito arranca cada pregunta con
+  lo que recuerda de las corridas de verdad...") que dice qué hacer: cambiar el caso, o
+  empezar de nuevo corriendo el programa con `--olvidar`.
 
 ## Referencia rápida
 
@@ -2430,6 +3113,28 @@ python mate\pruebas\velocidad.py
 Si igual algo queda lento, la salida es escribir esa parte en Python y llamarla con
 [`usar python`](#funciones-escritas-en-python-usar-python): ahí corre a la velocidad de Python.
 
+## Qué cambió en la 0.7
+
+La 0.7 es para que los agentes **hablen entre sí**, no solo con una persona. Nada de lo que
+entró agrega una palabra ni una función incluida, y un programa que no lo usa corre igual
+que en la 0.6:
+
+| Qué hay de nuevo | Dónde se explica |
+|---|---|
+| El ejemplo `13_equipo_del_negocio.mate`: Ventas, Depósito y Compras se hablan con mensajes con contrato y un `contrato conversacion`; el stock es de Depósito solo y se recuerda | [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
+| `nuevo equipo mi_negocio`: crea ese equipo para tu negocio (programa, planilla y casos), sin copiar archivos a mano | [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
+| La clase 13 del curso: un equipo de agentes que se hablan | [El curso](#el-curso) |
+| En el archivo de casos de `ensayar`: `tiene que viajar: Reponer de Deposito a Compras` y `no tiene que viajar: Reponer`. Si un caso de un equipo falla, el informe muestra la conversación | [Ensayar la conversación de un equipo](#ensayar-la-conversación-de-un-equipo) |
+| El equipo **no anota sin un `si`**: Ventas repite el pedido con la cuenta y los bultos ("Son 6 packs enteros. ¿Lo anoto?") y Depósito hace lo mismo con un `ingreso`. En el archivo de casos, el `si` va en un segundo renglón: `después: si` | [Un equipo propio](#un-equipo-propio-nuevo-equipo) y [Ensayar un mostrador](#ensayar-un-mostrador-ensayar) |
+| Un programa con `estado recordado` se corre de a **una ventana por vez** (la segunda avisa y no arranca), y en el equipo el `si` de un cliente confirma solo su pedido | [Memoria](#memoria-estado-recordado) y [Un equipo propio](#un-equipo-propio-nuevo-equipo) |
+| `usar buzon "deposito.mate"`: un agente le manda un mensaje a un agente de **otro programa** de la misma carpeta. El mensaje queda en un buzón (un archivo) y se entrega, validado con el contrato, cuando ese otro programa corre. La orden `buzon deposito.mate` muestra qué hay esperando | [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón) |
+
+El detalle está en `MEJORAS.md`, mejoras 124, 125 y 126.
+
+Una sola cosa de la 0.7 puede frenar algo viejo: `buzon` pasó a ser una orden (ver
+[Qué cambió y puede frenar un programa viejo](#qué-cambió-y-puede-frenar-un-programa-viejo)).
+Lo que todavía no hace está en [Límites de la versión 0.7](#límites-de-la-versión-07).
+
 ## Qué cambió en la 0.6
 
 Lo nuevo de esta versión salió de usar el mostrador en un negocio de verdad. No se agregó
@@ -2504,11 +3209,15 @@ y entonces los comandos que Mate sugiere en pantalla se escriben `mate ...` en v
 ## Qué cambió y puede frenar un programa viejo
 
 Varias mejoras vuelven error cosas que antes corrían. Esta tabla junta todo lo que cambió
-desde la versión 0.2 hasta la 0.6 (`python mate\mate.py --version` dice cuál tenés). Si un
+desde la versión 0.2 hasta la 0.7 (`python mate\mate.py --version` dice cuál tenés). Si un
 archivo viejo deja de andar, casi seguro es por una de estas:
 
 | Qué pasa ahora | Cómo se arregla |
 |---|---|
+| `corregir`, `proponer`, `lecciones --borrar` y aprobar o descartar una propuesta no se pueden usar mientras el programa está abierto en otra ventana, si tiene `estado recordado` (0.7): esperan unos segundos, avisan `está abierto en otra ventana` y terminan con código 2 sin tocar nada. Antes escribían igual, y podían pisar una venta que la caja guardaba justo en ese momento | Terminar la charla de la otra ventana (`chau`) y repetir la orden |
+| Un programa con `estado recordado` no se puede `correr` en dos ventanas a la vez (0.7): la segunda avisa `ya hay otra ventana abierta con ...` y termina con código 2. Antes corrían las dos y la que cerraba última pisaba lo que guardó la otra | Terminar la charla de la otra ventana y correrlo de nuevo |
+| En el equipo (ejemplo 13 y `nuevo equipo`), `ConsultaDeCliente` lleva un campo más, `cliente`, y `DejarDeEsperar` también (0.7): el pedido que espera el `si` es de ese cliente. Un equipo creado antes es una copia fija y sigue como estaba | Crear el equipo de nuevo; si armabas `ConsultaDeCliente` a mano, agregarle `cliente: "..."` |
+| `buzon` es una orden (0.7): `python mate\mate.py buzon deposito.mate` muestra el buzón de ese programa, y `buzon` sola ya no corre un archivo llamado `buzon.mate` (pide el programa). Dentro de un programa `buzon` sigue sirviendo como nombre: solo significa otra cosa después de `usar` | Escribir la orden entera: `correr buzon.mate` |
 | `leer_tabla` da un error si el renglón de los títulos está repetido más abajo en la planilla (0.6); antes ese renglón llegaba como un producto más, de nombre "producto" | Borrar de la planilla el renglón que dice el error |
 | `ensayar` es una orden (0.6): `python mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt` ensaya un programa contra una lista de casos. Un programa llamado `ensayar.mate` se sigue corriendo con `ensayar` sola, como antes | Nada |
 | `nuevo mostrador` crea un archivo más, `<nombre>_casos.txt` (0.6), y no crea nada si ya hay uno con ese nombre | Nada, o elegir otro nombre |
@@ -2610,7 +3319,9 @@ pruebas del intérprete no dejan pasarse:
   y las lecciones propuestas **no gastaron nada**: `frenos` no es una palabra propia (solo
   significa algo dentro de un agente y seguida de una llave, así que sigue sirviendo como
   nombre), sus reglas tampoco, y lo demás son órdenes de la línea de comandos (`propuestas`
-  y `proponer`) y dos datos más en lo que ya devolvía `consultas_ia()`.
+  y `proponer`) y dos datos más en lo que ya devolvía `consultas_ia()`. El buzón entre
+  programas de la 0.7 **tampoco gastó nada**: `buzon` solo significa algo después de `usar`
+  (como `python`), y mirar un buzón es una orden de la línea de comandos.
 - **Cada agregado trae lo suyo**: su renglón en este README (en la tabla de funciones o en la
   referencia), su explicación en `ayuda <palabra>` y al menos una prueba que lo use.
 - **Una sola forma de escribir cada cosa.** Nada de sinónimos (`función` con tilde, comillas
@@ -2644,17 +3355,57 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
 órdenes nuevas: si tenías un programa llamado `propuestas.mate`, se corre con
 `correr propuestas.mate`.
 
-## Límites de la versión 0.6
+## Límites de la versión 0.7
 
 - Los agentes corren todos dentro del mismo programa, de a uno y en orden (por eso el resultado
   es siempre el mismo). Un agente puede consultarle a una IA de verdad con `consultar_ia`,
   pero cada consulta es suelta (la IA no recuerda la anterior: lo que tenga que saber va en
-  la pregunta) y los programas todavía no se conectan entre máquinas.
+  la pregunta) y los programas todavía no se conectan entre máquinas. Con el buzón dos
+  programas de la misma carpeta se mandan mensajes, pero ninguno se queda escuchando: cada
+  uno recibe cuando lo corren y manda cuando termina (ver los límites en
+  [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón)).
+- El buzón es para programas de la **misma carpeta** de una misma computadora, sin red. Un
+  programa atiende cualquier sobre bien armado que encuentre en su buzón, aunque no conozca al
+  que lo manda: la carpeta tiene que ser de confianza. No se probó en una Windows de verdad.
+- El equipo (`nuevo equipo` y el ejemplo 13) anota solo con un `si`, pero no entiende todo lo
+  que se le escribe: "ok" y "dale" valen como sí, igual que "si" (es a propósito: así se
+  contesta en un mostrador; si en tu negocio no, sacalos de `palabras_de_si()`); un `si`
+  seguido de un emoji o de un signo que lo niega ("si 👎") vale como
+  sí; "bueno", "claro" o "dale nomás" no valen como sí y hay que repetir el pedido; un Enter
+  solo no borra lo que esperaba el `si`; Ventas pregunta "¿Lo anoto?" antes de mirar si el
+  stock alcanza; y con una presentación como "pack x 6" la pregunta dice "Son 6 packs enteros"
+  sin aclarar que no son 6 unidades. Un pedido ya anotado no se anula desde la charla (el
+  stock se corrige con un `ingreso`). Un equipo creado con una versión anterior es una copia
+  fija: para tener lo nuevo hay que crearlo otra vez. Todo se probó con `--ia-simulada` (ver
+  [Un equipo propio](#un-equipo-propio-nuevo-equipo)).
 - Todo lo que trae `usar` queda en un único espacio de nombres: dos archivos no pueden declarar
   algo con el mismo nombre.
 - La memoria de un programa es un archivo al lado del programa, pensado para una persona y una
-  computadora: si el mismo programa corre dos veces a la vez, se guarda lo de la corrida que
-  termina última. Las lecciones solo le llegan a la IA por `consultar_ia`: no cambian lo que
+  computadora. Un programa con `estado recordado` (el equipo, un depósito) se corre de a
+  **una ventana por vez**: la segunda avisa `ya hay otra ventana abierta con ...` y no
+  arranca, así que dos cajas no pueden atender a la vez con el mismo programa; para eso
+  haría falta otra cosa que un archivo (queda para más adelante). El candado es entre
+  ventanas de una misma computadora: en una carpeta compartida por red o sincronizada
+  (OneDrive, Dropbox) no está probado y no hay que contar con él. **Sin candado no se
+  atiende**: si el sistema directamente no da candados ahí, o el candado no se puede crear
+  o tomar por lo que sea, un programa con `estado recordado` no arranca (avisa qué pasó y
+  qué hacer, y termina con código 2 sin tocar nada), uno que les envía mensajes a otros
+  programas (`usar buzon`) tampoco, y el buzón no se atiende ni reparte
+  nada (los mensajes quedan donde estaban y salen cuando haya candado): sin candado Mate
+  no escribe la memoria ni un sobre. Si el candado deja de poder tomarse recién al
+  terminar, lo que el programa envió en esa corrida se pierde: Mate lo dice con `error:` y
+  termina con código 1. Eso incluye una carpeta
+  de solo lectura: un ejemplo con `estado recordado` o con `usar buzon` hay que copiarlo a
+  una carpeta donde se pueda escribir para correrlo. Otro usuario de la misma computadora que pueda leer la carpeta puede tener
+  tomado el candado y dejar el programa sin arrancar. Las órdenes que cambian la memoria
+  sin correr el programa (`corregir`, `proponer`, borrar una lección, aprobar o descartar
+  una propuesta) también toman el candado y leen la memoria de nuevo antes de escribir: por
+  eso **no se pueden usar con el programa abierto** en otra ventana si tiene `estado
+  recordado` (avisan, terminan con código 2 y no tocan nada; hay que cerrar la charla), y
+  tampoco en una carpeta que no da candados. Un programa sin `estado recordado` que no
+  puede tomar el candado al momento de guardar (lo que aprendió, la cuenta de consultas)
+  no guarda: lo dice con `error:` y termina con código 1. El pedido que espera el
+  `si` es por cliente, pero la charla por teclado tiene un solo cliente. Ese pedido no caduca solo: espera hasta que ese cliente vuelva a escribir o el programa termine (el nombre del cliente vale sin los espacios de alrededor). Las lecciones solo le llegan a la IA por `consultar_ia`: no cambian lo que
   hace el resto del programa (para eso está `lecciones()`).
 - El registro de errores de uso anota un renglón por corrida que falla (el primer error, y
   cuántos más hubo) y no anota nada con `probar`. Tapa lo que tiene forma de dato tuyo, pero

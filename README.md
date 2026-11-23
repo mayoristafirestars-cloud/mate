@@ -25,7 +25,7 @@ python mate\mate.py curso
 | Carpeta | Qué es |
 |---|---|
 | `mate/` | El lenguaje (`mate.py`), el [manual](mate/README.md) y el instalador para Windows |
-| `mate/curso/` | [Doce clases](mate/curso/README.md), de "hola" a un mostrador con IA y frenos |
+| `mate/curso/` | [Trece clases](mate/curso/README.md), de "hola" a un mostrador con IA y frenos y un equipo de agentes que se hablan |
 | `mate/ejemplos/` | Programas terminados y comentados |
 | `mate/modelo/` | [Adaptador](mate/modelo/README.md) para usar un modelo de IA propio |
 | `mate/pruebas/` | Las pruebas del intérprete |

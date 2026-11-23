@@ -34,6 +34,8 @@
 # crea en tu carpeta un programa con esta misma lógica y su planilla. (Copia lo que hay
 # entre los títulos "La regla del envío" y "Las pruebas": si se cambian esos dos títulos,
 # hay que cambiarlos también en mate.py.)
+# El ejemplo 13 (un equipo de agentes) y la orden 'nuevo equipo' usan estas mismas
+# funciones para entender los pedidos: un arreglo acá les llega a los dos.
 # OJO: las pruebas del final están escritas para la planilla de muestra (nombran la yerba,
 # el azúcar y sus precios). Si cambiás los productos, 'correr' anda igual, pero 'probar' va
 # a marcar fallas hasta que adaptes esas pruebas a tu lista.
@@ -525,10 +527,11 @@ funcion elegir_producto(nombrados) {
 # La regla, dicha para el cliente (el número se cambia arriba de todo).
 sea regla_del_envio = "Hacemos envíos desde {unidades_para_envio} unidades."
 
-# Si el cliente pidió una cantidad de un producto, la respuesta la arma el programa: la
-# cuenta, el stock y la regla del envío. También contesta él si falta un dato del pedido
-# o si preguntan por el envío. Si no es nada de eso, devuelve nada y contesta la IA.
-funcion responder_pedido(tabla, dicho) {
+# Lo que pide la frase, sin mirar todavía si hay stock. Devuelve una de tres cosas:
+#   - nada, si no es un pedido (ahí contesta la IA);
+#   - un texto para el cliente, si falta un dato del pedido o preguntan por el envío;
+#   - el pedido claro, en un mapa: { fila, cantidad, envio }.
+funcion leer_pedido(tabla, dicho) {
     sea pedido = entender(tabla, dicho)
     # Una devolución o un "no quiero" no se cotizan.
     si pedido.otra_cosa {
@@ -566,17 +569,26 @@ funcion responder_pedido(tabla, dicho) {
     si cantidad < 1 o cantidad != redondear(cantidad) o pedido.con_coma {
         devolver "{como_se_vende} Va por unidades enteras: decime cuántos querés."
     }
-    # El stock: no se vende lo que no hay.
-    si fila.stock <= 0 {
-        devolver "De {fila.producto} ahora no hay stock."
+    devolver { fila: fila, cantidad: cantidad, envio: pedido.envio }
+}
+
+# El stock: no se vende lo que no hay. Devuelve lo que se le dice al cliente si no alcanza
+# (hay: las unidades que quedan de ese producto), o nada si alcanza.
+funcion falta_stock(producto, hay, cantidad) {
+    si hay <= 0 {
+        devolver "De {producto} ahora no hay stock."
     }
-    si cantidad > fila.stock {
-        devolver "De {fila.producto} quedan {fila.stock}; no llego a {cantidad}."
+    si cantidad > hay {
+        devolver "De {producto} quedan {hay}; no llego a {cantidad}."
     }
-    # La cuenta. La hace Mate, con todos los centavos.
+    devolver nada
+}
+
+# La cuenta de un pedido claro. La hace Mate, con todos los centavos.
+funcion cuenta_del_pedido(fila, cantidad, envio) {
     var respuesta = "{cantidad} x {fila.producto} ({fila.presentacion}) a {pesos(fila.precio)} cada uno: total {pesos(cantidad * fila.precio)}."
     # La regla del envío, solo si lo pidió. Si dijo que no lo quiere, no se habla de envío.
-    si pedido.envio == "si" {
+    si envio == "si" {
         si cantidad >= unidades_para_envio {
             respuesta += " Con envío: sí, va con envío."
         } sino {
@@ -584,6 +596,23 @@ funcion responder_pedido(tabla, dicho) {
         }
     }
     devolver respuesta
+}
+
+# Si el cliente pidió una cantidad de un producto, la respuesta la arma el programa: la
+# cuenta, el stock y la regla del envío. También contesta él si falta un dato del pedido
+# o si preguntan por el envío. Si no es nada de eso, devuelve nada y contesta la IA.
+funcion responder_pedido(tabla, dicho) {
+    sea pedido = leer_pedido(tabla, dicho)
+    # No es un pedido (nada), o hay que preguntarle algo al cliente (un texto).
+    si tipo(pedido) != "mapa" {
+        devolver pedido
+    }
+    # El stock, acá, es el que dice la planilla.
+    sea falta = falta_stock(pedido.fila.producto, pedido.fila.stock, pedido.cantidad)
+    si falta != nada {
+        devolver falta
+    }
+    devolver cuenta_del_pedido(pedido.fila, pedido.cantidad, pedido.envio)
 }
 
 # Lo que se contesta si la IA no está: el renglón de la lista, sin inventar nada.
