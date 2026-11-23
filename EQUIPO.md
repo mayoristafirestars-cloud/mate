@@ -2834,18 +2834,20 @@ uno de estos los cambia, vale este:
 - **Tres resultados al pedir un candado, no dos.** `tomar_candado` devuelve el candado, `None`
   solo si lo tiene otro (EAGAIN, EWOULDBLOCK, EACCES, EDEADLK), o `SinCandado`: `'sistema'` si
   el sistema no da candados (ENOLCK en algunas carpetas de red) y `'carpeta'` si el archivo no
-  existe y no se pudo crear. Con `SinCandado('sistema')` el programa corre igual, con un
-  `aviso:` de una línea, y no deja el archivo; el buzón avisa que sin candado no atiende y los
-  mensajes quedan. Si con el nombre del candado hay algo que no se puede tomar (una carpeta,
-  una tubería, un archivo sin permiso) `correr` **no arranca**: dice qué borrar y sale con 2.
-  Un candado que creó otro usuario del sistema se abre para leer y se toma igual. Solo se
-  sigue sin candado y sin aviso donde no se puede escribir en la carpeta (ahí la memoria
-  tampoco se guarda).
+  existe y no se pudo crear. **Cambió con la segunda pasada del revisor externo (`b6afab9`,
+  `b1084ab`): sin candado, por el motivo que sea, un programa con `estado recordado` o con
+  `usar buzon` no arranca (código 2, nada tocado), y nadie atiende, reparte ni escribe la
+  memoria del buzón sin candado.** Antes, con `SinCandado('sistema')` o `'carpeta'` el
+  programa corría igual. Si con el nombre del candado hay algo que no se puede tomar (una
+  carpeta, una tubería, un archivo sin permiso) `correr` **no arranca**: dice qué borrar y
+  sale con 2. Un candado que creó otro usuario del sistema se abre para leer y se toma igual.
+  El detalle, lugar por lugar, está en "Segunda pasada del revisor externo".
 - **"Por salir" se recupera con el candado de la memoria tomado (C5).** La recuperación lee la
   memoria de nuevo adentro del candado y guarda la de ese momento, no la leída al arrancar; el
   cierre con buzón va con el mismo candado. Los candados se piden sin esperar o con tope (2 s
   al arrancar, 10 s al cerrar). Si no se puede tomar, no se recupera sin candado: se avisa una
-  vez y lo pendiente sale al terminar.
+  vez y lo pendiente queda anotado; sale recién en una corrida que pueda tomar el candado
+  (desde `b6afab9` tampoco sale "al terminar" si el candado sigue sin poder tomarse).
 - **Provisorios con nombre propio.** El provisorio ya no es un `.tmp` compartido: lleva el
   número de proceso y 8 letras hexadecimales (`.PID-8hex.tmp` o `.PID-8hex.json.tmp`) y se crea
   en modo exclusivo, así dos corridas no se lo borran. `escribir_entero` limpia, una vez por
@@ -2935,7 +2937,201 @@ provisorios): S miró el diff `ab55d29..d088d03`, no los commits anteriores.
 Lo que **no** se hizo en esta revisión: correr algo en Windows; `pytest` completo en 3.11 y
 3.12 (ahí solo `probar mate/ejemplos`, 114 de 114); probar con una IA de verdad; y subir nada.
 
+### Segunda pasada del revisor externo
+
+Con la vuelta 2 registrada (`7adb4b9`), el revisor externo volvió a leer el pull request 3 y
+dejó dos hallazgos más, D1 y D2, que frenaban la aprobación. Los verificó **en una Windows de
+verdad, con Python 3.12, sobre `7adb4b9`**: 21 pruebas focalizadas pasan y 7 se saltean; con
+procesos reales, la segunda caja queda rechazada mientras la primera tiene el candado y puede
+abrir cuando el primer proceso muere; `msvcrt` deja tomar un candado existente abierto solo
+para leer y rechaza otra toma mientras está retenido; y el archivo de candado de solo lectura
+queda en disco después de soltarlo. Su verificación fue de esas pruebas y de esa versión de
+Python, nada más.
+
+Se trabajó en dos commits locales del implementador sobre `7adb4b9`, sin subir nada y sin
+tocar `main` ni `VERSION`: `b6afab9` (D1 y D2) y `b1084ab` (lo que el revisor y el agente de
+pruebas encontraron en `b6afab9`: el borrado del candado ajeno y la memoria escrita sin
+candado por un programa sin estado que envía). Tocan `mate/mate.py`, `mate/README.md` y
+`mate/pruebas/test_mate.py`. De la vuelta sobre `b6afab9` no quedó otro registro que este.
+
+Este registro lo escribe el integrador sobre `b1084ab`. No tocó código ni pruebas: corrió las
+tres corridas (números en "Estado final de la 0.7"), miró en `mate.py` los lugares de la
+tabla de más abajo y comparó los nombres de las pruebas contra `7adb4b9`. Lo demás es lo que
+informaron el implementador, R y P; lo que dice "reproducido" lo reprodujeron ellos, en copias
+propias. **El especialista en seguridad no participó de esta pasada.**
+
+**La regla que queda: sin candado no se toca nada que el candado protege.** Antes la regla
+era "si no se puede tener candado, se corre igual y se avisa". Es un cambio de requisito,
+pedido por el revisor externo.
+
+**Hallazgos**
+
+| | Hallazgo | ¿Se confirmó? | Qué se hizo | Con qué prueba |
+|---|---|---|---|---|
+| D1 (alto) | Si falla la toma del candado por algo que no es contención, `tomar_candado` da `SinCandado("sistema")` y `correr` sigue con el inventario habilitado: la caja vende la única unidad y la guarda. La propia prueba `test_donde_el_sistema_no_da_candados_el_programa_corre_igual_y_avisa` lo exigía. Pidió que un programa con `estado recordado` salga antes de atender | **Sí.** Era lo que hacía `d088d03` a propósito (P180, P187) | Un programa con `estado recordado` que no puede tomar el candado, **por el motivo que sea** (el sistema no los da, no se puede crear el archivo, con ese nombre hay otra cosa), no atiende: dice qué pasó y qué hacer, sale con código 2 y no toca la memoria ni el buzón (`b6afab9`). `probar`, `verificar` y `ensayar` no piden candado y andan igual. En Windows, si `msvcrt.locking` niega el candado por algo que no es otra ventana, tampoco arranca y el aviso dice qué hacer si no hay ninguna (`b1084ab`) | `test_donde_el_sistema_no_da_candados_el_programa_con_estado_recordado_no_atiende` (código 2, salida vacía, archivos iguales byte a byte; ocho errores de bloqueo, con y sin memoria), `test_donde_el_sistema_no_da_candados_dos_procesos_no_venden_ninguno`, `test_en_una_carpeta_donde_no_se_puede_escribir_el_programa_con_estado_no_atiende`, `test_en_windows_el_candado_negado_no_deja_vender_y_dice_que_hacer` (`msvcrt` simulado), `test_un_programa_sin_estado_recordado_corre_igual_donde_no_hay_candados`. A mano: P, seis errores distintos con procesos reales y `fcntl.flock` roto, código 2 y memoria idéntica en todos, también en 3.11 y 3.12; y carpeta sin permiso con un usuario sin privilegios |
+| D2 (medio) | `con_candado`, al capturar `SinCandado`, llamaba igual a la recuperación: los sobres "por salir" se publicaban sin candado. En Windows, forzando el fallo de `msvcrt.locking`: código 0, dos sobres publicados, cero pendientes. La prueba que había tomaba otra rama (una carpeta en el lugar del candado) y solo miraba que enviados más pendientes dieran dos | **Sí** | `con_candado` devuelve `False` **sin hacer nada** cuando no hay candado (`b6afab9`). Se sacó `cerrar_buzon(repartir=False)`: en `correr` con buzón ya no queda ninguna escritura de memoria ni de sobres sin candado. Un programa con `usar buzon` que no puede tomar el candado no arranca (código 2). Antes de atender lo recibido se comprueba que el candado de la memoria se pueda tomar (`b1084ab`) | `test_buzon_la_recuperacion_no_se_hace_sin_candado_si_no_se_puede_tomar`: exige **cero publicaciones, dos pendientes** y memoria idéntica byte a byte, en dos corridas seguidas, forzando el fallo en `fcntl.flock` / `msvcrt.locking` con 8 errores, más "carpeta" y "no se puede crear", para un programa que solo recibe (código 0 con aviso) y para uno con `usar buzon` (código 2). Además `test_buzon_el_programa_que_envia_no_arranca_sin_el_candado_de_la_memoria`, `test_buzon_sin_el_candado_de_la_memoria_no_se_atiende_lo_que_llego`, `test_buzon_sin_candados_el_programa_con_estado_no_recibe_ni_envia_nada`, `test_buzon_si_el_candado_falla_recien_al_terminar_no_se_escribe_nada_y_se_dice`. A mano: R, 324 casos en Linux y 432 en Windows simulado con fallos en cualquier combinación de los primeros 7 pedidos de bloqueo, 0 escrituras o publicaciones sin candado; P, tres programas, cero publicados y dos pendientes, y al volver el bloqueo salen una sola vez |
+
+Encontrado por R y P sobre `b6afab9` y arreglado en `b1084ab`:
+
+- **Medio: se borraba el candado ajeno.** Cuando el bloqueo fallaba, `tomar_candado_de_memoria`
+  borraba el archivo de candado, que podía ser el que otra corrida tenía tomado. Ahora solo lo
+  borra, al soltar, la corrida que lo tiene. Prueba:
+  `test_un_candado_que_falla_no_borra_el_archivo_que_otra_corrida_tiene_tomado`.
+- **Medio: memoria escrita sin candado** por un programa sin estado que envía. Es lo de
+  `usar buzon` de la fila D2.
+- **Si el candado andaba al arrancar y falla recién al terminar**, no se escribe nada: un
+  `error:` dice que lo enviado en esa corrida no salió ni quedó anotado y que lo atendido del
+  buzón sigue ahí, y el código de salida es 1.
+- Pruebas nuevas con procesos reales: `test_buzon_varias_ventanas_que_envian_a_la_vez_no_pierden_ningun_mensaje`
+  y `test_buzon_sin_candados_varias_ventanas_que_envian_no_escriben_nada`.
+
+**Dónde se captura el candado que no se pudo tomar, y qué hace cada lugar** (`mate/mate.py`
+en `b1084ab`; el integrador ubicó las líneas, el comportamiento lo probaron R y P)
+
+| Lugar | Línea | Qué hace sin candado |
+|---|---|---|
+| `tomar_candado` | 4263 | Clasifica: devuelve `None` si lo tiene otro, o levanta `SinCandado("sistema")` / `SinCandado("carpeta")`. No decide nada |
+| `tomar_candado_de_memoria` | 4329 | Deja pasar el error a quien llamó, **sin borrar el archivo** |
+| `con_candado` (la usan la recuperación, el control antes de recibir y el cierre) | 13675 | Devuelve `False` sin ejecutar nada; guarda el motivo para el aviso |
+| Arranque de `correr` con `estado recordado` | 13946 | No arranca: aviso y código 2 |
+| Arranque de `correr` sin estado pero con `usar buzon` | 13986 | No arranca: aviso y código 2 |
+| Recuperación de "por salir" al arrancar | 14076 | No reparte; avisa; los sobres quedan anotados |
+| `se_puede_guardar`, antes de recibir | 14101 | No atiende; avisa "Sin candado no atiendo el buzón"; los sobres quedan en su carpeta |
+| `Buzon.abrir`, el candado de la carpeta del buzón | 4654 | No atiende; avisa; los sobres quedan |
+| `cerrar_memoria`, el envío al terminar | 13854 | No escribe nada; `error:` y código 1 |
+
+La orden `buzon` no toma candado: solo lee. `probar`, `verificar` y `ensayar` tampoco.
+
+**Pruebas que cambiaron de requisito** (comparando nombres contra `7adb4b9`: 2 quitadas, 14
+agregadas; `test_mate.py` pasó de 708 a 720 funciones de prueba). R miró las 36 líneas
+quitadas: son de estas pruebas y ninguna quedó más débil.
+
+- `test_donde_el_sistema_no_da_candados_el_programa_corre_igual_y_avisa` pasó a
+  `..._el_programa_con_estado_recordado_no_atiende`. Es el cambio que pidió el revisor externo.
+- `test_en_una_carpeta_donde_no_se_puede_escribir_se_corre_sin_candado` (exigía vender, código
+  0) pasó a `..._el_programa_con_estado_no_atiende` (código 2). Sale de la misma decisión,
+  pero **le falta el visto bueno explícito del coordinador** (P193).
+- Cambiaron de texto la aserción del aviso en
+  `test_buzon_donde_el_sistema_no_da_candados_no_dice_que_hay_otra_ventana` y la prueba del
+  manual.
+
+**Veredictos, sobre `b1084ab`**
+
+| Quién | Veredicto | Qué corrió | Problemas que dejó |
+|---|---|---|---|
+| Revisor (R) | **aprueba** | diff `7adb4b9..HEAD` entero; batería completa en Python 3.13 (1227); pruebas nuevas contra el `mate.py` de `7adb4b9` (fallan 11 de las 14 nuevas; las 3 que pasan cuidan lo que no debía cambiar); arnés propio de inyección de fallos en 3.10, 3.12, 3.13 y 3.14; 600 corridas reales de una caja con stock 5, nunca más de 5 ventas | 8 bajos: P188 a P191, P193, P179, P181, y que este archivo estaba viejo |
+| Agente de pruebas (P) | **aprueba** | las tres corridas (1227 / 114 / 37); con el `mate.py` de `7adb4b9` las pruebas del candado dan 64 fallan y 15 pasan; D1 y D2 con procesos reales y `fcntl.flock` roto, en 3.11, 3.12 y 3.13; 20 rondas de 12 procesos, la mitad con el bloqueo roto: ninguno de esos vendió | 5 bajos: P179, P189, P190, P192, y este archivo |
+
+Ninguno encontró problemas altos ni medios nuevos sobre `b1084ab`.
+
+**Problemas que quedan** (todos bajos; se suman a la tabla de arriba)
+
+| | Problema | Quién | ¿Ya estaba? |
+|---|---|---|---|
+| P179 | Sigue, y pesa más: **nada de `b6afab9` ni de `b1084ab` corrió en una Windows de verdad**. La rama `msvcrt.locking`, el candado de solo lectura que queda en disco y el borrado al soltar están cubiertos solo con `msvcrt` simulado en Linux. El revisor externo corrió Windows sobre `7adb4b9`. Conviene que repita su fallo forzado de `msvcrt.locking` con dos sobres por salir (esperado: cero publicados, dos pendientes) | R, P, implementador | sí |
+| P180 | Resuelta la segunda parte (`SinCandado('carpeta')` ya no deja correr). Sigue la primera: el candado se salta borrándolo a mano o cambiándolo por un acceso directo | — | sí |
+| P181 | Sigue igual: `corregir`, `lecciones`, `proponer` y aprobar propuestas reescriben la memoria sin candado (`mate.py` 12011, 12449, 12571, 12603) | R | sí |
+| P187 | **Resuelto**: en una carpeta donde no se puede escribir, un programa con estado o con `usar buzon` no arranca y lo dice | — | — |
+| P188 | **Para decidir el coordinador.** Un programa sin `estado recordado` pero con `usar buzon` no arranca sin candado (código 2). No pierde mensajes, pero es más estricto que "los programas sin estado recordado corren igual": un ejemplo con `usar buzon` en una carpeta de solo lectura o de red sin candados deja de correr. Los que no tienen estado ni `usar buzon` corren igual. La detección mira `agente_ajeno` en el nivel superior; si se le escapa, igual falla cerrado al terminar | implementador, R | nuevo |
+| P189 | **Para decidir el coordinador.** Si el candado falla recién al terminar, lo que el programa envió en esa corrida se pierde (`error:` y código 1); lo que el programa hizo ya ocurrió. La alternativa era escribir sin candado. En Windows, si `msvcrt.locking` da EACCES siempre, el aviso final habla de "otra ventana" sin la pista de la carpeta de red | implementador, R, P | nuevo |
+| P190 | Después de un fallo de bloqueo puede quedar un `<programa>.memoria.candado` vacío, aunque el aviso diga "Acá no se tocó nada: ni la memoria ni el buzón". Es a propósito (no borrar el que otra corrida puede tener), no frena la corrida siguiente y está en el README. El de solo lectura que queda en Windows tampoco se limpia | implementador, R, P | nuevo |
+| P191 | Queda una escritura de memoria sin candado en programas **sin** estado recordado: `guardar_cuenta` (la cuenta de consultas de IA, 14120) y el guardado final de `cerrar_memoria` (13896) releen y reescriben la sección del buzón. Si otra ventana anota "por salir" justo en el medio, se la pueden pisar. Nadie lo reprodujo. El README dice "sin candado Mate no escribe la memoria ni un sobre", que para este caso es de más | implementador, R | sí |
+| P192 | Un programa sin estado y sin `usar buzon` con sobres pendientes y el bloqueo fallando sale con código 0: no publica ni atiende (bien) y avisa, pero quien mire solo el código de salida no se entera | P | nuevo |
+| P193 | Falta el visto bueno del coordinador para la segunda prueba reemplazada (la de la carpeta donde no se puede escribir) | R | nuevo |
+| P194 | Con un `.memoria.candado` que quedó de antes en una carpeta donde después no se puede escribir, el candado se toma, el equipo dice "Anotado" y al final avisa "no pude guardar la memoria" con código 0. No es del candado | implementador | sí |
+| P195 | En Windows, cuando `msvcrt.locking` falla con EACCES por algo que no es contención, el aviso sigue empezando con "ya hay otra ventana abierta" (`msvcrt` no deja distinguir); solo se le agregó qué hacer si no hay ninguna | implementador | nuevo |
+
+Lo que **no** se hizo en esta pasada: correr algo en Windows; `pytest` completo fuera de
+Python 3.13 (en 3.10, 3.11, 3.12 y 3.14 solo `probar mate/ejemplos`, 114 de 114, y los
+arneses de R y P); pasar por el especialista en seguridad; reproducir P191; y subir nada.
+
 ## Estado final de la 0.7
+
+**Estado de hoy** (integrador, después de la segunda pasada del revisor externo sobre el pull
+request 3; rama `equipo/mate-0.7`, sobre `b1084ab` más el commit que trae este registro; todo
+en commits locales, sin subir nada y sin tocar `main`). Desde el registro anterior (`7adb4b9`)
+hubo dos commits de código del implementador, `b6afab9` y `b1084ab`, por los hallazgos D1 y
+D2. El detalle está en "Segunda pasada del revisor externo", arriba. Los estados anteriores
+quedan más abajo, como historia.
+
+**La 0.7 sigue CERRADA y la segunda pasada queda atendida: la vuelta está APROBADA** por el
+revisor y el agente de pruebas, sin problemas altos ni medios. D1 y D2 se confirmaron y se
+arreglaron: **sin candado, un programa con `estado recordado` o con `usar buzon` no arranca
+(código 2, nada tocado), y nadie atiende, reparte ni escribe la memoria del buzón.** `VERSION`
+sigue en `"0.7"`. Aprobada quiere decir revisada y probada en Linux con IA simulada, con el
+fallo del bloqueo forzado y con `msvcrt` simulado. **No** quiere decir probada en Windows: el
+revisor externo corrió Windows sobre `7adb4b9`, no sobre estos dos commits (P179). Tampoco
+pasó por el especialista en seguridad, ni se probó con una IA de verdad, ni se subió: los
+commits y este registro están solo en esta máquina, y el pull request 3 todavía muestra
+`7adb4b9`.
+
+| Qué | Estado | Quién aprobó | Qué queda |
+|---|---|---|---|
+| Cambios 1, 2 y 3 de la 0.7 | **aprobados** (como en el cierre, abajo) | R y P | los bajos del cierre, menos P156 |
+| Revisión externa, vueltas 1 y 2 (`b936118`, `ec1c62d`, `d088d03`) | **APROBADA** | R, P y S | bajos: P179 a P186 (P187 resuelto, P180 a medias) |
+| Segunda pasada del revisor externo (`b6afab9`, `b1084ab`) | **APROBADA** | R y P | bajos: P188 a P195; tres decisiones del coordinador (P188, P189, P193) |
+| Seguridad | aprobado sobre `d088d03`, para el diff `ab55d29..d088d03`. **`b6afab9` y `b1084ab` no pasaron por el especialista** | especialista en seguridad | lo de antes, más mirar estos dos commits |
+| Versión | **0.7** | — | sin cambio |
+
+**Números de las pruebas** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`, sobre
+`b1084ab`, con carpeta temporal propia)
+
+| Comando | Hoy (`b1084ab`) | Vuelta 2 (`d088d03`) | Cierre de la 0.7 (`ab55d29`) | Punto de partida de la 0.7 (`e78f2e9`) |
+|---|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1227 pasan, 0 fallan (247 s) | 1163 pasan, 0 fallan | 1127 pasan, 0 fallan | 883 pasan, 0 fallan |
+| `python3 mate/mate.py probar mate/ejemplos` | 114 de 114, en 22 archivos | 114 de 114, en 22 archivos | 113 de 113, en 22 archivos | 66 de 66, en 18 archivos |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37, en 26 archivos | 37 de 37, en 26 archivos | 30 de 30, en 24 archivos |
+
+El implementador, R y P dieron los mismos tres números, cada uno en su copia. Después de las
+tres corridas del integrador `git status --short` mostró solo este archivo y en `mate/ejemplos`
+no quedó ninguna memoria, candado ni carpeta `.buzon`. En otras versiones (3.10, 3.11, 3.12 y
+3.14) solo se corrió `probar mate/ejemplos` (114 de 114) y los arneses de R y P; la batería
+completa, solo en 3.13. En Windows, lo único que hay es lo del revisor externo sobre
+`7adb4b9`: 21 pruebas focalizadas pasan y 7 salteadas, con Python 3.12. La batería tarda entre
+250 y 290 s: hay que darle un tope largo (P148, P172).
+
+**Lo que cambia para quien usa Mate** (se suma a lo de la vuelta 2, abajo)
+- Si Mate no puede tomar el candado de un programa con `estado recordado` (carpeta de red que
+  no da candados, carpeta donde no se puede escribir, disco lleno), **el programa no corre**:
+  dice qué pasó y qué hacer (copiar la carpeta a un disco de la computadora) y sale con 2.
+  Antes corría igual con un aviso.
+- Lo mismo vale para un programa con `usar buzon`, aunque no tenga estado recordado (P188).
+- Un programa que solo recibe del buzón corre, pero sin candado no atiende ni reparte: avisa
+  y los mensajes quedan para la próxima.
+- Después de un fallo así puede quedar un `.memoria.candado` vacío al lado del programa. No
+  molesta: la corrida siguiente arranca y lo borra (P190).
+
+**Pendientes, por gravedad**
+
+Altos: ninguno. Medios: ninguno.
+
+Para decidir el coordinador o el dueño (se suma a lo de la vuelta 2 y a lo del cierre):
+- Si está bien que un programa sin estado pero con `usar buzon` no arranque sin candado (P188).
+- Si está bien que, cuando el candado falla recién al terminar, lo enviado en esa corrida se
+  pierda con `error:` y código 1, en vez de escribirse sin candado (P189).
+- El visto bueno a la segunda prueba reemplazada (P193).
+- Lo de antes: P181, C3, P182 y P183.
+
+Bajos, en el orden en que conviene mirarlos: P179 (Windows sobre `b1084ab`, **antes de
+subir**), P191, P181, P189, P188, P192, P190, P195, P194, P193; y de la vuelta 2 siguen P180
+(primera parte), P182 a P186. Están en las tablas de "Revisión externa".
+
+**Lo que no se pudo probar**: Windows de verdad sobre estos commits, Ollama y Claude de
+verdad, `pytest` completo fuera de 3.13, y cerrar la ventana con la X.
+
+**Para el dueño o el revisor externo, en Windows**: lo de la vuelta 2, abajo, y además repetir
+sobre `b1084ab` el fallo forzado de `msvcrt.locking` con dos sobres por salir (tiene que dar
+cero publicados y dos pendientes, y con `estado recordado` código 2 sin vender), y
+`py -m pytest mate\pruebas\test_mate.py -k "candado or sin_candados or recuperacion"`.
+
+**Lo que sigue**: que el dueño decida si sube `b6afab9`, `b1084ab` y este registro al pull
+request 3 (nada se subió ni se mezcló con `main`) para que el revisor externo los vea.
+Después P191 y P181, y los bajos del cierre empezando por P171 y P173. Para B: primero P161 (1).
+
+### Estado anterior, sobre `d088d03` (historia: la vuelta 2 de la revisión externa, antes de la segunda pasada)
+
+Lo que sigue se escribió al registrar la vuelta 2. Donde dice "hoy" es ese día: los números
+(1163 / 114 / 37) son los de entonces, y lo que dice de correr sin candado ya no vale.
 
 **Estado de hoy** (integrador, después de la revisión externa del pull request 3; rama
 `equipo/mate-0.7`, sobre `d088d03` más el commit que trae este registro; todo en commits
