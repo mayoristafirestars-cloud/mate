@@ -3045,7 +3045,270 @@ Lo que **no** se hizo en esta pasada: correr algo en Windows; `pytest` completo 
 Python 3.13 (en 3.10, 3.11, 3.12 y 3.14 solo `probar mate/ejemplos`, 114 de 114, y los
 arneses de R y P); pasar por el especialista en seguridad; reproducir P191; y subir nada.
 
+### Tercera pasada del revisor externo
+
+Con la segunda pasada registrada (`20dd5ad`), el revisor externo volvió a leer el pull
+request 3 (diff `7adb4b9..20dd5ad`) y **pidió cambios**. Dio por resueltos D1 y D2 en los
+caminos que había señalado (la caja con `estado recordado` sale con código 2 antes de atender
+o guardar; `con_candado` no reparte si falla la toma del candado), y dejó cinco hallazgos
+más, E1 a E5: todavía había escrituras de la memoria fuera del candado. No modificó código.
+(El mensaje del commit `b892530`, el README y una prueba la llaman "cuarta pasada": cuentan
+también la revisión inicial. Es esta misma.)
+
+**Su corrida, en una Windows de verdad, con Python 3.12.14, sobre `20dd5ad`**: batería
+completa, **1205 pasan, 5 fallan y 17 salteadas**; `probar mate/ejemplos` 114 de 114;
+`probar mate/curso` 37 de 37. Es la primera batería completa en Windows que tiene la 0.7. Las
+5 fallas son E4 y E5, abajo. Sobre el código de esta pasada (`b892530`) no corrió nada.
+
+Se trabajó en un commit local del implementador sobre `dc57247`, sin subir nada y sin tocar
+`main`, `.github` ni `VERSION`: **`b892530`**. Toca `mate/mate.py` (565 líneas agregadas, 213
+quitadas), `mate/README.md` y `mate/pruebas/test_mate.py` (1064 agregadas, 33 quitadas).
+
+**Integración continua.** Antes de esta pasada el coordinador agregó, en `dc57247`,
+`.github/workflows/pruebas.yml`: en cada pedido de integración y en cada subida a `main`
+corren las tres corridas (la batería, `probar mate/ejemplos` y `probar mate/curso`) en
+**Windows y Linux, con Python 3.10 y 3.14** (cuatro combinaciones, con `MATE_SIN_REGISTRO=1`).
+Ese archivo es del coordinador: el equipo no lo toca. **Todavía no corrió nunca sobre
+`b892530`**, porque la rama no se subió; cuando se suba va a ser la primera vez que el código
+de esta pasada corra en Windows.
+
+Este registro lo escribe el integrador sobre `b892530`. No tocó código ni pruebas: corrió las
+tres corridas (números en "Estado final de la 0.7"), ubicó en `mate.py` las líneas del
+inventario de más abajo y comparó los nombres de las pruebas contra `20dd5ad`. Lo demás es lo
+que informaron el implementador, R y P; lo que dice "reproducido" lo reprodujeron ellos, en
+copias propias. **El especialista en seguridad no participó de esta pasada.**
+
+**La decisión estructural: un solo lugar escribe la memoria, y exige el candado.** Las dos
+pasadas anteriores fueron cerrando caminos de a uno y cada vez apareció otro. Esta vez la
+regla está en el código y no en cada llamador: `escribir_memoria(ruta, candado, texto=None,
+mover_a=None)` (`mate.py` 4066) es el único lugar de `mate.py` que escribe, borra o mueve un
+`<programa>.memoria.json`. Si el candado que le pasan no es el de **esa** memoria, tomado por
+**este** proceso y todavía sin soltar, levanta `MemoriaSinCandado` y no toca nada. Lo sabe
+por el registro `_CANDADOS_DE_MEMORIA` (4045), que anotan solo `tomar_candado_de_memoria` y
+`soltar_candado_de_memoria`. `guardar_memoria` lleva `candado=` y se niega igual. Y toda
+escritura relee la memoria con el candado ya tomado antes de aplicar su cambio. Decisión del
+coordinador que viene con esto: **con la charla de un programa con `estado recordado` abierta
+ya no se puede `corregir`, `proponer`, borrar lecciones ni aprobar o descartar propuestas
+desde otra ventana**; hay que cerrar la charla. Antes se podía, y ese era el motivo por el
+que P181 seguía abierto.
+
+**Hallazgos**
+
+| | Hallazgo | ¿Se confirmó? | Qué se hizo | Con qué prueba |
+|---|---|---|---|---|
+| E1 (alto) | `corregir` puede revertir una venta. En Windows, con una caja de una unidad, forzó el orden: `corregir` lee la memoria, la caja vende y guarda stock 0, `corregir` escribe la copia vieja; al reabrir, la caja vende de nuevo la unidad. Es P181, que el equipo tenía como bajo. Pidió que las órdenes que cambian lecciones o propuestas tomen el mismo candado antes de releer y escribir (`mate.py` 12571 y 12011 en `20dd5ad`) | **Sí.** Con el código anterior y ese orden queda stock 1 y la caja vuelve a vender (implementador, R y P; P, 15 casos mal de 25 contra `20dd5ad`) | `corregir`, `lecciones --borrar`, `proponer`, `propuestas aprobar` y `descartar`, y las propuestas que deja `ensayar`, toman el candado, releen con él tomado, aplican el cambio y escriben. Si está ocupado esperan 3 segundos (`ESPERA_DE_UNA_ORDEN`), avisan "... está abierto en otra ventana ... Cerrá la otra ventana y probá de nuevo ... Acá no se tocó nada" y salen con código 2 (`ensayar`, con 1). `proponer` comprueba el candado antes de consultar a la IA, lo suelta durante la consulta y lo vuelve a tomar para anotar | `test_una_orden_que_cambia_la_memoria_no_revierte_la_venta_que_se_hizo_en_el_medio`, `test_una_orden_que_cambia_la_memoria_toma_el_candado_relee_y_recien_ahi_escribe`, `test_con_la_caja_abierta_una_orden_que_cambia_la_memoria_espera_avisa_y_no_toca_nada`, `test_con_la_caja_abierta_en_otro_proceso_corregir_no_escribe_y_despues_si`, `test_ensayar_deja_sus_propuestas_con_el_candado_y_sin_el_no_escribe`. A mano: P, 5 órdenes por 5 puntos de pausa con procesos reales, 25 casos y 0 mal; implementador, 40 corridas de una caja con stock 40 junto con 60 `corregir`: 40 ventas guardadas y 60 órdenes con código 0 |
+| E2 (medio) | `correr` también modifica la memoria sin pedir el candado. Dos programas mínimos: uno sin estado recordado ni `usar buzon` que llama a `aprender()` creó su memoria; otro, con `--olvidar` sobre una memoria inválida, la movió a `.memoria.rota.json`. Los dos con código 0 y cero intentos de tomar el candado. La cuenta de consultas a la IA también llamaba directo a `guardar_memoria` (13896, 14008 y 14137 en `20dd5ad`) | **Sí.** Lo de `aprender()` y la cuenta era P191, que nadie había reproducido; lo de `--olvidar` era nuevo | Las tres van por `con_candado`, releyendo. Un programa sin estado toma el candado solo en el momento de escribir (espera hasta 10 s). Si no puede: no escribe, avisa con `error: ... NO se guardó` y sale con 1; con `--olvidar` no mueve nada y sale con 2; la cuenta de consultas avisa una vez y se reintenta al terminar | `test_un_programa_sin_estado_que_aprende_guarda_con_el_candado_y_sobre_lo_releido`, `test_un_programa_sin_estado_que_aprende_no_escribe_si_no_puede_tomar_el_candado`, `test_olvidar_aparta_la_memoria_invalida_con_el_candado_tomado`, `test_la_cuenta_de_consultas_se_anota_con_el_candado_y_sin_el_no_se_escribe`. A mano: P, 25 rondas de 2 ventanas y 10 de 6 con `aprender()`, ninguna lección perdida; 6 ventanas con IA simulada, la cuenta del día da 30, 60 y 90; R, 8 corridas más 8 `corregir` en paralelo, las 16 lecciones presentes |
+| E3 (medio) | Un receptor sin estado puede atender con el candado ocupado. En Windows, con el candado en un proceso y un receptor con un sobre pendiente en otro: imprimió `Pedido A-1: listo.`, salió con código 1 y dejó el sobre, así que el manejador puede correr otra vez. La comprobación previa dejaba seguir cuando la toma devolvía `None`, que quiere decir "lo tiene otra corrida" (14096 en `20dd5ad`) | **Sí** (R, con el código viejo: imprime el pedido y sale con 1) | El receptor toma el candado de la memoria **antes del primer sobre y no lo suelta hasta terminar de guardar**. Si lo tiene otra corrida espera 2 segundos y no atiende nada: aviso "sin candado no atiendo el buzón", los sobres quedan, código 0 | `test_buzon_un_receptor_sin_estado_no_atiende_con_el_candado_de_la_memoria_ocupado`, `test_buzon_con_el_candado_en_otro_proceso_el_receptor_no_atiende_y_el_sobre_queda` (dos procesos de verdad), `test_buzon_el_receptor_toma_el_candado_antes_de_atender_y_no_lo_suelta_hasta_guardar`. A mano: P, con 1 y 3 sobres el manejador no corre; al soltarse, cada pedido sale exactamente una vez; 15 rondas de 4 receptores a la vez, cada sobre atendido una sola vez |
+| E4 (falla funcional en Windows) | En la prueba de cuatro emisores simultáneos (`test_buzon_varias_ventanas_que_envian_a_la_vez_no_pierden_ningun_mensaje`), uno salió con código 2 al abrir `ventas.memoria.json`: la lectura inicial se hacía después de soltar el candado que el emisor comprueba al arrancar. La vio en `20dd5ad`; su origen histórico quedó sin verificar | **No se pudo reproducir en Linux.** Se cerró por razonamiento y con pruebas simuladas. **El origen histórico sigue sin verificar** | La lectura inicial de la memoria y de la parte del buzón se hace con el candado tomado. Toda lectura pasa por `leer_archivo_de_memoria` (3906), que reintenta ante `PermissionError` (6 intentos, un tercio de segundo); `escribir_entero` reintenta igual el reemplazo; `tomar_candado` reintenta si el archivo de candado desaparece justo al abrirlo, y `tomar_candado_de_memoria` aguanta 10 fallas pasajeras en vez de 5 | `test_la_lectura_del_arranque_se_hace_con_el_candado_de_la_memoria_tomado`, `test_leer_la_memoria_aguanta_el_no_hay_permiso_pasajero_de_windows`, `test_escribir_la_memoria_aguanta_que_otro_proceso_la_este_leyendo_justo_ahora`, `test_en_windows_las_ordenes_y_los_programas_sin_estado_toman_y_sueltan_el_candado` (`msvcrt` de mentira). A mano: P, 4 y 8 emisores por 20 rondas, 0 fallos, también en Windows simulado con 25 % de `PermissionError` inyectados |
+| E5 (pruebas que fallan en Windows) | Las otras 4 fallas de su corrida. (a) Una falla previa, que también da en `7adb4b9`: la prueba lee el contenido del archivo de candado mientras otro proceso lo tiene bloqueado y Windows da `PermissionError` (15526). (b) Tres fallas de expectativa: la segunda caja devuelve el código 2 esperado, pero las aserciones comparan el aviso entero y esperaban el texto sin la aclaración de Windows (16993, 17083 y 17761) | **Sí, por lectura**; ninguna se puede ver en Linux | (a) `todo_lo_que_hay` ya no lee el contenido de los candados: anota que están y su tamaño. (b) `YA_HAY_OTRA_VENTANA` se arma según el sistema y el aviso se sigue comparando entero, en sus dos formas. El producto no cambió por E5 | `test_todo_lo_que_hay_no_lee_un_candado_que_otro_proceso_tiene_tomado`, `test_el_aviso_de_otra_ventana_entero_en_windows_y_fuera` |
+
+Hallazgos no confirmados: ninguno. E4 queda **arreglado sin haberlo visto fallar**: hasta que
+la integración continua corra en Windows no se sabe si alcanza.
+
+**Lugares que modifican la memoria** (`mate/mate.py` en `b892530`; el integrador ubicó las
+líneas; el comportamiento lo probaron el implementador, R y P; R y P hicieron además cada uno
+su propio inventario de todo lo que abre para escribir, reemplaza, renombra o borra)
+
+| Lugar | Línea | Qué hace | Si el candado está ocupado o no se puede tomar |
+|---|---|---|---|
+| `escribir_memoria` | 4066 | **El único** `os.replace`, `os.remove` o `escribir_entero` sobre una `.memoria.json`. Lo llaman solo `guardar_memoria` y `apartar_la_rota` | `MemoriaSinCandado`; no toca nada |
+| `guardar_memoria` | 4090 | Arma el JSON y llama a `escribir_memoria` para escribir, o para sacar el archivo cuando queda vacío. Todos sus llamadores le pasan `candado=` | Se niega |
+| `ensayar`, las lecciones propuestas por casos fallados | 12212 | `pedir_candado_de_memoria` (3 s), relee, agrega las propuestas, guarda y suelta | Aviso "no dejé las lecciones propuestas", código 1, nada escrito |
+| `corregir` | 12819 y 12828 | `tomar_y_releer` antes de sumar la lección; `orden_de_memoria` (12584) suelta al final | Aviso, código 2, nada tocado |
+| `lecciones --borrar` | 12847 y 12860 | `tomar_y_releer` antes de mirar qué lecciones hay; el número se valida sobre lo releído | Código 2 |
+| `proponer` | 12762, 12773, 12788 y 12793 | Toma y suelta el candado antes de consultar a la IA (si está ocupado no gasta la consulta); después lo toma de nuevo (10 s), relee y anota la propuesta y la cuenta | Código 2 |
+| `propuestas aprobar` y `descartar` (`orden_propuestas`) | 12698 y 12940 | `tomar_y_releer` antes de numerar las propuestas. Solo listar no pide candado | Código 2 |
+| `correr`, `cerrar_buzon` | 14027 | Estado, recibidos y "por salir" en una escritura, y otra para quitar lo ya repartido. Dentro de `con_candado`, releyendo. Sin cambio de fondo | No escribe; `error:` y código 1 (como en la segunda pasada) |
+| `correr`, guardado final sin buzón, `guardar_lo_nuevo` | 14069 | **Antes escribía sin candado** en programas sin estado. Ahora `con_candado` (10 s), relee y funde. Un programa con estado ya tiene el candado | `error: ... NO se guardó`, código 1 |
+| `correr --olvidar` con memoria inválida, `apartar_la_rota` | 14294 | **Antes sin candado.** Mueve a `.memoria.rota.json` con `escribir_memoria(mover_a=)`, dentro de `con_candado` (2 s), después de releer | No mueve nada, código 2 |
+| `correr`, `recuperar_lo_por_salir` al arrancar | 14366 | Dentro de `con_candado`, releyendo. Sin cambio de fondo | No reparte; avisa |
+| `correr`, `guardar_cuenta` (la cuenta de consultas a la IA) | 14449 | **Antes sin candado.** `con_candado` (2 s), relee y funde | No escribe; avisa una vez "no pude anotar ahora la cuenta ... la anoto al terminar"; el guardado final reintenta y, si tampoco puede, código 1 |
+| El receptor del buzón, `se_puede_guardar` | 14410 | No escribe: toma el candado antes del primer sobre y lo tiene hasta guardar (E3) | No atiende; avisa; los sobres quedan; código 0 |
+
+Leen sin escribir, y no piden candado (toleran el `PermissionError` pasajero): `lecciones` y
+`propuestas` al listar, `ensayar` al empezar, `buzon`, `bitacora`, `cambio_la_memoria` y el
+conteo del buzón al cortarse. `escribir_archivo` y `agregar_a_archivo` de un programa ya se
+negaban a escribir la memoria, su provisorio y la `.memoria.rota.json`; eso no cambió.
+
+**Queda una escritura fuera de la regla** (R, P196): `correr h.mate --traza=h.memoria.json`
+pisa la memoria con el texto de la conversación (`guardar_conversacion`, 12414). Hay que
+pedirlo a propósito, y ya pasaba en `20dd5ad`.
+
+**Pruebas**
+
+- La batería pasó de 1227 a 1262. `test_mate.py` pasó de 720 a 742 funciones de prueba:
+  23 agregadas y 1 que cambió de nombre (comparación de nombres contra `20dd5ad`, hecha por
+  el integrador). El implementador cuenta 34 pruebas nuevas, con los casos por parámetro.
+- **Tres pruebas cuidan la regla, no un camino**:
+  `test_en_mate_py_la_memoria_se_escribe_en_un_solo_lugar_y_con_candado` recorre `mate.py`
+  por `ast` y falla si aparece otra escritura de la memoria o un `guardar_memoria` sin
+  `candado=`; `test_escribir_la_memoria_sin_su_candado_se_rechaza_y_no_toca_nada` (sin
+  candado, con el de otra memoria, con un archivo cualquiera, con el propio ya soltado); y
+  una guardia que corre en **toda** la batería y hace fallar cualquier prueba donde código de
+  `mate.py` reemplace, renombre o borre una `.memoria.json` fuera de `escribir_memoria` o sin
+  el candado. La prueba por `ast` no es completa: ver P197.
+- **Las pruebas nuevas fallan con el código anterior.** Contra el `mate.py` de `20dd5ad`: R,
+  33 de 36 fallan; P, 33 de 35; implementador, 31 de 33. Las que pasan miran solo ayudantes
+  de prueba (E5). Como muchas fallaban porque faltaba un atributo, R agregó esos atributos al
+  código viejo y repitió las principales: fallan por comportamiento (la venta se revierte,
+  `corregir` con la caja abierta da 0, el receptor imprime el pedido).
+- **Pruebas que cambiaron de requisito**, por la decisión de arriba. R y P miraron las 33
+  líneas quitadas: ninguna quedó más débil y no hay `skip` ni `xfail` nuevos.
+  - `test_con_una_ventana_abierta_probar_verificar_ensayar_y_corregir_no_se_traban` pasó a
+    `..._ensayar_y_lecciones_no_se_traban`: `corregir` con una ventana abierta ahora tiene
+    que dar código 2, aviso y memoria intacta, y andar al cerrar la charla.
+  - La de dos arranques a la vez mete un `corregir` entre la lectura y la recuperación, y
+    además exige que uno en medio de la recuperación sea rechazado.
+  - Dos pruebas que cuentan las esperas del candado pasan de `[0, 2, 10]` y `[0, 10]` a
+    `[2, 2, 10]` y `[2, 10]`, por la lectura del arranque con candado.
+  - La prueba directa de `guardar_memoria` toma el candado; la del manual cambia la frase del
+    límite de `corregir`; `todo_lo_que_hay` compara el tamaño de un candado en vez de leerlo.
+- **Cambio que nadie pidió**, del implementador, con prueba
+  (`test_la_caja_abre_aunque_justo_una_orden_tenga_el_candado_un_instante`): un programa con
+  `estado recordado` espera medio segundo el candado al abrir (`ESPERA_AL_ABRIR`, 4545).
+  Ahora las órdenes tienen el candado un instante y sin eso la caja podía decir "ya hay otra
+  ventana" por un `corregir` simultáneo.
+- El README saca el límite "`corregir` y aprobar no toman el candado" y dice la regla, lo que
+  no se puede hacer con la charla abierta, el programa sin estado que no guarda sin candado,
+  el buzón atendido con el candado tomado, la cuenta de consultas y una fila en la tabla de
+  cambios. **Sigue diciendo que el buzón no se probó en una Windows de verdad**, y es cierto
+  para este código.
+
+**Veredictos, sobre `b892530`**
+
+| Quién | Veredicto | Qué corrió | Problemas que dejó |
+|---|---|---|---|
+| Revisor (R) | **aprueba** | diff `20dd5ad..HEAD` entero; las tres corridas en Python 3.13 (1262 / 114 / 37); inventario propio de escrituras; pruebas nuevas contra `20dd5ad`; 11 escrituras directas inyectadas contra la prueba por `ast` (detecta 7); 8 corridas más 8 `corregir` con procesos reales; Windows, solo por lectura | 6 bajos: P196, P197, P198, P179, P192, y que este archivo estaba viejo |
+| Agente de pruebas (P) | **aprueba** | las tres corridas en Python 3.13 (1262 / 114 / 37), **3.10** (1261 y 1 salteada, la de siempre para Python menor que 3.12; 114; 37) y **3.14** (1262 / 114 / 37); E1 a E4 con procesos reales y orden forzado, y contra `20dd5ad`; Windows simulado con procesos reales y 25 % de fallas inyectadas; el ejemplo 13 y los del buzón a mano, con `kill -9` | 6 bajos: P179, P199, P192, P200, P201, y un error propio ya deshecho (dejó un `o.txt` suelto en el repositorio y lo borró) |
+
+Ninguno encontró problemas altos ni medios. Nadie corrió nada en Windows.
+
+**Problemas que quedan** (todos bajos; se suman a las tablas de arriba)
+
+| | Problema | Quién | ¿Ya estaba? |
+|---|---|---|---|
+| P181 | **Resuelto** (era E1): las órdenes que cambian la memoria toman el candado y releen | — | — |
+| P191 | **Resuelto** (era E2): el guardado final y la cuenta de consultas de un programa sin estado van con candado | — | — |
+| P179 | Sigue, y es lo primero: **nada de `b892530` corrió en una Windows de verdad.** Todo lo nuevo de la rama `msvcrt` está razonado y probado solo con `os.name = "nt"` y un `msvcrt` de mentira. Las 5 fallas del revisor (E4 y E5) y el arreglo de E3 solo los puede confirmar la integración continua cuando se suba la rama. Mirar primero la de los cuatro emisores, las tres del aviso entero y `test_buzon_dos_ventanas_del_mismo_programa_a_la_vez`. Además, dos comentarios de `test_mate.py` (cerca de 17621 y 17732) dicen "en Windows el candado es del proceso", y es por archivo abierto; solo saltean una aserción | R, P, implementador | sí |
+| P180 | Sigue: el candado se salta borrando o cambiando a mano el `.memoria.candado` desde adentro de la carpeta, y el código de `usar python` puede escribir cualquier archivo. La guardia de la batería solo mira lo que hace `mate.py` | implementador | sí |
+| P192 | Sigue, y ahora vale también para "ocupado": el receptor que no atiende porque otra corrida tiene el candado avisa y deja los sobres, pero sale con **código 0**. Las otras salidas nuevas por candado ocupado dan 1 o 2. **Para confirmar el coordinador** | R, P | sí |
+| P196 | `correr --traza=<programa>.memoria.json` pisa la memoria con el texto de la conversación, fuera de `escribir_memoria` y sin candado (`guardar_conversacion`, 12414). Hay que nombrar la memoria como destino a propósito. Ni la prueba por `ast` ni la guardia lo ven | R | sí |
+| P197 | La prueba por `ast` deja pasar tres formas de escribir la memoria fuera del único lugar: `open(archivo_memoria, mode="w")` (con el modo por nombre lo toma por lectura), una variable intermedia sin la palabra "memoria" en el nombre, y `pathlib.Path(...).write_text(...)`. La guardia tampoco mira las aperturas, solo `os.replace`, `os.rename`, `os.remove` y `os.unlink`. Hoy `mate.py` no tiene ninguna escritura así: es un hueco de la prueba, no del producto | R | nuevo |
+| P198 | Costo de E3: un receptor sin estado tiene el candado mientras corren los manejadores de sus sobres. Otra ventana del mismo programa que termine en ese rato espera 10 segundos y, si no lo consigue, no guarda lo aprendido, la cuenta ni lo enviado (`error: ... NO se guardó`, código 1). Falla cerrado y con aviso; antes ese candado se tenía un instante. Nadie lo forzó con un manejador lento. En el README | R, implementador | nuevo |
+| P199 | `tomar_candado_de_memoria` (4420) cuenta las fallas al abrir el candado en total, no seguidas: en una espera larga, diez "no hay permiso" pasajeros repartidos cortan con "no tengo permiso para abrirlo (¿lo creó otro usuario?)" y código 1, en vez de seguir esperando. Visto solo con fallas inyectadas al 25 %; en Windows haría falta un antivirus o un indexador abriendo el candado seguido. Falla cerrado | P | sí |
+| P200 | `proponer` suelta el candado mientras consulta a la IA y lo vuelve a pedir (10 s). Si en ese rato abrió una caja con estado y no cierra, sale con código 2 y la consulta ya hecha no queda ni en la cuenta del día ni como propuesta. Visto leyendo el código | P | nuevo |
+| P201 | `ensayar` del ejemplo 13 con una memoria que ya tiene stock vendido da 21 de 22 y código 1 (lo explica: los casos arrancan con lo que el programa recuerda). No es del candado; con una ventana abierta no se traba ni toca la memoria | P | sí |
+| P202 | **Para que lo sepa el dueño.** Un programa sin estado recordado en una carpeta que no da candados o de solo lectura ya no guarda lo que aprende ni la cuenta de consultas: `error:` y código 1. Antes escribía sin candado. Va en la línea de P188 | implementador | nuevo |
+
+Lo que **no** se hizo en esta pasada: correr algo en Windows; reproducir la falla de los
+cuatro emisores ni verificar su origen histórico; `pytest` completo en 3.11 y 3.12; un caso
+forzado propio para las propuestas que deja `ensayar` (lo cubre solo la batería); pasar por
+el especialista en seguridad; probar con una IA de verdad; y subir nada.
+
 ## Estado final de la 0.7
+
+**Estado de hoy** (integrador, después de la tercera pasada del revisor externo sobre el pull
+request 3; rama `equipo/mate-0.7`, sobre `b892530` más el commit que trae este registro; todo
+en commits locales, sin subir nada y sin tocar `main`). Desde el registro anterior (`20dd5ad`)
+hubo dos commits: `dc57247`, del coordinador, que agrega la integración continua
+(`.github/workflows/pruebas.yml`: Windows y Linux, Python 3.10 y 3.14), y `b892530`, del
+implementador, por los hallazgos E1 a E5. El detalle está en "Tercera pasada del revisor
+externo", arriba. Los estados anteriores quedan más abajo, como historia.
+
+**La 0.7 sigue CERRADA y la tercera pasada queda atendida: la vuelta está APROBADA** por el
+revisor y el agente de pruebas, sin problemas altos ni medios. El revisor externo había
+pedido cambios: E1 (alto), E2 y E3 (medios) se confirmaron y se arreglaron con una regla que
+está en el código: **un solo lugar escribe la memoria (`escribir_memoria`) y exige el candado
+de esa memoria, tomado por ese proceso**; toda escritura relee con el candado tomado. E5 se
+arregló en las pruebas. **E4 se arregló sin poder reproducirlo.** `VERSION` sigue en `"0.7"`.
+Aprobada quiere decir revisada y probada en Linux con IA simulada, con procesos reales y con
+`msvcrt` simulado. **No** quiere decir probada en Windows: lo único que corrió en una Windows
+de verdad es la batería del revisor externo sobre `20dd5ad` (1205 pasan, 5 fallan, 17
+salteadas), y esas 5 fallas son justo lo que acá no se pudo ver (P179). Tampoco pasó por el
+especialista en seguridad, ni se probó con una IA de verdad, ni se subió: los commits y este
+registro están solo en esta máquina, el pull request 3 todavía muestra `20dd5ad`, y la
+integración continua todavía no corrió sobre este código.
+
+| Qué | Estado | Quién aprobó | Qué queda |
+|---|---|---|---|
+| Cambios 1, 2 y 3 de la 0.7 | **aprobados** (como en el cierre, abajo) | R y P | los bajos del cierre, menos P156 |
+| Revisión externa, vueltas 1 y 2 (`b936118`, `ec1c62d`, `d088d03`) | **APROBADA** | R, P y S | bajos: P179, P180 (a medias), P182 a P186 (P181 y P187 resueltos) |
+| Segunda pasada del revisor externo (`b6afab9`, `b1084ab`) | **APROBADA** | R y P | bajos: P188 a P190 y P192 a P195 (P191 resuelto); tres decisiones del coordinador (P188, P189, P193) |
+| Tercera pasada del revisor externo (`b892530`) | **APROBADA** por el equipo; **falta que el revisor externo la vea y que corra en Windows** | R y P | bajos: P196 a P202; confirmar el código 0 del receptor (P192) |
+| Integración continua (`dc57247`, del coordinador) | agregada; **todavía no corrió sobre `b892530`** | — | corre al subir la rama: Windows y Linux, Python 3.10 y 3.14 |
+| Seguridad | aprobado sobre `d088d03`, para el diff `ab55d29..d088d03`. **`b6afab9`, `b1084ab` y `b892530` no pasaron por el especialista** | especialista en seguridad | lo de antes, más mirar estos tres commits |
+| Versión | **0.7** | — | sin cambio |
+
+**Números de las pruebas** (integrador, Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`, sobre
+`b892530`, con carpeta temporal propia)
+
+| Comando | Hoy (`b892530`) | Segunda pasada (`b1084ab`) | Vuelta 2 (`d088d03`) | Cierre de la 0.7 (`ab55d29`) | Punto de partida de la 0.7 (`e78f2e9`) |
+|---|---|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1262 pasan, 0 fallan (290 s) | 1227 pasan, 0 fallan | 1163 pasan, 0 fallan | 1127 pasan, 0 fallan | 883 pasan, 0 fallan |
+| `python3 mate/mate.py probar mate/ejemplos` | 114 de 114, en 22 archivos | 114 de 114, en 22 archivos | 114 de 114, en 22 archivos | 113 de 113, en 22 archivos | 66 de 66, en 18 archivos |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37, en 26 archivos | 37 de 37, en 26 archivos | 37 de 37, en 26 archivos | 30 de 30, en 24 archivos |
+
+El implementador, R y P dieron los mismos tres números en Python 3.13, cada uno en su copia.
+Después de las tres corridas del integrador `git status --short` no mostró nada y en
+`mate/ejemplos` no quedó ninguna memoria, candado ni carpeta `.buzon`. En las dos versiones de
+la integración continua, P corrió las tres sobre `b892530`: Python 3.10.20, 1261 pasan y 1
+salteada (la de siempre, marcada para Python menor que 3.12), 114 y 37; Python 3.14.6, 1262,
+114 y 37. En 3.11 y 3.12 no se corrió la batería. **En Windows**, lo que hay es la corrida del
+revisor externo sobre `20dd5ad`, con Python 3.12.14: 1205 pasan, 5 fallan, 17 salteadas;
+ejemplos 114 de 114; curso 37 de 37. Sobre `b892530`, nada. La batería tarda entre 290 y 305
+s: hay que darle un tope largo (P148, P172).
+
+**Lo que cambia para quien usa Mate** (se suma a lo de la segunda pasada y la vuelta 2, abajo)
+- **Con la charla de un programa con `estado recordado` abierta ya no se puede `corregir`,
+  `proponer`, borrar lecciones ni aprobar o descartar propuestas desde otra ventana.** La
+  orden espera 3 segundos, dice "Cerrá la otra ventana y probá de nuevo" y sale con 2 sin
+  tocar nada. Antes se podía, y podía deshacer una venta. `lecciones` y `propuestas` para
+  mirar, `probar`, `verificar` y `ensayar` siguen andando con la charla abierta.
+- Un programa **sin** estado recordado que aprende o consulta a la IA, en una carpeta que no
+  da candados o de solo lectura, ya no guarda eso: `error: ... NO se guardó` y código 1 (P202).
+- `--olvidar` con una memoria inválida no la aparta si otra ventana tiene el candado: código 2.
+- Un programa que recibe del buzón tiene el candado mientras atiende. Si otra corrida lo
+  tiene, no atiende: avisa, deja los mensajes y sale con 0 (P192). Y otra ventana del mismo
+  programa que quiera guardar en ese rato espera hasta 10 segundos (P198).
+- Un programa con `estado recordado` espera medio segundo el candado antes de decir "ya hay
+  otra ventana".
+
+**Pendientes, por gravedad**
+
+Altos: ninguno. Medios: ninguno.
+
+Para decidir o confirmar el coordinador o el dueño (se suma a lo de antes):
+- Que el receptor que no atiende por candado ocupado salga con código 0 (P192).
+- Que el dueño sepa que con la charla abierta ya no se puede `corregir` ni aprobar (es la
+  decisión del coordinador y está en el README), y lo del programa sin estado (P202).
+- El medio segundo de espera al abrir, que nadie pidió.
+- Lo de antes: P188, P189, P193, C3, P182 y P183.
+
+Bajos, en el orden en que conviene mirarlos: P179 (Windows sobre `b892530`: **lo dice la
+integración continua al subir**), P196, P197, P199, P200, P198, P192, P202, P201; de la
+segunda pasada siguen P189, P188, P190, P195, P194 y P193; y de la vuelta 2, P180 (primera
+parte) y P182 a P186. Están en las tablas de "Revisión externa".
+
+**Lo que no se pudo probar**: Windows de verdad sobre este commit, la falla de los cuatro
+emisores (ni su origen), Ollama y Claude de verdad, `pytest` completo en 3.11 y 3.12, y cerrar
+la ventana con la X.
+
+**Para el dueño o el revisor externo, en Windows**: mirar el resultado de la integración
+continua (esperado: 0 fallas en las cuatro combinaciones) y, a mano, repetir sobre `b892530`
+el orden forzado de E1 (tiene que quedar stock 0 y la caja no vender de nuevo), los dos
+programas mínimos de E2 y el receptor de E3 con el candado en otro proceso (no tiene que
+imprimir el pedido). Con Python 3.10 y 3.14:
+`py -m pytest mate\pruebas mate\modelo -q -p no:cacheprovider`.
+
+**Lo que sigue**: que el coordinador suba `dc57247`, `b892530` y este registro al pull
+request 3 (nada se subió ni se mezcló con `main`), mire la integración continua en Windows y
+le avise al revisor externo. Si en Windows falla algo, eso va primero. Después P196 y P197, y
+los bajos del cierre empezando por P171 y P173. Para B: primero P161 (1).
+
+### Estado anterior, sobre `b1084ab` (historia: la segunda pasada del revisor externo, antes de la tercera)
+
+Lo que sigue se escribió al registrar la segunda pasada. Donde dice "hoy" es ese día: P181 y
+P191, que acá figuran abiertos, se resolvieron en la tercera pasada.
 
 **Estado de hoy** (integrador, después de la segunda pasada del revisor externo sobre el pull
 request 3; rama `equipo/mate-0.7`, sobre `b1084ab` más el commit que trae este registro; todo
