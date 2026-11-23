@@ -35,6 +35,49 @@ def sin_red_ni_clave(monkeypatch):
     monkeypatch.setenv("MATE_ORDEN", "python")
 
 
+@pytest.fixture(autouse=True)
+def la_memoria_solo_se_cambia_con_su_candado(monkeypatch):
+    """Guardia de TODA la batería (revisión externa, E1 a E4): en cada prueba, cada vez que
+    el código de mate.py reemplaza, renombra o borra un archivo .memoria.json, tiene que ser
+    desde escribir_memoria (el único lugar) y con el candado de ESA memoria tomado por este
+    proceso. Si alguna vez no, la prueba falla al terminar, pase lo que pase con lo demás.
+    (No cuenta cuando es la prueba la que llama a mano a mate.escribir_entero sobre un
+    archivo con nombre de memoria: ahí se prueba el provisorio, no es Mate cambiándola.)"""
+    import os
+    faltas = []
+
+    def vigilar(nombre, cuantas_rutas):
+        de_verdad = getattr(os, nombre)
+
+        def vigilado(*a, **k):
+            marco, pila, de_mate = sys._getframe(1), [], []
+            desde_mate = os.path.basename(marco.f_code.co_filename) == "mate.py"
+            while marco is not None:
+                pila.append(marco.f_code.co_name)
+                if os.path.basename(marco.f_code.co_filename) == "mate.py" \
+                        and len(de_mate) == len(pila) - 1:
+                    de_mate.append(marco.f_code.co_name)  # (los de mate.py, de un tirón)
+                marco = marco.f_back
+            if de_mate[-1:] == ["escribir_entero"]:
+                desde_mate = False  # (la llamó la prueba, a mano)
+            for ruta in a[:cuantas_rutas]:
+                if desde_mate and str(ruta).lower().endswith(".memoria.json"):
+                    candado = mate._CANDADOS_DE_MEMORIA.get(
+                        mate.clave_de_candado(mate.candado_de(str(ruta))))
+                    if "escribir_memoria" not in pila or candado is None or candado.closed:
+                        faltas.append(f"os.{nombre}({os.path.basename(str(ruta))}) "
+                                      f"desde {' < '.join(pila[:6])}")
+            return de_verdad(*a, **k)
+
+        monkeypatch.setattr(os, nombre, vigilado)
+
+    for nombre, cuantas_rutas in (("replace", 2), ("rename", 2), ("remove", 1),
+                                  ("unlink", 1)):
+        vigilar(nombre, cuantas_rutas)
+    yield
+    assert not faltas, "Mate cambió una memoria sin su candado: " + "; ".join(faltas)
+
+
 def correr(fuente, traza=False):
     salida = []
     interprete = mate.Interprete(salida=salida.append, traza=traza)
@@ -14221,9 +14264,16 @@ def sobres_de(carpeta):
             for p in sorted(carpeta.iterdir()) if p.name.endswith(".json")]
 
 
+def es_un_candado(p):
+    return p.name == "candado" or p.name.endswith(".candado")
+
+
 def todo_lo_que_hay(carpeta):
-    """Cada archivo de la carpeta (y de las de adentro) con su contenido."""
-    return {str(p.relative_to(carpeta)): p.read_bytes()
+    """Cada archivo de la carpeta (y de las de adentro) con su contenido. De un archivo de
+    candado va el tamaño y no el contenido: mientras otro proceso lo tiene tomado, Windows
+    no lo deja leer (PermissionError), y lo que importa es que esté y que siga vacío."""
+    return {str(p.relative_to(carpeta)):
+            ("candado", p.stat().st_size) if es_un_candado(p) else p.read_bytes()
             for p in sorted(carpeta.rglob("*")) if p.is_file()}
 
 
@@ -14838,21 +14888,31 @@ def test_buzon_las_ordenes_de_memoria_conservan_la_parte_del_buzon(tmp_path, cap
     # Las funciones de memoria, directo: None conserva, y sin buzón queda como siempre.
     archivo = str(tmp_path / "x.memoria.json")
     agentes = {"A": {"estado": {"n": 1}, "lecciones": []}}
-    assert mate.guardar_memoria(archivo, "x.mate", agentes) is None
-    sin_buzon = (tmp_path / "x.memoria.json").read_bytes()
-    assert set(json.loads(sin_buzon.decode("utf-8-sig"))) == {"que_es", "agentes"}
-    assert mate.guardar_memoria(archivo, "x.mate", agentes, {
-        "recibidos": ["v/1"], "por_salir": []}) is None
-    assert mate.guardar_memoria(archivo, "x.mate", agentes) is None  # (como 'corregir')
-    assert mate.leer_buzon_de_memoria(archivo)[0] == {"recibidos": ["v/1"], "por_salir": []}
-    assert mate.leer_memoria(archivo)[0] == agentes
-    assert mate.guardar_memoria(archivo, "x.mate", {}) is None  # sin agentes, el buzón sigue
-    assert mate.leer_buzon_de_memoria(archivo)[0]["recibidos"] == ["v/1"]
-    assert mate.guardar_memoria(archivo, "x.mate", agentes, {
-        "recibidos": [], "por_salir": []}) is None
-    assert (tmp_path / "x.memoria.json").read_bytes() == sin_buzon  # idéntica a la de antes
-    assert mate.guardar_memoria(archivo, "x.mate", {}, {}) is None
-    assert not (tmp_path / "x.memoria.json").exists()
+    # (la memoria solo se escribe con su candado tomado: sin él, guardar_memoria se niega)
+    candado = mate.tomar_candado_de_memoria(mate.candado_de(archivo))
+
+    def guardar(agentes, buzon=None):
+        return mate.guardar_memoria(archivo, "x.mate", agentes, buzon, candado=candado)
+
+    try:
+        assert guardar(agentes) is None
+        sin_buzon = (tmp_path / "x.memoria.json").read_bytes()
+        assert set(json.loads(sin_buzon.decode("utf-8-sig"))) == {"que_es", "agentes"}
+        assert guardar(agentes, {
+            "recibidos": ["v/1"], "por_salir": []}) is None
+        assert guardar(agentes) is None  # (como 'corregir')
+        assert mate.leer_buzon_de_memoria(archivo)[0] == {"recibidos": ["v/1"], "por_salir": []}
+        assert mate.leer_memoria(archivo)[0] == agentes
+        assert guardar({}) is None  # sin agentes, el buzón sigue
+        assert mate.leer_buzon_de_memoria(archivo)[0]["recibidos"] == ["v/1"]
+        assert guardar(agentes, {
+            "recibidos": [], "por_salir": []}) is None
+        assert (tmp_path / "x.memoria.json").read_bytes() == sin_buzon  # idéntica a la de antes
+        assert guardar({}, {}) is None
+        assert not (tmp_path / "x.memoria.json").exists()
+    finally:
+        mate.soltar_candado_de_memoria(candado, mate.candado_de(archivo))
+    assert archivos_de(tmp_path) == [n for n in archivos_de(tmp_path) if "x.memoria" not in n]
     # Una parte "buzon" mal armada se toma como vacía, con aviso, y no rompe lo demás.
     (tmp_path / "x.memoria.json").write_text(json.dumps({
         "agentes": agentes, "buzon": "cualquier cosa"}), encoding="utf-8")
@@ -16947,11 +17007,23 @@ prueba "vende la que hay" {
     asegurar largo(mensajes_enviados("Vender")) == 1
 }
 """
-YA_HAY_OTRA_VENTANA = (
-    "ya hay otra ventana abierta con caja.mate. Este programa recuerda cosas de una corrida "
-    "a la otra ('estado recordado'), y con dos ventanas a la vez una pisaría lo que anotó la "
-    "otra. Terminá la charla de la otra ventana (o cerrala) y corré esto de nuevo. Acá no se "
-    "tocó nada: ni la memoria ni el buzón\n")
+def aviso_de_otra_ventana(en_windows):
+    """El aviso completo de la segunda ventana. En Windows lleva una aclaración más: ahí
+    "el candado lo tiene otro" y "esta carpeta de red no da candados" contestan lo mismo."""
+    return (
+        "ya hay otra ventana abierta con caja.mate. Este programa recuerda cosas de una "
+        "corrida a la otra ('estado recordado'), y con dos ventanas a la vez una pisaría lo "
+        "que anotó la otra. Terminá la charla de la otra ventana (o cerrala) y corré esto de "
+        "nuevo. "
+        + ("Si no hay ninguna otra ventana abierta, puede ser que esta carpeta no dé candados "
+           "(pasa en algunas carpetas de red): copiá la carpeta del programa a un disco de "
+           "esta computadora y corrélo desde ahí. " if en_windows else "")
+        + "Acá no se tocó nada: ni la memoria ni el buzón\n")
+
+
+# (el de la computadora donde corren las pruebas: las dos formas se comprueban enteras,
+# en cualquier sistema, en test_el_aviso_de_otra_ventana_entero_en_windows_y_fuera)
+YA_HAY_OTRA_VENTANA = aviso_de_otra_ventana(os.name == "nt")
 
 
 def con_otra_ventana(monkeypatch, primera, en_la_otra):
@@ -17003,14 +17075,19 @@ def test_dos_ventanas_del_mismo_programa_no_venden_la_misma_ultima_unidad(tmp_pa
     assert archivos_de(tmp_path) == ["caja.mate", "caja.memoria.json"]
 
 
-def test_con_una_ventana_abierta_probar_verificar_ensayar_y_corregir_no_se_traban(
+def test_con_una_ventana_abierta_probar_verificar_ensayar_y_lecciones_no_se_traban(
         tmp_path, capsys, monkeypatch):
+    # Lo que solo mira no pide el candado. 'corregir' CAMBIA la memoria: hasta la revisión
+    # externa (E1, antes P181) escribía igual, con la charla abierta, una copia leída
+    # antes; ahora espera su turno (ver las pruebas de E1, más abajo).
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mate, "ESPERA_DE_UNA_ORDEN", 0.2)
     (tmp_path / "caja.mate").write_text(CAJA_CON_MEMORIA, encoding="utf-8")
     (tmp_path / "casos.txt").write_text("pregunta: hola\n", encoding="utf-8")
     ordenes = (["probar", "caja.mate"], ["verificar", "caja.mate"],
                ["ensayar", "caja.mate", "--ia-simulada"], ["buzon", "caja.mate"],
-               ["lecciones", "caja.mate"], ["corregir", "caja.mate", "Caja", "Sé breve"])
+               ["lecciones", "caja.mate"], ["propuestas", "caja.mate"],
+               ["corregir", "caja.mate", "Caja", "Sé breve"])
     sin_nadie = [orden_mate(capsys, *orden) for orden in ordenes[:-1]]
     assert sin_nadie[0][0] == 0 and "1 de 1 pruebas pasaron" in sin_nadie[0][1]
     assert sin_nadie[1] == (0, "caja.mate: sin errores\n", "")
@@ -17024,11 +17101,21 @@ def test_con_una_ventana_abierta_probar_verificar_ensayar_y_corregir_no_se_traba
     con_otra_ventana(monkeypatch, ["v", "OTRA VENTANA", "chau"], otra_ventana)
     assert orden_mate(capsys, "correr", "caja.mate") == (0, "Vendido. Quedan 0.\n", "")
     assert con_ventana[:-1] == sin_nadie  # igual que sin ninguna ventana abierta
-    assert con_ventana[-1][0] == 0 and "otra ventana" not in "".join(map(str, con_ventana))
-    # y lo que anotó 'corregir' desde la otra ventana no se pierde al cerrar la charla
+    assert "otra ventana" not in "".join(map(str, con_ventana[:-1]))
+    # 'corregir' no anotó nada mientras la caja estaba abierta: avisó, y código distinto de 0
+    codigo, salida, err = con_ventana[-1]
+    assert (codigo, salida) == (2, "")
+    assert err.startswith("no anoté la lección: caja.mate está abierto en otra ventana")
+    assert "Cerrá la otra ventana y probá de nuevo" in err and "Acá no se tocó nada" in err
+    ficha = memoria_de(tmp_path, "caja")["agentes"]["Caja"]
+    assert ficha == {"estado": {"stock": 0, "ventas": 1}, "lecciones": []}
+    # ...y con la charla ya cerrada, sí: sin perder la venta
+    codigo, salida, err = orden_mate(capsys, *ordenes[-1])
+    assert (codigo, err) == (0, "") and salida.startswith("Anotado. Caja tiene 1 lección(es):")
     ficha = memoria_de(tmp_path, "caja")["agentes"]["Caja"]
     assert ficha["estado"] == {"stock": 0, "ventas": 1}
     assert [leccion["texto"] for leccion in ficha["lecciones"]] == ["Sé breve"]
+    assert archivos_de(tmp_path) == ["caja.mate", "caja.memoria.json", "casos.txt"]
 
 
 def test_un_programa_sin_estado_recordado_no_usa_el_candado_de_la_memoria(tmp_path, capsys,
@@ -17144,22 +17231,41 @@ def test_buzon_dos_arranques_a_la_vez_no_pisan_la_memoria_ni_reparten_dos_veces(
         tmp_path, capsys, monkeypatch):
     carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_SIN_ESTADO)
     memoria_con_por_salir(tmp_path, 3)
+    monkeypatch.setattr(mate, "ESPERA_DE_UNA_ORDEN", 0.2)
     dejar_de_verdad, pasos, segundo = mate.Buzon.dejar, [], {}
+    tomar_de_verdad, tomas = mate.tomar_candado_de_memoria, []
+
+    def tomar(ruta, espera=0.0):
+        tomas.append(espera)
+        if len(tomas) == 2:
+            # El primer arranque ya leyó la memoria (con el candado, y lo soltó) y va a
+            # tomarlo de nuevo para recuperar lo "por salir": justo ahí, desde otra ventana,
+            # se anota una lección. ('corregir' toma el candado, y lo consigue: está libre.)
+            antes = capsys.readouterr()
+            assert mate.main(["corregir", "ventas.mate", "Ventas", "Sé breve"]) == 0
+            capsys.readouterr()
+            sys.stdout.write(antes.out)
+            sys.stderr.write(antes.err)
+        return tomar_de_verdad(ruta, espera)
 
     def dejar(self, carpeta, sobre):
         pasos.append(sobre["id"])
         if len(pasos) == 1:
-            # Con el primer arranque a mitad de la recuperación: desde otra ventana se anota
-            # una lección, y arranca OTRA corrida del mismo programa.
+            # Con el primer arranque a mitad de la recuperación (tiene el candado): otro
+            # 'corregir' no escribe (espera su turno, avisa y no toca nada), y arranca OTRA
+            # corrida del mismo programa.
             antes = capsys.readouterr()
-            assert mate.main(["corregir", "ventas.mate", "Ventas", "Sé breve"]) == 0
-            capsys.readouterr()
+            como_estaba = (tmp_path / "ventas.memoria.json").read_bytes()
+            assert mate.main(["corregir", "ventas.mate", "Ventas", "Otra cosa"]) == 2
+            assert "Cerrá la otra ventana y probá de nuevo" in capsys.readouterr().err
+            assert (tmp_path / "ventas.memoria.json").read_bytes() == como_estaba
             segundo["codigo"] = mate.main(["correr", "ventas.mate"])
             segundo["salida"] = capsys.readouterr()
             sys.stdout.write(antes.out)
             sys.stderr.write(antes.err)
         return dejar_de_verdad(self, carpeta, sobre)
 
+    monkeypatch.setattr(mate, "tomar_candado_de_memoria", tomar)
     monkeypatch.setattr(mate.Buzon, "dejar", dejar)
     codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
     assert (codigo, err) == (0, "") and salida == (
@@ -18038,7 +18144,8 @@ def test_buzon_si_el_candado_falla_recien_al_terminar_no_se_escribe_nada_y_se_di
         m.setattr(mate, "tomar_candado_de_memoria", anda_solo_al_arrancar)
         m.setattr(mate.Buzon, "dejar", lambda self, carpeta, sobre: None)  # (los 2 de antes salen)
         codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
-    assert pedidos == [0, 2, 10]
+    # (al arrancar, para leer la memoria con el candado tomado; para recuperar; y al final)
+    assert pedidos == [2, 2, 10]
     assert codigo == 1
     # (lo único que salió es lo de antes, y se cuenta; lo de esta corrida, no)
     assert salida == ("Buzón: dejé 2 mensajes para deposito.mate; le llegan la próxima vez "
@@ -18064,7 +18171,8 @@ def test_buzon_si_otra_corrida_no_suelta_el_candado_no_se_escribe_nada_y_se_dice
     monkeypatch.setattr(mate, "tomar_candado_de_memoria",
                         lambda ruta, espera=0.0: esperas.append(espera))  # (devuelve None)
     codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
-    assert (codigo, salida) == (1, "") and esperas == [0, 10]
+    # (al arrancar espera 2 segundos para leer la memoria con el candado tomado; al final, 10)
+    assert (codigo, salida) == (1, "") and esperas == [2, 10]
     assert not (tmp_path / "deposito.buzon").exists()
     assert not (tmp_path / "ventas.memoria.json").exists()  # nada escrito sin candado
     assert err == ("error: otra ventana de ventas.mate tiene tomado el candado de la memoria "
@@ -18339,8 +18447,931 @@ def test_el_manual_dice_lo_de_la_vuelta_2_de_la_revision_externa():
     assert "una puede pisar lo que anotó la otra" not in buzon
     assert "Mate solo lo borra si es la corrida que lo tiene tomado" in memoria
     assert "uno que les envía mensajes a otros programas (`usar buzon`) tampoco" in limites
-    assert "`corregir`, aprobar una propuesta) no toman el candado" in limites
+    # (cuarta pasada, E1: ese límite dejó de valer; ahora toman el candado y releen)
+    assert "no toman el candado" not in leeme and "pueden pisarse una lección" not in leeme
+    assert "también toman el candado y leen la memoria de nuevo antes de escribir" in limites
     assert "no caduca solo" in limites
     # el buzón: lo de Windows dicho como es, y los provisorios viejos
     assert "En Windows el sistema no deja pedir" in buzon and "no se probó en una Windows de verdad" in buzon
     assert "Mate lo borra solo cuando tiene más de un día" in buzon
+
+
+# ───── Revisión externa, cuarta pasada (E1 a E5): UN SOLO LUGAR ESCRIBE LA MEMORIA ─────
+# Decisión del coordinador. Todo cambio del archivo <programa>.memoria.json (escribirlo,
+# sacarlo, dejarlo aparte como .memoria.rota.json) pasa por mate.escribir_memoria, que se
+# niega si este proceso no tiene tomado el candado de esa memoria. Y todo cambio es: tomar
+# el candado, LEER DE NUEVO, cambiar eso, escribir, soltar. La guardia de arriba
+# (la_memoria_solo_se_cambia_con_su_candado) lo mira en cada prueba de la batería.
+LUGARES_QUE_ESCRIBEN_LA_MEMORIA = {"guardar_memoria", "apartar_la_rota"}
+CAMBIAN_ARCHIVOS = {"os.replace", "os.rename", "os.renames", "os.remove", "os.unlink",
+                    "os.rmdir", "os.truncate", "os.open", "os.link", "os.symlink",
+                    "shutil.move", "shutil.copy", "shutil.copyfile", "shutil.copy2",
+                    "shutil.rmtree", "open", "io.open", "abrir_provisorio", "escribir_entero"}
+
+
+def faltas_al_escribir_la_memoria(fuente):
+    """Recorre el código de mate.py y devuelve lo que rompe la regla (una lista de textos):
+    - llamar a escribir_memoria desde otro lado que guardar_memoria o el que aparta la rota;
+    - llamar a guardar_memoria sin pasarle el candado;
+    - abrir para escribir, reemplazar, renombrar o borrar algo que se llame como una
+      memoria (la variable o el texto dicen "memoria", y no es el candado) fuera de
+      escribir_memoria;
+    - tocar el registro de candados tomados fuera de tomar/soltar/tengo_el_candado."""
+    import ast
+    faltas = []
+
+    def nombre_de(funcion):
+        if isinstance(funcion, ast.Name):
+            return funcion.id
+        if isinstance(funcion, ast.Attribute):
+            return f"{nombre_de(funcion.value)}.{funcion.attr}"
+        return ""
+
+    def habla_de_la_memoria(nodo):
+        texto = (ast.get_source_segment(fuente, nodo) or "").lower()
+        return "memoria" in texto and "candado" not in texto
+
+    def recorrer(nodo, adentro):
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            adentro = adentro + [nodo.name]
+        donde = f"renglón {getattr(nodo, 'lineno', '?')}, en {'.'.join(adentro) or 'el módulo'}"
+        if isinstance(nodo, ast.Call):
+            nombre = nombre_de(nodo.func)
+            if nombre == "escribir_memoria" and (
+                    not adentro or adentro[-1] not in LUGARES_QUE_ESCRIBEN_LA_MEMORIA):
+                faltas.append(f"{donde}: llama a escribir_memoria")
+            if nombre == "guardar_memoria" and not any(
+                    k.arg == "candado" for k in nodo.keywords):
+                faltas.append(f"{donde}: llama a guardar_memoria sin el candado")
+            if nombre in CAMBIAN_ARCHIVOS and "escribir_memoria" not in adentro:
+                argumentos = list(nodo.args) + [k.value for k in nodo.keywords]
+                solo_lee = nombre in ("open", "io.open") and (
+                    len(nodo.args) < 2 or (isinstance(nodo.args[1], ast.Constant)
+                                           and nodo.args[1].value in ("r", "rb")))
+                if not solo_lee and any(habla_de_la_memoria(a) for a in argumentos):
+                    faltas.append(f"{donde}: {nombre}() sobre un archivo de memoria")
+        if isinstance(nodo, ast.Name) and nodo.id == "_CANDADOS_DE_MEMORIA" and (
+                adentro[-1:] not in (["tomar_candado_de_memoria"], ["tengo_el_candado"],
+                                     ["soltar_candado_de_memoria"], [])):
+            faltas.append(f"{donde}: toca el registro de candados tomados")
+        for hijo in ast.iter_child_nodes(nodo):
+            recorrer(hijo, adentro)
+
+    recorrer(ast.parse(fuente), [])
+    return faltas
+
+
+def test_en_mate_py_la_memoria_se_escribe_en_un_solo_lugar_y_con_candado():
+    fuente = (RAIZ / "mate.py").read_text(encoding="utf-8")
+    assert faltas_al_escribir_la_memoria(fuente) == []
+    # ...y la función está, se niega sin candado y es la que usan los dos que la llaman
+    assert "def escribir_memoria(ruta, candado, texto=None, mover_a=None):" in fuente
+    assert fuente.count("escribir_memoria(") >= 5
+    # El recorrido encuentra de verdad lo que busca: así estaban escritos los caminos que
+    # encontró el revisor externo (E1 y E2), y uno inventado de cada clase.
+    for malo, dice_que in (
+            ("def corregir(archivo, programa, memoria):\n"
+             "    return guardar_memoria(archivo, programa, memoria)\n",
+             "llama a guardar_memoria sin el candado"),
+            ("def correr(archivo_memoria, rota):\n    os.replace(archivo_memoria, rota)\n",
+             "os.replace() sobre un archivo de memoria"),
+            ("def f(ruta):\n    escribir_entero(archivo_de(ruta, 'memoria.json'), '{}')\n",
+             "escribir_entero() sobre un archivo de memoria"),
+            ("def f(archivo_memoria):\n    with open(archivo_memoria, 'w') as f:\n"
+             "        f.write('{}')\n", "open() sobre un archivo de memoria"),
+            ("def f(memoria):\n    os.remove(memoria)\n",
+             "os.remove() sobre un archivo de memoria"),
+            ("def f(ruta, candado):\n    escribir_memoria(ruta, candado, '{}')\n",
+             "llama a escribir_memoria"),
+            ("def f(clave):\n    _CANDADOS_DE_MEMORIA[clave] = open(os.devnull)\n",
+             "toca el registro de candados tomados")):
+        (falta,) = faltas_al_escribir_la_memoria(malo)
+        assert falta.endswith(dice_que), falta
+    # (leer no es escribir: esto no es una falta)
+    assert faltas_al_escribir_la_memoria(
+        "def f(archivo_memoria):\n    return open(archivo_memoria, 'rb').read()\n") == []
+
+
+def test_escribir_la_memoria_sin_su_candado_se_rechaza_y_no_toca_nada(tmp_path):
+    archivo = str(tmp_path / "caja.memoria.json")
+    agentes = {"Caja": {"estado": {"stock": 1}, "lecciones": []}}
+    (tmp_path / "caja.memoria.json").write_text('{"agentes": {}}', encoding="utf-8")
+    antes = todo_lo_que_hay(tmp_path)
+
+    def rechazadas(candado):
+        for intento in (lambda: mate.guardar_memoria(archivo, "caja.mate", agentes),
+                        lambda: mate.guardar_memoria(archivo, "caja.mate", agentes,
+                                                     candado=candado),
+                        lambda: mate.guardar_memoria(archivo, "caja.mate", {}, {},
+                                                     candado=candado),  # (borrarla)
+                        lambda: mate.escribir_memoria(archivo, candado, "{}"),
+                        lambda: mate.escribir_memoria(archivo, candado),
+                        lambda: mate.escribir_memoria(
+                            archivo, candado, mover_a=str(tmp_path / "caja.memoria.rota.json"))):
+            with pytest.raises(mate.MemoriaSinCandado) as e:
+                intento()
+            assert "sin tener tomado su candado (caja.memoria.candado)" in str(e.value)
+            assert todo_lo_que_hay(tmp_path) == antes  # ni la memoria, ni un provisorio
+
+    rechazadas(None)
+    # el candado de OTRA memoria no sirve, ni cualquier archivo abierto
+    ajeno = mate.tomar_candado_de_memoria(str(tmp_path / "otro.memoria.candado"))
+    try:
+        antes = todo_lo_que_hay(tmp_path)
+        rechazadas(ajeno)
+        with open(tmp_path / "caja.memoria.candado", "wb") as cualquiera:
+            antes = todo_lo_que_hay(tmp_path)
+            rechazadas(cualquiera)
+    finally:
+        mate.soltar_candado_de_memoria(ajeno, str(tmp_path / "otro.memoria.candado"))
+    (tmp_path / "caja.memoria.candado").unlink()
+    # con el suyo tomado, sí; y una vez soltado, ya no
+    antes = todo_lo_que_hay(tmp_path)
+    candado = mate.tomar_candado_de_memoria(mate.candado_de(archivo))
+    assert mate.tengo_el_candado(archivo, candado)
+    try:
+        assert mate.guardar_memoria(archivo, "caja.mate", agentes, candado=candado) is None
+    finally:
+        mate.soltar_candado_de_memoria(candado, mate.candado_de(archivo))
+    assert mate.leer_memoria(archivo)[0] == agentes
+    assert not mate.tengo_el_candado(archivo, candado) and not mate._CANDADOS_DE_MEMORIA
+    antes = todo_lo_que_hay(tmp_path)
+    rechazadas(candado)
+    assert mate.candado_de("x/caja.memoria.json") == "x/caja.memoria.candado"
+    assert mate.candado_de(mate.archivo_de("caja.mate", "memoria.json")) == mate.archivo_de(
+        "caja.mate", "memoria.candado")
+
+
+def tomas_del_candado(monkeypatch, tope=None):
+    """Anota cada pedido del candado de la memoria (cuánto se pidió esperar). Con 'tope',
+    ninguno espera de verdad más que eso (para no tener una prueba 10 segundos parada)."""
+    de_verdad, esperas = mate.tomar_candado_de_memoria, []
+
+    def tomar(ruta, espera=0.0):
+        esperas.append(espera)
+        return de_verdad(ruta, espera if tope is None else min(espera, tope))
+
+    monkeypatch.setattr(mate, "tomar_candado_de_memoria", tomar)
+    return esperas
+
+
+TOMAR_EL_CANDADO_DE_VERDAD = mate.tomar_candado_de_memoria  # (las pruebas lo espían)
+
+
+class OtraCorridaConElCandado:
+    """Como otra corrida del programa (dentro de este mismo Python) que tiene tomado el
+    candado de su memoria: 'with OtraCorridaConElCandado(tmp_path / "caja.memoria.candado")'."""
+    def __init__(self, ruta):
+        self.ruta = str(ruta)
+
+    def __enter__(self):
+        self.candado = TOMAR_EL_CANDADO_DE_VERDAD(self.ruta)
+        assert self.candado is not None
+        return self
+
+    def __exit__(self, *_a):
+        mate.soltar_candado_de_memoria(self.candado, self.ruta)
+
+
+TIENE_EL_CANDADO_PY = """\
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+import mate
+candado = mate.tomar_candado_de_memoria(sys.argv[2])
+assert candado is not None
+open("tomado", "w").close()
+for _ in range(3000):
+    if os.path.exists("soltar"):
+        break
+    time.sleep(0.02)
+mate.soltar_candado_de_memoria(candado, sys.argv[2])
+"""
+
+
+def otro_proceso_con_el_candado(tmp_path, candado):
+    """Un proceso de verdad que toma ese candado y lo tiene hasta que aparece 'soltar'."""
+    proceso = subprocess.Popen(
+        [sys.executable, "-c", TIENE_EL_CANDADO_PY, str(RAIZ), candado], cwd=str(tmp_path),
+        env={**os.environ, "MATE_SIN_REGISTRO": "1"}, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True)
+    esperar_bz(tmp_path / "tomado")
+    return proceso
+
+
+def que_suelte(tmp_path, proceso):
+    (tmp_path / "soltar").write_text("", encoding="utf-8")
+    _, err = proceso.communicate(timeout=60)
+    assert (proceso.returncode, err) == (0, "")
+    (tmp_path / "soltar").unlink()
+    (tmp_path / "tomado").unlink()
+
+
+# E1 (alta; era P181). 'corregir', 'lecciones --borrar', 'proponer' y aprobar o descartar
+# propuestas leían la memoria y más tarde escribían esa copia: si en el medio la caja vendía
+# y guardaba stock 0, la orden le devolvía la unidad y la caja la vendía otra vez.
+CAJA_QUE_VENDE_UNA = CAJA_CON_MEMORIA.split("var seguir")[0] + (
+    "enviar Vender { cantidad: 1 } a Caja\n")
+ORDENES_QUE_CAMBIAN_LA_MEMORIA = [
+    ["corregir", "caja.mate", "Caja", "Sé breve"],
+    ["lecciones", "caja.mate", "Caja", "--borrar=1"],
+    ["proponer", "caja.mate", "Caja", "Fue seco"],
+    ["propuestas", "caja.mate", "aprobar", "1"],
+    ["propuestas", "caja.mate", "descartar", "1"]]
+
+
+def caja_con_una_unidad(tmp_path, monkeypatch):
+    import json
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mate, "ESPERA_DE_UNA_ORDEN", 0.2)
+    (tmp_path / "caja.mate").write_text(CAJA_QUE_VENDE_UNA, encoding="utf-8")
+    (tmp_path / "caja.memoria.json").write_text(json.dumps({"agentes": {"Caja": {
+        "estado": {"stock": 1, "ventas": 0},
+        "lecciones": [{"fecha": "", "texto": "La de antes"}],
+        "propuestas": [{"fecha": "", "texto": "Una propuesta", "motivo": ""}]}}}),
+        encoding="utf-8")
+
+
+def lo_que_hizo_la_orden(orden, ficha):
+    """Que la orden hizo lo suyo, mirando lo que quedó guardado."""
+    lecciones = [leccion["texto"] for leccion in ficha["lecciones"]]
+    propuestas = [propuesta["texto"] for propuesta in ficha.get("propuestas", [])]
+    if orden[0] == "corregir":
+        assert lecciones == ["La de antes", "Sé breve"] and propuestas == ["Una propuesta"]
+    elif orden[0] == "lecciones":
+        assert lecciones == [] and propuestas == ["Una propuesta"]
+    elif orden[0] == "proponer":
+        assert lecciones == ["La de antes"] and len(propuestas) == 2
+    elif orden[2] == "aprobar":
+        assert lecciones == ["La de antes", "Una propuesta"] and propuestas == []
+    else:
+        assert lecciones == ["La de antes"] and propuestas == []
+
+
+@pytest.mark.parametrize("orden", ORDENES_QUE_CAMBIAN_LA_MEMORIA,
+                         ids=lambda orden: "_".join(orden[:1] + orden[2:3]))
+def test_una_orden_que_cambia_la_memoria_no_revierte_la_venta_que_se_hizo_en_el_medio(
+        orden, tmp_path, capsys, monkeypatch):
+    # El orden que forzó el revisor externo en Windows: la orden lee la memoria, la caja
+    # vende y guarda stock 0, y recién entonces la orden escribe. Antes escribía la copia
+    # vieja (stock 1) y, al reabrir, la caja volvía a vender la unidad ya vendida.
+    caja_con_una_unidad(tmp_path, monkeypatch)
+    leer_de_verdad, venta = mate.leer_memoria, {}
+
+    def leer(ruta):
+        leido = leer_de_verdad(ruta)
+        if not venta:  # la orden ya leyó: ahora, en otra ventana, la caja vende y cierra
+            venta["hecha"] = True
+            antes = capsys.readouterr()
+            venta["codigo"] = mate.main(["correr", "caja.mate"])
+            venta["salida"] = capsys.readouterr()
+            sys.stdout.write(antes.out)
+            sys.stderr.write(antes.err)
+        return leido
+
+    monkeypatch.setattr(mate, "leer_memoria", leer)
+    codigo, salida, err = orden_mate(capsys, *orden)
+    monkeypatch.setattr(mate, "leer_memoria", leer_de_verdad)
+    assert (codigo, err) == (0, ""), err
+    assert venta["codigo"] == 0
+    assert (venta["salida"].out, venta["salida"].err) == ("Vendido. Quedan 0.\n", "")
+    ficha = memoria_de(tmp_path, "caja")["agentes"]["Caja"]
+    assert ficha["estado"] == {"stock": 0, "ventas": 1}  # la venta sigue hecha
+    lo_que_hizo_la_orden(orden, ficha)
+    # ...y al reabrir, la caja NO vuelve a vender la unidad
+    assert orden_mate(capsys, "correr", "caja.mate") == (0, "No hay stock.\n", "")
+    assert memoria_de(tmp_path, "caja")["agentes"]["Caja"]["estado"] == {
+        "stock": 0, "ventas": 1}
+    assert archivos_de(tmp_path) == ["caja.mate", "caja.memoria.json"]
+
+
+@pytest.mark.parametrize("orden", ORDENES_QUE_CAMBIAN_LA_MEMORIA,
+                         ids=lambda orden: "_".join(orden[:1] + orden[2:3]))
+def test_una_orden_que_cambia_la_memoria_toma_el_candado_relee_y_recien_ahi_escribe(
+        orden, tmp_path, capsys, monkeypatch):
+    # Lo que la orden guarda sale de lo que leyó CON el candado ya tomado: mientras lo
+    # tiene, la caja no puede abrir (ni vender) en el medio.
+    caja_con_una_unidad(tmp_path, monkeypatch)
+    esperas = tomas_del_candado(monkeypatch)
+    leer_de_verdad, guardar_de_verdad, pasos = mate.leer_memoria, mate.guardar_memoria, []
+
+    def tengo():
+        return mate.clave_de_candado(str(tmp_path / "caja.memoria.candado")) \
+            in mate._CANDADOS_DE_MEMORIA
+
+    def leer(ruta):
+        pasos.append(("leer", tengo()))
+        return leer_de_verdad(ruta)
+
+    def guardar(ruta, programa, agentes, buzon=None, candado=None):
+        pasos.append(("guardar", tengo()))
+        # con la orden a punto de escribir, la caja quiere abrir en otra ventana: no puede
+        antes = capsys.readouterr()
+        assert mate.main(["correr", "caja.mate"]) == 2
+        assert capsys.readouterr().err == YA_HAY_OTRA_VENTANA
+        sys.stdout.write(antes.out)
+        return guardar_de_verdad(ruta, programa, agentes, buzon, candado=candado)
+
+    monkeypatch.setattr(mate, "leer_memoria", leer)
+    monkeypatch.setattr(mate, "guardar_memoria", guardar)
+    codigo, salida, err = orden_mate(capsys, *orden)
+    assert (codigo, err) == (0, "")
+    assert esperas[0] == 0.2  # pidió el candado, esperando un poco
+    assert pasos[-2:] == [("leer", True), ("guardar", True)]  # releyó con él, y escribió
+    assert pasos.count(("guardar", True)) == 1 and ("guardar", False) not in pasos
+    ficha = memoria_de(tmp_path, "caja")["agentes"]["Caja"]
+    assert ficha["estado"] == {"stock": 1, "ventas": 0}
+    lo_que_hizo_la_orden(orden, ficha)
+    assert archivos_de(tmp_path) == ["caja.mate", "caja.memoria.json"]  # soltó el candado
+
+
+@pytest.mark.parametrize("orden", ORDENES_QUE_CAMBIAN_LA_MEMORIA,
+                         ids=lambda orden: "_".join(orden[:1] + orden[2:3]))
+def test_con_la_caja_abierta_una_orden_que_cambia_la_memoria_espera_avisa_y_no_toca_nada(
+        orden, tmp_path, capsys, monkeypatch, ia):
+    # (con clave para la IA: 'proponer' no llega a gastar una consulta si no va a poder anotar)
+    caja_con_una_unidad(tmp_path, monkeypatch)
+    esperas = tomas_del_candado(monkeypatch)
+    antes = todo_lo_que_hay(tmp_path)
+    with OtraCorridaConElCandado(tmp_path / "caja.memoria.candado"):
+        codigo, salida, err = orden_mate(capsys, *orden)
+        assert todo_lo_que_hay(tmp_path) == {**antes, "caja.memoria.candado": ("candado", 0)}
+    assert (codigo, salida) == (2, "") and esperas == [0.2]  # esperó un poco, una vez
+    assert "caja.mate está abierto en otra ventana" in err and err.count("\n") == 1
+    assert "Cerrá la otra ventana y probá de nuevo." in err and "Acá no se tocó nada" in err
+    assert ia.pedidos == []
+    assert todo_lo_que_hay(tmp_path) == antes
+    # Lo que solo mira, se puede siempre.
+    with OtraCorridaConElCandado(tmp_path / "caja.memoria.candado"):
+        for mirar in (["lecciones", "caja.mate"], ["propuestas", "caja.mate"]):
+            codigo, salida, err = orden_mate(capsys, *mirar)
+            assert (codigo, err) == (0, "") and "La de antes" in salida + "La de antes"
+    # Donde el sistema no da candados tampoco se escribe, y se dice por qué.
+    with monkeypatch.context() as m:
+        sin_candados_del_sistema(m)
+        codigo, salida, err = orden_mate(capsys, *orden)
+    assert (codigo, salida) == (2, "")
+    assert "no pude tomar el candado de caja.mate (caja.memoria.candado)" in err
+    assert "Sin candado no cambio la memoria de caja.mate" in err
+    (tmp_path / "caja.memoria.candado").unlink()  # (queda vacío: ver la prueba del candado)
+    assert todo_lo_que_hay(tmp_path) == antes
+
+
+def test_la_caja_abre_aunque_justo_una_orden_tenga_el_candado_un_instante(tmp_path, capsys,
+                                                                          monkeypatch):
+    # 'corregir' y las demás órdenes ahora toman el candado un instante, mientras leen y
+    # escriben. Una caja que abre justo ahí espera un momento, en vez de decir "ya hay otra
+    # ventana" (eso es para otra caja, que lo tiene toda la charla).
+    import threading
+    caja_con_una_unidad(tmp_path, monkeypatch)
+    ruta = str(tmp_path / "caja.memoria.candado")
+    candado = mate.tomar_candado_de_memoria(ruta)
+    reloj = threading.Timer(0.1, mate.soltar_candado_de_memoria, (candado, ruta))
+    reloj.start()
+    try:
+        assert orden_mate(capsys, "correr", "caja.mate") == (0, "Vendido. Quedan 0.\n", "")
+    finally:
+        reloj.join()
+    assert memoria_de(tmp_path, "caja")["agentes"]["Caja"]["estado"] == {
+        "stock": 0, "ventas": 1}
+    assert archivos_de(tmp_path) == ["caja.mate", "caja.memoria.json"]
+
+
+def test_con_la_caja_abierta_en_otro_proceso_corregir_no_escribe_y_despues_si(tmp_path,
+                                                                             monkeypatch):
+    # Con procesos de verdad: una caja abierta (tiene el candado toda la charla), y
+    # 'corregir' desde otra ventana.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "caja.mate").write_text(CAJA_QUE_SE_TRABA, encoding="utf-8")
+    (tmp_path / "traba.py").write_text(TRABA_PY, encoding="utf-8")
+    (tmp_path / "trabar").write_text("", encoding="utf-8")
+    caja = lanzar_bz(tmp_path, "correr", "caja.mate")
+    esperar_bz(tmp_path / "atendiendo")  # ya vendió, y sigue abierta
+    codigo, salida, err = correr_bz(tmp_path, "corregir", "caja.mate", "Caja", "Sé breve")
+    assert (codigo, salida) == (2, "")
+    assert err.startswith("no anoté la lección: caja.mate está abierto en otra ventana")
+    assert "Cerrá la otra ventana y probá de nuevo." in err
+    assert not (tmp_path / "caja.memoria.json").exists()  # no escribió nada
+    assert correr_bz(tmp_path, "lecciones", "caja.mate")[0] == 0  # mirar, se puede
+    (tmp_path / "trabar").unlink()
+    assert terminar_bz(caja) == (0, "Vendido. Quedan 0.\n", "")
+    codigo, salida, err = correr_bz(tmp_path, "corregir", "caja.mate", "Caja", "Sé breve")
+    assert (codigo, err) == (0, "") and salida.startswith("Anotado.")
+    ficha = memoria_de(tmp_path, "caja")["agentes"]["Caja"]
+    assert ficha["estado"] == {"stock": 0, "ventas": 1}
+    assert [leccion["texto"] for leccion in ficha["lecciones"]] == ["Sé breve"]
+    assert correr_bz(tmp_path, "correr", "caja.mate") == (0, "No hay stock.\n", "")
+    assert not (tmp_path / "caja.memoria.candado").exists()
+
+
+def test_ensayar_deja_sus_propuestas_con_el_candado_y_sin_el_no_escribe(tmp_path, capsys,
+                                                                        monkeypatch, ia):
+    para_ensayar(tmp_path, monkeypatch)
+    monkeypatch.setattr(mate, "ESPERA_DE_UNA_ORDEN", 0.2)
+    esperas = tomas_del_candado(monkeypatch)
+
+    def ensayar():
+        ia.respuestas = [dice("Sí, tenemos café."), dice("No, eso no lo trabajamos.")]
+        return orden_mate(capsys, "ensayar", "m.mate", "casos.txt")
+
+    with OtraCorridaConElCandado(tmp_path / "m.memoria.candado"):
+        codigo, salida, err = ensayar()
+    assert codigo == 1 and "\n2 de 3 casos pasaron." in salida
+    assert "lección(es) propuesta(s)" not in salida
+    assert err.startswith("aviso: no dejé las lecciones propuestas: m.mate está abierto en "
+                          "otra ventana")
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate"] and esperas == [0.2]
+    codigo, salida, err = ensayar()  # con el candado libre: lo toma, relee, anota y lo suelta
+    assert (codigo, err) == (1, "") and "quedó 1 lección(es) propuesta(s)" in salida
+    assert len(memoria_de(tmp_path, "m")["agentes"]["Mostrador"]["propuestas"]) == 1
+    assert archivos_de(tmp_path) == ["casos.txt", "m.mate", "m.memoria.json"]
+    assert esperas == [0.2, 0.2]
+
+
+# E2 (media). 'correr' también escribía la memoria sin pedir el candado: al cerrar un
+# programa sin 'estado recordado' que aprende, con --olvidar sobre una memoria inválida (la
+# movía a .memoria.rota.json) y al anotar la cuenta de consultas a la IA.
+APRENDE_SIN_ESTADO = APRENDIZ + 'enviar Novedad { texto: "Los lunes no hay pan" } a Mostrador\n'
+
+
+def test_un_programa_sin_estado_que_aprende_guarda_con_el_candado_y_sobre_lo_releido(
+        tmp_path, capsys, monkeypatch):
+    # (el primer programa mínimo del revisor: sin estado recordado ni 'usar buzon', llama a
+    # aprender(), crea su memoria y salía con 0 sin un solo intento de tomar el candado)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mate, "ESPERA_DE_UNA_ORDEN", 0.2)
+    esperas = tomas_del_candado(monkeypatch)
+    codigo, salida, err = por_main(tmp_path, capsys, APRENDE_SIN_ESTADO)
+    assert (codigo, salida, err) == (0, "", "")
+    assert esperas == [10]  # una sola toma, al momento de escribir (no toda la corrida)
+    lecciones = memoria_de(tmp_path)["agentes"]["Mostrador"]["lecciones"]
+    assert [leccion["texto"] for leccion in lecciones] == ["Los lunes no hay pan"]
+    assert "programa.memoria.candado" not in archivos_de(tmp_path)
+    # Se guarda sobre lo que el archivo dice en ESE momento, leído con el candado tomado:
+    # justo antes de que esta corrida lo tome para guardar, otra ventana anota una lección.
+    de_verdad = mate.tomar_candado_de_memoria
+
+    def tomar(ruta, espera=0.0):
+        if espera == 10:
+            monkeypatch.setattr(mate, "tomar_candado_de_memoria", de_verdad)
+            antes = capsys.readouterr()
+            assert mate.main(["corregir", str(tmp_path / "programa.mate"), "Mostrador",
+                              "Tratá de usted"]) == 0
+            capsys.readouterr()
+            sys.stdout.write(antes.out)
+        return de_verdad(ruta, espera)
+
+    monkeypatch.setattr(mate, "tomar_candado_de_memoria", tomar)
+    programa = APRENDIZ + 'enviar Novedad { texto: "Los martes sí" } a Mostrador\n'
+    assert por_main(tmp_path, capsys, programa) == (0, "", "")
+    lecciones = memoria_de(tmp_path)["agentes"]["Mostrador"]["lecciones"]
+    assert [leccion["texto"] for leccion in lecciones] == [
+        "Los lunes no hay pan", "Tratá de usted", "Los martes sí"]
+    assert "programa.memoria.candado" not in archivos_de(tmp_path)
+
+
+def test_un_programa_sin_estado_que_aprende_no_escribe_si_no_puede_tomar_el_candado(
+        tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    esperas = tomas_del_candado(monkeypatch, tope=0.2)
+    # Lo tiene otra corrida y no lo suelta: no se escribe, se dice, y el código no es 0.
+    with OtraCorridaConElCandado(tmp_path / "programa.memoria.candado"):
+        codigo, salida, err = por_main(tmp_path, capsys, APRENDE_SIN_ESTADO)
+    assert (codigo, salida) == (1, "") and esperas == [10]
+    assert err == (
+        "error: otra ventana de programa.mate tiene tomado el candado de la memoria y no lo "
+        "soltó en 10 segundos. Sin candado no escribo la memoria, así que lo que los "
+        "agentes de programa.mate anotaron en esta corrida (lo que aprendieron y la cuenta "
+        "de consultas a la IA) NO se guardó en programa.memoria.json: no va a estar en la "
+        "próxima. Fijate si quedó otra ventana de programa.mate colgada, cerrala y corré "
+        "esto de nuevo\n")
+    assert archivos_de(tmp_path) == ["programa.mate"]
+    # Acá no se puede tener un candado (el sistema no los da, o no se puede crear): igual.
+    for como in ("ENOLCK", "no se puede crear"):
+        with monkeypatch.context() as m:
+            if como == "ENOLCK":
+                sin_candados_del_sistema(m)
+            else:
+                carpeta_de_solo_lectura_para(m, "programa.memoria.candado")
+            codigo, salida, err = por_main(tmp_path, capsys, APRENDE_SIN_ESTADO)
+        assert (codigo, salida) == (1, "") and err.startswith("error: no pude ")
+        assert "Sin candado no escribo la memoria" in err and err.count("\n") == 1
+        assert not (tmp_path / "programa.memoria.json").exists()
+        if como == "ENOLCK":  # (queda el archivo del candado, vacío: no se sabe de quién es)
+            (tmp_path / "programa.memoria.candado").unlink()
+    # Y con el candado libre, la corrida siguiente guarda como siempre.
+    assert por_main(tmp_path, capsys, APRENDE_SIN_ESTADO) == (0, "", "")
+    assert archivos_de(tmp_path) == ["programa.mate", "programa.memoria.json"]
+
+
+MEMORIA_INVALIDA = ('{"agentes": {"Mostrador": {"estado": {"atendidos": 2,}, '
+                    '"lecciones": [{"fecha":"x","texto":"valiosa"}]}}}')
+
+
+def test_olvidar_aparta_la_memoria_invalida_con_el_candado_tomado(tmp_path, capsys,
+                                                                  monkeypatch):
+    # (el segundo programa mínimo del revisor: --olvidar sobre una memoria inválida movía
+    # el archivo a .memoria.rota.json, salía con 0 y nunca pedía el candado)
+    monkeypatch.chdir(tmp_path)
+    esperas = tomas_del_candado(monkeypatch, tope=0.2)
+    memoria = tmp_path / "programa.memoria.json"
+    memoria.write_text(MEMORIA_INVALIDA, encoding="utf-8")
+    antes = None
+    # Con el candado en manos de otra corrida no se mueve nada, y el programa no corre.
+    with OtraCorridaConElCandado(tmp_path / "programa.memoria.candado"):
+        (tmp_path / "programa.mate").write_text('mostrar("hola")\n', encoding="utf-8")
+        antes = todo_lo_que_hay(tmp_path)
+        codigo, salida, err = por_main(tmp_path, capsys, 'mostrar("hola")\n', "--olvidar")
+        assert todo_lo_que_hay(tmp_path) == antes
+    assert (codigo, salida) == (2, "")
+    assert "no entiendo el archivo de memoria programa.memoria.json" in err
+    assert "no lo pude guardar aparte sin el candado de la memoria: otra ventana de " \
+           "programa.mate tiene tomado el candado" in err
+    assert esperas and set(esperas) == {2}
+    # Donde no hay candados, tampoco.
+    with monkeypatch.context() as m:
+        sin_candados_del_sistema(m)
+        codigo, salida, err = por_main(tmp_path, capsys, 'mostrar("hola")\n', "--olvidar")
+    assert (codigo, salida) == (2, "") and "no lo pude guardar aparte sin el candado" in err
+    assert memoria.read_text(encoding="utf-8") == MEMORIA_INVALIDA
+    assert not (tmp_path / "programa.memoria.rota.json").exists()
+    (tmp_path / "programa.memoria.candado").unlink()
+    # Con el candado libre: lo toma, y con él tomado deja la memoria aparte.
+    esperas.clear()
+    mover_de_verdad, movidas = mate.os.replace, []
+
+    def mover(desde, hasta):
+        if str(hasta).endswith(".memoria.rota.json"):
+            movidas.append(mate.clave_de_candado(str(tmp_path / "programa.memoria.candado"))
+                           in mate._CANDADOS_DE_MEMORIA)
+        return mover_de_verdad(desde, hasta)
+
+    monkeypatch.setattr(mate.os, "replace", mover)
+    codigo, salida, err = por_main(tmp_path, capsys, 'mostrar("hola")\n', "--olvidar")
+    assert (codigo, salida) == (0, "hola\n") and "se pierden también las lecciones" in err
+    assert movidas == [True] and esperas[0] == 2
+    assert (tmp_path / "programa.memoria.rota.json").read_text(
+        encoding="utf-8") == MEMORIA_INVALIDA
+    assert archivos_de(tmp_path) == ["programa.mate", "programa.memoria.rota.json"]
+
+
+def test_la_cuenta_de_consultas_se_anota_con_el_candado_y_sin_el_no_se_escribe(
+        tmp_path, capsys, monkeypatch, ia):
+    # CON_FRENOS no tiene 'estado recordado': la cuenta del día se anota en la memoria
+    # durante la corrida (antes y después de cada consulta), y eso iba sin candado.
+    monkeypatch.chdir(tmp_path)
+    fuente = CON_FRENOS % "consultas_por_dia: 3" + '\n        mostrar(consultar("uno"))\n'
+    esperas = tomas_del_candado(monkeypatch, tope=0.05)
+    guardar_de_verdad, con_candado = mate.guardar_memoria, []
+
+    def guardar(ruta, programa, agentes, buzon=None, candado=None):
+        con_candado.append(mate.tengo_el_candado(ruta, candado))
+        return guardar_de_verdad(ruta, programa, agentes, buzon, candado=candado)
+
+    monkeypatch.setattr(mate, "guardar_memoria", guardar)
+    assert por_main(tmp_path, capsys, fuente) == (0, "Sí, hay yerba.\n", "")
+    assert con_candado and all(con_candado) and esperas and 0 not in esperas
+    assert memoria_de(tmp_path)["agentes"]["Mostrador"]["gasto"][hoy_iso()]["consultas"] == 1
+    assert "programa.memoria.candado" not in archivos_de(tmp_path)
+    # Con el candado en manos de otra corrida: no se escribe ni durante ni al final; se
+    # avisa (una vez) durante, se dice fuerte al final, y el código no es 0.
+    antes = (tmp_path / "programa.memoria.json").read_bytes()
+    con_candado.clear()
+    with OtraCorridaConElCandado(tmp_path / "programa.memoria.candado"):
+        codigo, salida, err = por_main(tmp_path, capsys, fuente)
+    assert (codigo, salida) == (1, "Sí, hay yerba.\n") and con_candado == []
+    assert (tmp_path / "programa.memoria.json").read_bytes() == antes
+    renglones = err.splitlines()
+    assert len(renglones) == 2
+    assert renglones[0] == (
+        "aviso: no pude anotar ahora la cuenta de consultas a la IA en programa.memoria.json: "
+        "otra ventana de programa.mate tiene tomado el candado de la memoria. Sin candado no "
+        "escribo la memoria: la anoto al terminar")
+    assert renglones[1].startswith("error: otra ventana de programa.mate tiene tomado el "
+                                   "candado de la memoria y no lo soltó en 10 segundos.")
+    assert "la cuenta de consultas a la IA) NO se guardó en programa.memoria.json" in err
+
+
+# E3 (media). Un receptor sin 'estado recordado' atendía su buzón con el candado de la
+# memoria ocupado por otro proceso: mostraba "Pedido A-1: listo.", no podía anotar que lo
+# había atendido, salía con 1 y dejaba el sobre, que se atendía otra vez.
+def receptor_con_dos_sobres(tmp_path, monkeypatch):
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_SOLO_RECIBE)
+    for n in (1, 2):
+        dejar_bz(tmp_path / "ventas.buzon", sobre_bz(
+            n, {"tipo": "Reservado", "campos": {"pedido": f"A-{n}", "hecho": True, "quedan": 1}},
+            de={"programa": "deposito", "agente": "Deposito"},
+            para={"programa": "ventas", "agente": "Ventas"}))
+    return archivos_de(tmp_path / "ventas.buzon")
+
+
+NO_ATIENDO_CON_EL_CANDADO_OCUPADO = (
+    "aviso: otra ventana de ventas.mate tiene tomado el candado de la memoria, y sin candado "
+    "no atiendo el buzón (no podría anotar qué mensajes ya se atendieron): 2 mensajes quedan "
+    "en ventas.buzon y se atienden la próxima vez que ventas.mate corra. Si quedó otra "
+    "ventana de ventas.mate abierta, cerrala\n")
+
+
+def test_buzon_un_receptor_sin_estado_no_atiende_con_el_candado_de_la_memoria_ocupado(
+        tmp_path, capsys, monkeypatch):
+    esperando = receptor_con_dos_sobres(tmp_path, monkeypatch)
+    esperas = tomas_del_candado(monkeypatch, tope=0.2)
+    with OtraCorridaConElCandado(tmp_path / "ventas.memoria.candado"):
+        for _ in range(2):
+            codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+            # ni "Pedido A-1: listo." ni "Buzón: atendí": el manejador no corrió
+            assert (codigo, salida, err) == (0, "", NO_ATIENDO_CON_EL_CANDADO_OCUPADO)
+            # ahí siguen (y el candado del buzón, que no se borra)
+            assert archivos_de(tmp_path / "ventas.buzon") == esperando + ["candado"]
+            assert not (tmp_path / "ventas.memoria.json").exists()
+    assert esperas == [2, 2]  # esperó un poco cada vez, y no pidió nada más
+    # Con el candado libre los atiende, una vez cada uno.
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert (codigo, err) == (0, "")
+    assert salida.startswith("Pedido A-1: listo.\nPedido A-2: listo.\nBuzón: atendí 2 mensajes")
+    assert orden_mate(capsys, "correr", "ventas.mate") == (0, "", "")
+    assert archivos_de(tmp_path) == ["deposito.mate", "mensajes.mate", "ventas.buzon",
+                                     "ventas.mate", "ventas.memoria.json"]
+
+
+def test_buzon_el_receptor_toma_el_candado_antes_de_atender_y_no_lo_suelta_hasta_guardar(
+        tmp_path, capsys, monkeypatch):
+    # El manejador de un sobre nunca corre si después no se va a poder anotar que se
+    # atendió: el candado de la memoria se toma ANTES del primer sobre y es el mismo con el
+    # que se guarda. Antes se probaba (tomar y soltar), se atendía, y al terminar se pedía
+    # de nuevo: si en el medio lo tomaba otro, el sobre quedaba atendido y sin anotar.
+    receptor_con_dos_sobres(tmp_path, monkeypatch)
+    esperas = tomas_del_candado(monkeypatch)
+    leer_de_verdad, guardar_de_verdad, pasos = mate.leer_sobre, mate.guardar_memoria, []
+
+    def tengo():
+        return mate.clave_de_candado(str(tmp_path / "ventas.memoria.candado")) \
+            in mate._CANDADOS_DE_MEMORIA
+
+    def leer_sobre(ruta):
+        pasos.append(("sobre", tengo()))
+        return leer_de_verdad(ruta)
+
+    def guardar(ruta, programa, agentes, buzon=None, candado=None):
+        pasos.append(("guardar", tengo()))
+        return guardar_de_verdad(ruta, programa, agentes, buzon, candado=candado)
+
+    monkeypatch.setattr(mate, "leer_sobre", leer_sobre)
+    monkeypatch.setattr(mate, "guardar_memoria", guardar)
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert (codigo, err) == (0, "") and salida.startswith("Pedido A-1: listo.\nPedido A-2")
+    assert pasos == [("sobre", True), ("sobre", True), ("guardar", True)]
+    assert esperas == [2]  # una sola toma: no se suelta entre atender y guardar
+    assert not mate._CANDADOS_DE_MEMORIA  # ...y al terminar, sí
+    assert "ventas.memoria.candado" not in archivos_de(tmp_path)
+
+
+def test_buzon_con_el_candado_en_otro_proceso_el_receptor_no_atiende_y_el_sobre_queda(
+        tmp_path, monkeypatch):
+    # La comprobación del revisor en Windows, con procesos de verdad: uno tiene el candado
+    # de la memoria y en otro corre un receptor con un sobre pendiente. Antes imprimía
+    # "Pedido A-1: listo.", salía con 1 y dejaba el sobre para atenderlo de nuevo.
+    receptor_con_dos_sobres(tmp_path, monkeypatch)
+    (tmp_path / "ventas.buzon" / (sobre_bz(2)["id"] + ".json")).unlink()
+    esperando = archivos_de(tmp_path / "ventas.buzon")
+    assert len(esperando) == 1
+    otro = otro_proceso_con_el_candado(tmp_path, "ventas.memoria.candado")
+    try:
+        codigo, salida, err = correr_bz(tmp_path, "correr", "ventas.mate")
+        assert (codigo, salida) == (0, "")  # no atendió: ni "Pedido A-1: listo."
+        assert err == NO_ATIENDO_CON_EL_CANDADO_OCUPADO.replace(
+            "2 mensajes quedan", "1 mensaje queda").replace("se atienden", "se atiende")
+        assert [n for n in archivos_de(tmp_path / "ventas.buzon") if n.endswith(".json")] \
+            == esperando
+        assert not (tmp_path / "ventas.memoria.json").exists()
+    finally:
+        que_suelte(tmp_path, otro)
+    codigo, salida, err = correr_bz(tmp_path, "correr", "ventas.mate")
+    assert (codigo, err) == (0, "")
+    assert salida.startswith("Pedido A-1: listo.\nBuzón: atendí 1 mensaje")
+    assert correr_bz(tmp_path, "correr", "ventas.mate") == (0, "", "")  # una sola vez
+    assert [n for n in archivos_de(tmp_path / "ventas.buzon") if n.endswith(".json")] == []
+
+
+# E4. La lectura del arranque se hacía después de soltar el candado que se había
+# comprobado: en Windows, leer la memoria justo mientras otra corrida la reemplaza da
+# PermissionError, y uno de cuatro emisores simultáneos salía con código 2.
+@pytest.mark.parametrize("programa", ["envia", "tiene memoria"])
+def test_la_lectura_del_arranque_se_hace_con_el_candado_de_la_memoria_tomado(
+        programa, tmp_path, capsys, monkeypatch):
+    if programa == "envia":
+        carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_ENVIA_SIN_ESTADO)
+    else:  # no envía nada, pero ya tiene una memoria (por salir, de una corrida anterior)
+        carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_SOLO_RECIBE)
+        memoria_con_por_salir(tmp_path, 1)
+    leer_de_verdad, leer_buzon_de_verdad, lecturas = (
+        mate.leer_memoria, mate.leer_buzon_de_memoria, [])
+
+    def tengo():
+        return mate.clave_de_candado(str(tmp_path / "ventas.memoria.candado")) \
+            in mate._CANDADOS_DE_MEMORIA
+
+    def leer(ruta):
+        lecturas.append(("memoria", tengo()))
+        return leer_de_verdad(ruta)
+
+    def leer_buzon(ruta):
+        lecturas.append(("buzon", tengo()))
+        return leer_buzon_de_verdad(ruta)
+
+    monkeypatch.setattr(mate, "leer_memoria", leer)
+    monkeypatch.setattr(mate, "leer_buzon_de_memoria", leer_buzon)
+    codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
+    assert (codigo, err) == (0, "") and "dejé 1 mensaje para deposito.mate" in salida
+    assert lecturas[:2] == [("memoria", True), ("buzon", True)]
+    assert "ventas.memoria.candado" not in archivos_de(tmp_path)
+
+
+def test_leer_la_memoria_aguanta_el_no_hay_permiso_pasajero_de_windows(tmp_path, monkeypatch):
+    import json
+    archivo = tmp_path / "ventas.memoria.json"
+    archivo.write_text(json.dumps({
+        "agentes": {"Ventas": {"estado": {"n": 1}, "lecciones": []}},
+        "buzon": {"recibidos": ["deposito/1"], "por_salir": []}}), encoding="utf-8")
+    leer_de_verdad, pausas, faltan = mate.leer_fuente, [], [0]
+
+    def leer(ruta):  # como Windows mientras otro proceso reemplaza el archivo
+        if faltan[0]:
+            faltan[0] -= 1
+            raise PermissionError(13, "Permission denied", ruta)
+        return leer_de_verdad(ruta)
+
+    monkeypatch.setattr(mate, "leer_fuente", leer)
+    monkeypatch.setattr(mate.time, "sleep", pausas.append)
+    for veces in (1, 3, 5):
+        faltan[0], pausas[:] = veces, []
+        assert mate.leer_memoria(str(archivo))[0] == {
+            "Ventas": {"estado": {"n": 1}, "lecciones": []}}
+        assert len(pausas) == veces and sum(pausas) < 1
+        # (y la parte del buzón: antes, con un error al abrir, se leía como vacía y callada)
+        faltan[0] = veces
+        assert mate.leer_buzon_de_memoria(str(archivo))[0]["recibidos"] == ["deposito/1"]
+    # Si no es pasajero (no hay permiso de verdad), se dice como siempre, sin colgarse.
+    faltan[0], pausas[:] = 1000, []
+    with pytest.raises(mate.ErrorMate) as e:
+        mate.leer_memoria(str(archivo))
+    assert e.value.mensaje.startswith("no pude abrir el archivo de memoria ventas.memoria.json")
+    assert 0 < len(pausas) <= 10 and sum(pausas) < 1
+    # Un archivo que no está sigue siendo "no hay memoria", sin esperar nada.
+    faltan[0], pausas[:] = 0, []
+    assert mate.leer_memoria(str(tmp_path / "nada.memoria.json")) == ({}, [])
+    assert pausas == []
+
+
+def test_escribir_la_memoria_aguanta_que_otro_proceso_la_este_leyendo_justo_ahora(
+        tmp_path, monkeypatch):
+    # En Windows, reemplazar un archivo que otro proceso tiene abierto (lo está leyendo
+    # 'lecciones', o una corrida que arranca) da PermissionError por un instante.
+    archivo = str(tmp_path / "caja.memoria.json")
+    agentes = {"Caja": {"estado": {"stock": 1}, "lecciones": []}}
+    reemplazar_de_verdad, pausas, faltan = mate.os.replace, [], [2]
+
+    def reemplazar(desde, hasta):
+        if faltan[0]:
+            faltan[0] -= 1
+            raise PermissionError(13, "Permission denied", hasta)
+        return reemplazar_de_verdad(desde, hasta)
+
+    monkeypatch.setattr(mate.os, "replace", reemplazar)
+    monkeypatch.setattr(mate.time, "sleep", pausas.append)
+    with OtraCorridaConElCandado(mate.candado_de(archivo)) as mia:
+        assert mate.guardar_memoria(archivo, "caja.mate", agentes, candado=mia.candado) is None
+        assert len(pausas) == 2 and mate.leer_memoria(archivo)[0] == agentes
+        # si no se va, se avisa como siempre y no queda un provisorio tirado
+        faltan[0] = 1000
+        problema = mate.guardar_memoria(archivo, "caja.mate", {}, {"recibidos": ["a/1"]},
+                                        candado=mia.candado)
+        assert problema.startswith("no pude guardar la memoria en ")
+        assert mate.leer_memoria(archivo)[0] == agentes
+    assert archivos_de(tmp_path) == ["caja.memoria.json"]
+
+
+def msvcrt_de_mentira(monkeypatch):
+    """Windows simulado: os.name == "nt" y un msvcrt que lleva la cuenta de qué archivos
+    tienen el candado tomado (por archivo abierto, como LockFile: otro archivo abierto
+    sobre el mismo candado recibe EACCES aunque sea del mismo proceso)."""
+    import errno
+    import types
+    falso = types.SimpleNamespace(LK_NBLCK=2, LK_UNLCK=0, tomados={}, pedidos=[])
+
+    def locking(fd, modo, _largo):
+        datos = os.fstat(fd)
+        clave = (datos.st_dev, datos.st_ino)
+        falso.pedidos.append(modo)
+        if modo == falso.LK_NBLCK:
+            if clave in falso.tomados:
+                raise OSError(errno.EACCES, os.strerror(errno.EACCES))
+            falso.tomados[clave] = fd
+        elif falso.tomados.get(clave) == fd:
+            del falso.tomados[clave]
+
+    falso.locking = locking
+    monkeypatch.setitem(sys.modules, "msvcrt", falso)
+    monkeypatch.setattr(mate.os, "name", "nt")
+    return falso
+
+
+def test_en_windows_las_ordenes_y_los_programas_sin_estado_toman_y_sueltan_el_candado(
+        tmp_path, capsys, monkeypatch):
+    # La rama de Windows (msvcrt.locking) de todo lo nuevo, con un msvcrt de mentira.
+    caja_con_una_unidad(tmp_path, monkeypatch)
+    (tmp_path / "programa.mate").write_text(APRENDE_SIN_ESTADO, encoding="utf-8")
+    falso = msvcrt_de_mentira(monkeypatch)
+    for orden in (["corregir", "caja.mate", "Caja", "Sé breve"],
+                  ["propuestas", "caja.mate", "aprobar", "1"],
+                  ["correr", "programa.mate"], ["correr", "programa.mate"],
+                  ["correr", "caja.mate"]):
+        falso.pedidos[:] = []
+        codigo, salida, err = orden_mate(capsys, *orden)
+        assert (codigo, err) == (0, ""), err
+        # cada toma tiene su suelta, y no queda ninguno tomado ni su archivo
+        assert falso.pedidos and falso.pedidos.count(falso.LK_NBLCK) == falso.pedidos.count(
+            falso.LK_UNLCK)
+        assert not falso.tomados and not mate._CANDADOS_DE_MEMORIA
+        assert not [n for n in archivos_de(tmp_path) if n.endswith(".candado")]
+    assert memoria_de(tmp_path, "caja")["agentes"]["Caja"]["estado"] == {"stock": 0, "ventas": 1}
+    assert [leccion["texto"] for leccion in memoria_de(tmp_path, "caja")[
+        "agentes"]["Caja"]["lecciones"]] == ["La de antes", "Sé breve", "Una propuesta"]
+    # Con el candado tomado por otra corrida: 'corregir' no escribe, y lo dice con la
+    # aclaración de Windows (ahí "ocupado" y "esta carpeta no da candados" contestan igual).
+    antes = todo_lo_que_hay(tmp_path)
+    with OtraCorridaConElCandado(tmp_path / "caja.memoria.candado"):
+        codigo, salida, err = orden_mate(capsys, "corregir", "caja.mate", "Caja", "Otra")
+    assert (codigo, salida) == (2, "") and "Cerrá la otra ventana y probá de nuevo." in err
+    assert "Si no hay ninguna otra ventana abierta, puede ser que esta carpeta no dé " \
+           "candados" in err
+    assert todo_lo_que_hay(tmp_path) == antes
+
+
+def test_el_aviso_de_otra_ventana_entero_en_windows_y_fuera(tmp_path, capsys, monkeypatch):
+    # (E5) Las pruebas de la segunda ventana comparan el aviso ENTERO, y en Windows lleva
+    # una aclaración más. Acá se comprueban las dos formas, enteras, en cualquier sistema.
+    assert "puede ser que esta carpeta no dé candados" in aviso_de_otra_ventana(True)
+    assert "puede ser que esta carpeta no dé candados" not in aviso_de_otra_ventana(False)
+    assert YA_HAY_OTRA_VENTANA == aviso_de_otra_ventana(mate.os.name == "nt")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "caja.mate").write_text(CAJA_QUE_VENDE_UNA, encoding="utf-8")
+    with OtraCorridaConElCandado(tmp_path / "caja.memoria.candado"):
+        assert orden_mate(capsys, "correr", "caja.mate") == (2, "", YA_HAY_OTRA_VENTANA)
+    msvcrt_de_mentira(monkeypatch)
+    with OtraCorridaConElCandado(tmp_path / "caja.memoria.candado"):
+        assert orden_mate(capsys, "correr", "caja.mate") == (
+            2, "", aviso_de_otra_ventana(True))
+    assert archivos_de(tmp_path) == ["caja.mate"]
+
+
+def test_todo_lo_que_hay_no_lee_un_candado_que_otro_proceso_tiene_tomado(tmp_path,
+                                                                        monkeypatch):
+    # (E5) En Windows, leer un archivo de candado mientras otro proceso lo tiene tomado da
+    # PermissionError: la foto de la carpeta anota que está y cuánto pesa, sin abrirlo.
+    (tmp_path / "caja.memoria.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "caja.buzon").mkdir()
+    leer_de_verdad = pathlib.Path.read_bytes
+
+    def leer(self):
+        assert not es_un_candado(self), f"se quiso leer el candado {self.name}"
+        return leer_de_verdad(self)
+
+    monkeypatch.setattr(pathlib.Path, "read_bytes", leer)
+    with OtraCorridaConElCandado(tmp_path / "caja.memoria.candado"):
+        buzon = mate.tomar_candado(str(tmp_path / "caja.buzon" / "candado"))
+        try:
+            foto = todo_lo_que_hay(tmp_path)
+        finally:
+            mate.soltar_candado(buzon)
+    assert foto == {"caja.memoria.json": b"{}", "caja.memoria.candado": ("candado", 0),
+                    os.path.join("caja.buzon", "candado"): ("candado", 0)}
+    # ...y sigue notando que un candado apareció, desapareció o dejó de estar vacío
+    assert todo_lo_que_hay(tmp_path) != foto
+    (tmp_path / "caja.buzon" / "candado").write_text("x", encoding="utf-8")
+    assert todo_lo_que_hay(tmp_path)[os.path.join("caja.buzon", "candado")] == ("candado", 1)
+
+
+def test_el_manual_dice_lo_de_la_cuarta_pasada_de_la_revision_externa():
+    leeme = " ".join((RAIZ / "README.md").read_text(encoding="utf-8").split())
+    limites = leeme.split("## Límites de la versión 0.7")[1].split(" ## ")[0]
+    memoria = leeme.split("### Memoria: `estado recordado`")[1].split(" ### ")[0]
+    buzon = leeme.split("### Dos programas que se hablan: el buzón")[1].split(" ### ")[0]
+    # la regla, dicha una vez, y lo que cambia para el que usa Mate
+    assert "**La memoria se escribe siempre con el candado tomado, y sobre lo recién " \
+           "leído.**" in memoria and "**lee el archivo de nuevo**" in memoria
+    assert "**Con la charla abierta no se puede `corregir`**" in memoria
+    assert "Cerrá la otra ventana y probá de nuevo`, termina con código 2 y no toca nada" \
+        in memoria
+    assert "tampoco anotar una lección con `corregir` o aprobar una propuesta" not in memoria
+    assert "**no escribe**: avisa con `error:`" in memoria and "termina con código 1" in memoria
+    assert "también con el candado tomado; si no lo puede tomar, no mueve nada" in memoria
+    assert "**no se pueden usar con el programa abierto**" in limites
+    assert "no guarda: lo dice con `error:` y termina con código 1" in limites
+    # el buzón: se atiende con el candado en la mano
+    assert "**antes del primer mensaje y no lo suelta hasta guardar**" in buzon
+    assert "`sin candado no atiendo el buzón`" in buzon
+    assert "sigue ahí para atenderse otra vez" not in buzon
+    # y en la tabla de lo que cambió de una versión a otra
+    assert "esperan unos segundos, avisan `está abierto en otra ventana` y terminan con " \
+           "código 2 sin tocar nada" in leeme
+    assert "`corregir` y aprobar una propuesta, no: cambian la memoria" in leeme

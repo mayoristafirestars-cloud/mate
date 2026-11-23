@@ -3878,13 +3878,37 @@ def escribir_entero(ruta, texto):
         with abrir_provisorio(provisorio, "x", encoding="utf-8-sig",
                               errors="backslashreplace") as f:
             f.write(texto)
-        os.replace(provisorio, ruta)
+        insistir(lambda: os.replace(provisorio, ruta))
     except BaseException:
         try:
             os.remove(provisorio)
         except OSError:
             pass
         raise
+
+
+def insistir(hacer, veces=6):
+    """Hace eso y, si el sistema contesta "no hay permiso", prueba de nuevo unas veces más
+    (en total espera un tercio de segundo). En Windows, abrir un archivo justo cuando otro
+    proceso lo está reemplazando, o reemplazar uno que otro proceso está leyendo en ese
+    instante, da PermissionError, y se va solo enseguida. Si no se va, sale ese error."""
+    pausa = 0.01
+    for intento in range(veces):
+        try:
+            return hacer()
+        except PermissionError:
+            if intento == veces - 1:
+                raise
+            time.sleep(pausa)
+            pausa *= 2
+
+
+def leer_archivo_de_memoria(ruta):
+    """El texto del archivo de memoria. Toda lectura de la memoria pasa por acá: la que
+    se hace sin el candado tomado ('lecciones', 'ensayar', 'buzon', o una corrida que
+    arranca mientras otra guarda) puede caer justo cuando otro proceso reemplaza el archivo,
+    y en Windows eso da un "no hay permiso" que dura un instante (ver insistir)."""
+    return insistir(lambda: leer_fuente(ruta))
 
 
 def en_un_renglon(texto, largo):
@@ -3911,7 +3935,7 @@ def leer_memoria(ruta):
         return float(t) if math.isfinite(float(t)) else numero_raro(t)
 
     try:
-        texto = leer_fuente(ruta)
+        texto = leer_archivo_de_memoria(ruta)
     except FileNotFoundError:
         return {}, []
     except (OSError, ErrorMate):
@@ -3983,7 +4007,7 @@ def leer_buzon_de_memoria(ruta):
     vacía (con un aviso): nunca rompe la lectura de lo demás."""
     vacio = {"recibidos": [], "por_salir": []}
     try:
-        datos = json.loads(leer_fuente(ruta))
+        datos = json.loads(leer_archivo_de_memoria(ruta))
     except (OSError, ErrorMate, ValueError, RecursionError):
         return vacio, []
     parte = datos.get("buzon") if isinstance(datos, dict) else None
@@ -4010,20 +4034,76 @@ def leer_buzon_de_memoria(ruta):
     return {"recibidos": recibidos, "por_salir": por_salir}, avisos
 
 
-def guardar_memoria(ruta, programa, agentes, buzon=None):
+class MemoriaSinCandado(Exception):
+    """Alguien quiso cambiar el archivo de memoria de un programa sin tener tomado su
+    candado. Es un error de Mate, no del programa: la memoria no se escribe nunca así."""
+
+
+# Los candados de memoria que tiene tomados ESTE proceso: la ruta del archivo de candado
+# -> el archivo abierto con el candado tomado. Los anota tomar_candado_de_memoria y los
+# saca soltar_candado_de_memoria; escribir_memoria mira acá antes de tocar nada.
+_CANDADOS_DE_MEMORIA = {}
+
+
+def clave_de_candado(ruta):
+    return os.path.normcase(os.path.abspath(ruta))
+
+
+def candado_de(archivo_memoria):
+    """El archivo de candado de esa memoria: caja.memoria.json -> caja.memoria.candado."""
+    if archivo_memoria.lower().endswith(".memoria.json"):
+        return archivo_memoria[:-len("json")] + "candado"
+    return archivo_memoria + ".candado"
+
+
+def tengo_el_candado(archivo_memoria, candado):
+    """¿Ese es el candado de esa memoria, y lo tiene tomado este proceso ahora mismo?"""
+    return (candado is not None and not getattr(candado, "closed", True)
+            and _CANDADOS_DE_MEMORIA.get(clave_de_candado(candado_de(archivo_memoria)))
+            is candado)
+
+
+def escribir_memoria(ruta, candado, texto=None, mover_a=None):
+    """EL ÚNICO LUGAR de Mate que cambia el archivo de memoria de un programa
+    (<programa>.memoria.json): lo escribe (texto), lo saca (sin texto) o lo deja aparte con
+    otro nombre (mover_a). Se NIEGA, con MemoriaSinCandado y sin tocar nada, si el que
+    llama no trae el candado de ESA memoria tomado por este proceso (el archivo que
+    devolvió tomar_candado_de_memoria y todavía no se soltó).
+    La regla es una sola: tomar el candado, LEER DE NUEVO la memoria del disco, aplicar el
+    cambio sobre eso, escribir y soltar (o tener el candado toda la corrida). Escribir una
+    copia leída antes de tomar el candado es pisar lo que otra ventana guardó en el medio:
+    una caja volvería a vender la unidad que ya vendió."""
+    if not tengo_el_candado(ruta, candado):
+        raise MemoriaSinCandado(
+            f"no se cambia {os.path.basename(ruta)} sin tener tomado su candado "
+            f"({os.path.basename(candado_de(ruta))}): primero tomar_candado_de_memoria, "
+            "después leer la memoria de nuevo y recién entonces escribirla")
+    if mover_a is not None:
+        insistir(lambda: os.replace(ruta, mover_a))
+    elif texto is None:
+        if os.path.lexists(ruta):
+            insistir(lambda: os.remove(ruta))
+    else:
+        escribir_entero(ruta, texto)
+
+
+def guardar_memoria(ruta, programa, agentes, buzon=None, candado=None):
     """Deja la memoria en su archivo (o lo saca, si ya no hay nada que recordar). Devuelve
     None si salió bien o la explicación de por qué no se pudo.
+    candado: el de esa memoria, TOMADO (ver escribir_memoria): sin él no se escribe, y lo
+    que se guarda tiene que salir de lo que se leyó con el candado ya tomado.
     buzon: la parte del buzón entre programas (ver leer_buzon_de_memoria). Con None se
     CONSERVA la que haya en el archivo: así 'corregir', 'lecciones', 'proponer' y la cuenta
     de consultas guardan como siempre y no la pierden."""
+    if not tengo_el_candado(ruta, candado):
+        escribir_memoria(ruta, candado)  # (se niega: MemoriaSinCandado)
     agentes = {a: f for a, f in agentes.items() if any(f.values())}
     try:
         if buzon is None and os.path.lexists(ruta):
             buzon = leer_buzon_de_memoria(ruta)[0]
         buzon = {k: list(v) for k, v in (buzon or {}).items() if v}
         if not agentes and not buzon:
-            if os.path.lexists(ruta):
-                os.remove(ruta)
+            escribir_memoria(ruta, candado)
             return None
         datos = {
             "que_es": f"La memoria de {programa}: lo que cada agente recuerda de una corrida "
@@ -4034,8 +4114,8 @@ def guardar_memoria(ruta, programa, agentes, buzon=None):
         if buzon:  # (un programa sin buzón guarda lo mismo que antes, letra por letra)
             datos["buzon"] = {"recibidos": buzon.get("recibidos", []),
                               "por_salir": buzon.get("por_salir", [])}
-        escribir_entero(ruta, json.dumps(datos, ensure_ascii=False, indent=2,
-                                         allow_nan=False) + "\n")
+        escribir_memoria(ruta, candado, json.dumps(datos, ensure_ascii=False, indent=2,
+                                                   allow_nan=False) + "\n")
     except (OSError, ValueError, RecursionError):
         return (f"no pude guardar la memoria en '{ruta}': lo que pasó en esta corrida no va "
                 "a estar en la próxima. Fijate que el archivo no esté abierto en otro "
@@ -4279,14 +4359,25 @@ def tomar_candado(ruta):
     como = (getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
             | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0)
             | getattr(os, "O_CLOEXEC", 0))
-    try:
-        fd = os.open(ruta, os.O_RDWR | os.O_CREAT | como, 0o666)
-    except OSError as e:
-        if not os.path.lexists(ruta):
-            raise SinCandado("carpeta", str(e))
-        if not isinstance(e, PermissionError):
-            raise
-        fd = os.open(ruta, os.O_RDONLY | como)
+    intentos = 0
+    while True:
+        try:
+            fd = os.open(ruta, os.O_RDWR | os.O_CREAT | como, 0o666)
+        except OSError as e:
+            if not os.path.lexists(ruta):
+                # (En Windows, abrir el candado justo cuando la corrida que lo tenía lo
+                # está borrando da "no hay permiso", y un instante después el archivo ya
+                # no está: eso no es una carpeta donde no se puede crear. Se prueba de
+                # nuevo antes de decirlo.)
+                intentos += 1
+                if intentos < 4:
+                    time.sleep(0.01)
+                    continue
+                raise SinCandado("carpeta", str(e))
+            if not isinstance(e, PermissionError):
+                raise
+            fd = os.open(ruta, os.O_RDONLY | como)
+        break
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError(errno.EINVAL, "no es un archivo común", ruta)
@@ -4339,6 +4430,7 @@ def tomar_candado_de_memoria(ruta, espera=0.0):
     Windows ese control no hace falta: ahí un archivo que alguien tiene abierto no se borra."""
     limite = time.monotonic() + espera
     fallas = 0
+    clave = clave_de_candado(ruta)
     while True:
         try:
             f = tomar_candado(ruta)
@@ -4353,20 +4445,30 @@ def tomar_candado_de_memoria(ruta, espera=0.0):
                 # vacío de más no molesta: la próxima corrida lo usa.
                 raise
             # (en Windows, abrir un archivo que otra corrida está borrando da un error que
-            # se va solo)
+            # se va solo; con varias corridas tomando y soltando a la vez puede repetirse)
             fallas += 1
-            if fallas >= 5:
+            if fallas >= 10:
                 raise
             time.sleep(0.02)
             continue
         if f is not None:
             if os.name == "nt" or es_el_de_la_carpeta(f, ruta):
-                return f
-            soltar_candado(f)  # ese archivo ya no es el que está en la carpeta: de nuevo
-            fallas += 1
-            if fallas >= 50:
-                raise OSError(f"no pude tomar {ruta}")
-            continue
+                mio = _CANDADOS_DE_MEMORIA.get(clave)
+                if mio is None or mio.closed:
+                    _CANDADOS_DE_MEMORIA[clave] = f
+                    return f
+                # Este mismo proceso ya lo tenía tomado (otra corrida adentro del mismo
+                # Python) y el sistema se lo dio de nuevo: hay sistemas donde el candado
+                # es del proceso. Para Mate está ocupado igual: el candado es de UNA
+                # corrida. Se devuelve este y se sigue como con cualquier candado ocupado.
+                soltar_candado(f)
+                f = None
+            else:
+                soltar_candado(f)  # ese archivo ya no es el que está en la carpeta: de nuevo
+                fallas += 1
+                if fallas >= 50:
+                    raise OSError(f"no pude tomar {ruta}")
+                continue
         if time.monotonic() >= limite:
             return None
         time.sleep(0.02)
@@ -4385,6 +4487,8 @@ def es_el_de_la_carpeta(f, ruta):
 def soltar_candado_de_memoria(f, ruta):
     """Suelta el candado de la memoria y saca su archivo, para no dejar nada de más al lado
     del programa. (Si el proceso muere antes, el archivo queda y no molesta: sin candado.)"""
+    if _CANDADOS_DE_MEMORIA.get(clave_de_candado(ruta)) is f:
+        del _CANDADOS_DE_MEMORIA[clave_de_candado(ruta)]
     if os.name == "nt":  # en Windows no se borra un archivo abierto: primero se suelta
         soltar_candado(f)
         try:
@@ -4400,6 +4504,79 @@ def soltar_candado_de_memoria(f, ruta):
     except OSError:
         pass
     soltar_candado(f)
+
+
+def por_que_no_se_tomo_el_candado(ruta, e):
+    """(qué pasó, qué puede hacer el usuario), en castellano llano, cuando el candado de la
+    memoria del programa 'ruta' no se pudo tomar y no es porque lo tenga otra ventana."""
+    archivo_candado = archivo_de(ruta, "memoria.candado")
+    motivo = getattr(e, "motivo", "")
+    if motivo == "sistema":
+        return (f"no pude tomar el candado de {os.path.basename(ruta)} "
+                f"({os.path.basename(archivo_candado)}): en esta carpeta el sistema no "
+                "da candados (pasa en algunas carpetas de red)",
+                "Copiá la carpeta del programa a un disco de esta computadora (por "
+                "ejemplo, adentro de Documentos) y corrélo desde ahí")
+    if motivo == "carpeta":
+        return (f"no pude crear {os.path.basename(archivo_candado)}, el archivo que "
+                f"marca que {os.path.basename(ruta)} está abierto: en esta carpeta no "
+                "se pueden crear archivos (no hay permiso para escribir, o el disco "
+                "está lleno)",
+                "Revisá los permisos de la carpeta, o copiala a un lugar donde puedas "
+                "escribir (por ejemplo, adentro de Documentos) y corrélo desde ahí")
+    nombre = os.path.basename(archivo_candado)
+    if os.path.isdir(archivo_candado):
+        que = "con ese nombre hay una carpeta"
+    elif isinstance(e, PermissionError):
+        que = "no tengo permiso para abrirlo (¿lo creó otro usuario de esta computadora?)"
+    else:
+        que = "con ese nombre hay algo que no es un archivo común"
+    return (f"no pude tomar {nombre}, el archivo que marca que "
+            f"{os.path.basename(ruta)} está abierto: {que}",
+            "Si no hay ninguna otra ventana con este programa, borralo (o cambiale el "
+            "nombre) y corré esto de nuevo")
+
+
+ESPERA_DE_UNA_ORDEN = 3.0  # segundos que 'corregir' y compañía esperan el candado
+# Lo que espera el candado un programa con 'estado recordado' al abrir. Si lo tiene otra
+# ventana del programa, lo tiene toda la charla: no sirve esperar, se avisa enseguida. Pero
+# 'corregir' y las demás órdenes que cambian la memoria lo tienen un instante, mientras
+# leen y escriben: con esta espera, abrir justo en ese instante no da "ya hay otra ventana".
+ESPERA_AL_ABRIR = 0.5
+
+
+def pedir_candado_de_memoria(ruta, avisar, para_que, espera=None):
+    """Para las órdenes que cambian la memoria de un programa sin correrlo ('corregir',
+    'lecciones --borrar', 'proponer', 'propuestas aprobar/descartar' y las propuestas que
+    deja 'ensayar'): toma el candado de la memoria de 'ruta', esperando un poco si lo tiene
+    otra corrida. Devuelve el candado tomado (el que llama lee la memoria DE NUEVO, cambia
+    eso, lo guarda y lo suelta con soltar_candado_de_memoria), o None después de avisar por
+    qué no: ahí no se toca nada y la orden termina con código distinto de 0.
+    para_que: lo que no se hizo, para el aviso ("no anoté la lección")."""
+    nombre = os.path.basename(ruta)
+    try:
+        candado = tomar_candado_de_memoria(
+            archivo_de(ruta, "memoria.candado"),
+            ESPERA_DE_UNA_ORDEN if espera is None else espera)
+    except OSError as e:
+        que_paso, que_hacer = por_que_no_se_tomo_el_candado(ruta, e)
+        avisar(f"{para_que}: {que_paso}. Sin candado no cambio la memoria de {nombre} "
+               "(podría pisar lo que está anotando otra ventana). "
+               f"{que_hacer}. Acá no se tocó nada")
+        return None
+    if candado is None:
+        avisar(f"{para_que}: {nombre} está abierto en otra ventana, que anota en la misma "
+               f"memoria ({os.path.basename(archivo_de(ruta, 'memoria.json'))}), y cambiarla "
+               "ahora sería pisarle lo que guarde (una venta, por ejemplo). Cerrá la otra "
+               "ventana y probá de nuevo. "
+               # (Windows contesta lo mismo cuando el candado lo tiene otro que cuando una
+               # carpeta de red no los da: no se distinguen.)
+               + ("Si no hay ninguna otra ventana abierta, puede ser que esta carpeta no dé "
+                  "candados (pasa en algunas carpetas de red): copiá la carpeta del "
+                  "programa a un disco de esta computadora y probá desde ahí. "
+                  if os.name == "nt" else "")
+               + "Acá no se tocó nada")
+    return candado
 
 
 def tiene_estado_recordado(programa):
@@ -4450,8 +4627,9 @@ class Buzon:
         self.atendidos, self.rechazos = [], []  # archivos a borrar, y (archivo, motivo) a mover
         self.candado = None
         self.cambio_la_memoria = lambda: (False, [])  # (lo pone 'correr')
-        # ¿Se va a poder guardar lo que se atienda? (lo pone 'correr': mira que el candado
-        # de la memoria se pueda tomar, y si no, avisa)
+        # ¿Se va a poder guardar lo que se atienda? (lo pone 'correr': toma el candado de
+        # la memoria y se lo queda. True: lo tiene; None: lo tiene otra corrida; False: acá
+        # no hay candados, y ya avisó)
         self.se_puede_guardar = lambda cuantos: True
         self.atendi, self.deje, self.no_entregados = {}, {}, 0  # para el resumen
         self._buscados = {}
@@ -4648,7 +4826,9 @@ class Buzon:
             return []
         # Atender es anotar en la memoria qué se atendió y qué se contesta: si el candado
         # de la memoria no se puede tomar, no se atiende nada y los mensajes quedan ahí.
-        if not self.se_puede_guardar(len(esperan)):
+        # (Si se pudo, la corrida se lo queda hasta terminar de guardar.)
+        puede = self.se_puede_guardar(len(esperan))
+        if puede is False:
             return []
         try:
             self.candado = tomar_candado(os.path.join(self.carpeta, "candado"))
@@ -4666,6 +4846,20 @@ class Buzon:
         if self.candado is None:
             self.avisar(f"otra ventana de {self.archivo} está atendiendo el buzón; esta no "
                         "recibe mensajes")
+            return []
+        if not puede:
+            # El candado de la memoria lo tiene otra corrida de este programa, y no lo
+            # soltó: lo que se atendiera ahora no se podría anotar como atendido, y se
+            # atendería de nuevo. No se atiende nada.
+            cuantos = len(esperan)
+            self.avisar(f"otra ventana de {self.archivo} tiene tomado el candado de la "
+                        "memoria, y sin candado no atiendo el buzón (no podría anotar qué "
+                        f"mensajes ya se atendieron): {cuantos_mensajes(cuantos)} "
+                        f"{'queda' if cuantos == 1 else 'quedan'} en {nombre} y se "
+                        f"{'atiende' if cuantos == 1 else 'atienden'} la próxima vez que "
+                        f"{self.archivo} corra. Si quedó otra ventana de {self.archivo} "
+                        "abierta, cerrala")
+            self.soltar()
             return []
         cambio, recibidos = self.cambio_la_memoria()
         if cambio:
@@ -11978,50 +12172,60 @@ def orden_ensayar(args, opciones, respuestas, veces, avisar, mostrar=print):
                 "IA de verdad (y que")
         mostrar("lo que falle quede propuesto), ensayá sin --ia-simulada.")
     if a_proponer:
-        # Las propuestas van a la memoria que está AHORA en el disco (pudo cambiar mientras
-        # se ensayaba), y es lo único que se le agrega.
-        try:
-            en_disco = leer_memoria(archivo_memoria)[0]
-        except ErrorMate as e:
-            avisar(f"aviso: no dejé las lecciones propuestas: {e.mensaje}")
+        candado = pedir_candado_de_memoria(ruta, avisar,
+                                           "aviso: no dejé las lecciones propuestas")
+        if candado is None:
             return 1
-        fecha, nuevas, repetidas = datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), 0, 0
-        ya_aprobadas = []  # los agentes que ya tenían aprobada la lección de un caso fallado
-        for agente, texto, motivo in a_proponer:
-            ficha = en_disco.setdefault(agente, {"estado": {}, "lecciones": []})
-            if any(leccion["texto"] == en_un_renglon(texto, LARGO_DE_LECCION)
-                   for leccion in ficha["lecciones"]):
-                ya_aprobadas += [agente] if agente not in ya_aprobadas else []
-                continue
-            antes = ficha.get("propuestas", [])
-            ficha["propuestas"] = sumar_propuesta(antes, ficha["lecciones"], texto, motivo, fecha)
-            nuevas += ficha["propuestas"] is not antes
-            repetidas += ficha["propuestas"] is antes
-            if not ficha["propuestas"]:
-                del ficha["propuestas"]
-        for agente in ya_aprobadas:
-            mostrar(f"{agente} ya tiene aprobada la lección de un caso que volvió a fallar: "
-                    "no alcanzó.")
-            mostrar("Una lección es un pedido, no una garantía. Escribila de otra forma (se "
-                    "ven con la orden de")
-            mostrar("abajo y se anotan con 'corregir'), o pasá la regla al programa o a un "
-                    "freno del agente:")
-            mostrar(f"  {orden} lecciones {para_pegar(args[0])}")
-        if nuevas:
-            problema = guardar_memoria(archivo_memoria, programa, en_disco)
-            if problema:
-                avisar(f"aviso: {problema}")
+        try:
+            # Las propuestas van a la memoria que está AHORA en el disco (pudo cambiar
+            # mientras se ensayaba), leída con el candado ya tomado, y es lo único que se
+            # le agrega.
+            try:
+                en_disco = leer_memoria(archivo_memoria)[0]
+            except ErrorMate as e:
+                avisar(f"aviso: no dejé las lecciones propuestas: {e.mensaje}")
                 return 1
-            mostrar(f"Por los casos que fallaron quedó {nuevas} lección(es) propuesta(s). "
-                    "Ningún agente las usa")
-            mostrar("hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):")
-        elif repetidas:
-            mostrar("Las lecciones de los casos que fallaron ya estaban propuestas, sin "
-                    "aprobar. Para verlas:")
-        if nuevas or repetidas:
-            mostrar(f"  {orden} propuestas {para_pegar(args[0])}")
-            mostrar("Una propuesta es un borrador: si la aprobás, ensayá de nuevo para ver "
-                    "si alcanzó.")
+            fecha, nuevas, repetidas = datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), 0, 0
+            ya_aprobadas = []  # los agentes que ya tenían aprobada la lección de un caso fallado
+            for agente, texto, motivo in a_proponer:
+                ficha = en_disco.setdefault(agente, {"estado": {}, "lecciones": []})
+                if any(leccion["texto"] == en_un_renglon(texto, LARGO_DE_LECCION)
+                       for leccion in ficha["lecciones"]):
+                    ya_aprobadas += [agente] if agente not in ya_aprobadas else []
+                    continue
+                antes = ficha.get("propuestas", [])
+                ficha["propuestas"] = sumar_propuesta(antes, ficha["lecciones"], texto,
+                                                      motivo, fecha)
+                nuevas += ficha["propuestas"] is not antes
+                repetidas += ficha["propuestas"] is antes
+                if not ficha["propuestas"]:
+                    del ficha["propuestas"]
+            for agente in ya_aprobadas:
+                mostrar(f"{agente} ya tiene aprobada la lección de un caso que volvió a fallar: "
+                        "no alcanzó.")
+                mostrar("Una lección es un pedido, no una garantía. Escribila de otra forma (se "
+                        "ven con la orden de")
+                mostrar("abajo y se anotan con 'corregir'), o pasá la regla al programa o a un "
+                        "freno del agente:")
+                mostrar(f"  {orden} lecciones {para_pegar(args[0])}")
+            if nuevas:
+                problema = guardar_memoria(archivo_memoria, programa, en_disco,
+                                          candado=candado)
+                if problema:
+                    avisar(f"aviso: {problema}")
+                    return 1
+                mostrar(f"Por los casos que fallaron quedó {nuevas} lección(es) propuesta(s). "
+                        "Ningún agente las usa")
+                mostrar("hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):")
+            elif repetidas:
+                mostrar("Las lecciones de los casos que fallaron ya estaban propuestas, sin "
+                        "aprobar. Para verlas:")
+            if nuevas or repetidas:
+                mostrar(f"  {orden} propuestas {para_pegar(args[0])}")
+                mostrar("Una propuesta es un borrador: si la aprobás, ensayá de nuevo para ver "
+                        "si alcanzó.")
+        finally:
+            soltar_candado_de_memoria(candado, archivo_de(ruta, "memoria.candado"))
     return 0 if pasaron == len(casos) and not cortado else 1
 
 
@@ -12379,7 +12583,19 @@ def mostrar_bitacora(ruta, avisar):
 
 def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
     """Las órdenes 'corregir', 'lecciones', 'bitacora', 'propuestas' y 'proponer': miran (o
-    cambian) lo que aprendió un programa, sin correrlo. Devuelven el código de salida."""
+    cambian) lo que aprendió un programa, sin correrlo. Devuelven el código de salida.
+    Las que cambian la memoria toman su candado, la leen de nuevo y recién ahí la cambian
+    y la guardan (ver escribir_memoria); acá se suelta, salga como salga la orden."""
+    tomado = {"candado": None, "ruta": None}
+    try:
+        return _orden_de_memoria(orden, args, borrar, avisar, opciones, respuestas, tomado)
+    finally:
+        if tomado["candado"] is not None:
+            soltar_candado_de_memoria(tomado["candado"], tomado["ruta"])
+            tomado["candado"] = None
+
+
+def _orden_de_memoria(orden, args, borrar, avisar, opciones, respuestas, tomado):
     ejemplos = {"bitacora": "bitacora mi_mostrador.mate",
                 "lecciones": "lecciones mi_mostrador.mate",
                 "corregir": 'corregir mi_mostrador.mate Mostrador "Los lunes no hay pan"',
@@ -12417,9 +12633,9 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
         avisar(f"{ruta} tiene un error y no puedo ver qué agentes tiene. Miralo con:  "
                f"{como_se_llama()} verificar {args[0]}")
         return 2
-    archivo = archivo_de(ruta, "memoria.json")
+    archivo_memoria = archivo_de(ruta, "memoria.json")
     try:
-        memoria, avisos = leer_memoria(archivo)
+        memoria, avisos = leer_memoria(archivo_memoria)
     except ErrorMate as e:
         avisar(e.mensaje)
         return 2
@@ -12445,13 +12661,42 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
             print(f"  {i}. {leccion['texto']}"
                   + (f"   (del {leccion['fecha']})" if leccion["fecha"] else ""))
 
+    def tomar_y_releer(para_que, espera=None):
+        """Antes de cambiar la memoria: toma su candado y la lee DE NUEVO, ya con el
+        candado tomado ('memoria' pasa a ser lo que dice el archivo ahora, no lo que se
+        leyó al empezar: en el medio pudo guardar una caja abierta en otra ventana). Si
+        el candado lo tiene otra ventana, o la memoria ya no se entiende, avisa y
+        devuelve False: no se cambia nada."""
+        if tomado["candado"] is None:
+            tomado["ruta"] = archivo_de(ruta, "memoria.candado")
+            tomado["candado"] = pedir_candado_de_memoria(ruta, avisar, para_que, espera)
+            if tomado["candado"] is None:
+                return False
+        try:
+            releida = leer_memoria(archivo_memoria)[0]
+        except ErrorMate as e:
+            avisar(e.mensaje)
+            return False
+        memoria.clear()
+        memoria.update(releida)
+        return True
+
+    def soltar():
+        if tomado["candado"] is not None:
+            soltar_candado_de_memoria(tomado["candado"], tomado["ruta"])
+            tomado["candado"] = None
+
     def guardar():
-        problema = guardar_memoria(archivo, programa, memoria)
+        problema = guardar_memoria(archivo_memoria, programa, memoria,
+                                   candado=tomado["candado"])
         if problema:
             avisar(problema)
         return problema
 
     if orden == "propuestas":
+        if len(args) > 1 and sin_tildes(args[1].lower()) in ("aprobar", "descartar") \
+                and not tomar_y_releer("no cambié las propuestas"):
+            return 2
         return orden_propuestas(args, memoria, guardar, listar, avisar)
 
     # Una copia se nombra con el agente y su nombre: "Mostrador Centro". Si se escribió sin
@@ -12510,12 +12755,22 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
         elif "tokens_por_dia" in topes and gastado.get("tokens", 0) >= topes["tokens_por_dia"]:
             en_el_tope = (f"{molde} ya gastó {gastado.get('tokens', 0)} tokens hoy y su tope "
                           f"es {topes['tokens_por_dia']} por día")
+        # Antes de consultar a la IA se mira que el candado de la memoria se pueda tomar:
+        # si el programa está abierto en otra ventana, la propuesta no se va a poder
+        # anotar, y no se gasta una consulta para nada. Se suelta enseguida: la consulta
+        # puede tardar, y no se hace con el candado tomado.
+        if not tomar_y_releer("no dejé la propuesta"):
+            return 2
+        soltar()
         try:
             texto, como, tokens = redactar_leccion(
                 queja, en_un_renglon(args[3], 600) if len(args) > 3 else "", opciones,
                 respuestas, en_el_tope)
         except ErrorMate as e:
             avisar(e.mensaje)
+            return 2
+        # Y para anotarla: el candado de nuevo, y la memoria leída de nuevo con él tomado.
+        if not tomar_y_releer("no dejé la propuesta", espera=10):
             return 2
         ficha = memoria.setdefault(agente, {"estado": {}, "lecciones": []})
         if tokens is not None:  # fue una consulta de verdad: entra en la cuenta de hoy
@@ -12561,6 +12816,8 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
         except ErrorMate as e:
             avisar(e.mensaje)
             return 2
+        if not tomar_y_releer("no anoté la lección"):
+            return 2
         ficha = memoria.setdefault(agente, {"estado": {}, "lecciones": []})
         nuevas, olvidadas = sumar_leccion(
             ficha["lecciones"], texto, datetime.datetime.now().strftime("%d/%m/%Y %H:%M"))
@@ -12568,9 +12825,7 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
             print(f"{agente} ya tenía anotada esa lección: no la repito.")
             return 0
         ficha["lecciones"] = nuevas
-        problema = guardar_memoria(archivo, programa, memoria)
-        if problema:
-            avisar(problema)
+        if guardar():
             return 1
         print(f"Anotado. {agente} tiene {len(nuevas)} lección(es):")
         listar(agente)
@@ -12589,6 +12844,8 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
             avisar("para borrar una lección hay que decir de qué agente, por ejemplo: "
                    "lecciones mi_mostrador.mate Mostrador --borrar=2")
             return 2
+        if not tomar_y_releer("no borré nada"):
+            return 2
         suyas = memoria.get(agente, {"lecciones": []})["lecciones"]
         if borrar.lower() == "todas" and suyas:
             quedan = []
@@ -12600,9 +12857,7 @@ def orden_de_memoria(orden, args, borrar, avisar, opciones=(), respuestas=None):
                    f"'todas', y recibió '{borrar}'")
             return 2
         memoria[agente]["lecciones"] = quedan
-        problema = guardar_memoria(archivo, programa, memoria)
-        if problema:
-            avisar(problema)
+        if guardar():
             return 1
         print(f"Borrada. A {agente} le quedan {len(quedan)} lección(es)"
               + (":" if quedan else "."))
@@ -13692,40 +13947,24 @@ def _main(argv, donde):
             return False
         if candado is None:
             return False
+        # (mientras dura, es el candado de esta corrida: con él se escribe la memoria)
+        aprendido["candado"] = candado
         try:
             hacer()
         finally:
+            aprendido["candado"] = None
             soltar_candado_de_memoria(candado, archivo_candado)
         return True
 
+    def guardar(agentes, buzon=None):
+        """Escribe la memoria de este programa. Solo se llama con el candado tomado (toda
+        la corrida, o adentro de con_candado) y con lo que se leyó ya con él tomado: sin
+        candado, guardar_memoria se niega."""
+        return guardar_memoria(archivo_memoria, os.path.basename(ruta), agentes, buzon,
+                               candado=aprendido["candado"])
+
     def por_que_no_hay_candado(e):
-        """(qué pasó, qué puede hacer el usuario), en castellano llano, cuando el candado
-        de la memoria no se pudo tomar y no es porque lo tenga otra ventana."""
-        motivo = getattr(e, "motivo", "")
-        if motivo == "sistema":
-            return (f"no pude tomar el candado de {os.path.basename(ruta)} "
-                    f"({os.path.basename(archivo_candado)}): en esta carpeta el sistema no "
-                    "da candados (pasa en algunas carpetas de red)",
-                    "Copiá la carpeta del programa a un disco de esta computadora (por "
-                    "ejemplo, adentro de Documentos) y corrélo desde ahí")
-        if motivo == "carpeta":
-            return (f"no pude crear {os.path.basename(archivo_candado)}, el archivo que "
-                    f"marca que {os.path.basename(ruta)} está abierto: en esta carpeta no "
-                    "se pueden crear archivos (no hay permiso para escribir, o el disco "
-                    "está lleno)",
-                    "Revisá los permisos de la carpeta, o copiala a un lugar donde puedas "
-                    "escribir (por ejemplo, adentro de Documentos) y corrélo desde ahí")
-        nombre = os.path.basename(archivo_candado)
-        if os.path.isdir(archivo_candado):
-            que = "con ese nombre hay una carpeta"
-        elif isinstance(e, PermissionError):
-            que = "no tengo permiso para abrirlo (¿lo creó otro usuario de esta computadora?)"
-        else:
-            que = "con ese nombre hay algo que no es un archivo común"
-        return (f"no pude tomar {nombre}, el archivo que marca que "
-                f"{os.path.basename(ruta)} está abierto: {que}",
-                "Si no hay ninguna otra ventana con este programa, borralo (o cambiale el "
-                "nombre) y corré esto de nuevo")
+        return por_que_no_se_tomo_el_candado(ruta, e)
 
     def avisar_que_no_salen(cuantos):
         """Sin el candado de la memoria no se reparte ni se recupera nada del buzón: se
@@ -13809,8 +14048,7 @@ def _main(argv, donde):
         en_buzon = leer_buzon_de_memoria(archivo_memoria)[0]
         parte = buzon.fundido(en_buzon)
         if agentes != en_disco or parte != en_buzon:
-            problema = guardar_memoria(archivo_memoria, os.path.basename(ruta), agentes,
-                                       parte)
+            problema = guardar(agentes, parte)
             if problema:
                 avisar(f"aviso: {problema}. Los mensajes del buzón no se tocaron: los que "
                        "llegaron se atienden de nuevo la próxima vez, y no salió ninguno")
@@ -13826,8 +14064,48 @@ def _main(argv, donde):
                 ahora = leer_memoria(archivo_memoria)[0]
             except ErrorMate:
                 return
-            guardar_memoria(archivo_memoria, os.path.basename(ruta), ahora,
-                            buzon.fundido(leer_buzon_de_memoria(archivo_memoria)[0]))
+            guardar(ahora, buzon.fundido(leer_buzon_de_memoria(archivo_memoria)[0]))
+
+    def guardar_lo_nuevo(nueva):
+        """Al terminar, con el candado de la memoria tomado: lee el archivo de nuevo, le
+        suma lo de esta corrida y lo escribe."""
+        try:
+            en_disco = leer_memoria(archivo_memoria)[0]
+        except ErrorMate:
+            en_disco = None
+        if en_disco is None and aprendido["leida"] is not None:
+            avisar(f"aviso: no guardé la memoria: {os.path.basename(archivo_memoria)} "
+                   "cambió mientras el programa corría y ahora no se entiende. Lo que "
+                   "pasó en esta corrida no va a estar en la próxima; abrilo con el Bloc "
+                   "de notas y arreglalo")
+            return
+        if en_disco is not None and en_disco != (aprendido["leida"] or {}):
+            nueva = fundir_memoria(aprendido["leida"] or {}, nueva, en_disco)
+            if nueva == en_disco:
+                return
+        if nueva != aprendido["leida"] and (nueva or os.path.lexists(archivo_memoria)):
+            problema = guardar(nueva)
+            if problema:
+                avisar(f"aviso: {problema}")
+
+    def avisar_que_no_se_guardo_la_memoria():
+        """Al terminar, con algo para guardar en la memoria y sin poder tomar su candado:
+        no se escribió nada. Se dice, y la corrida termina con código distinto de 0."""
+        aprendido["sin_guardar"] = True
+        e = aprendido.get("sin_candado")
+        nombre = os.path.basename(ruta)
+        if e is None:
+            que_paso = (f"otra ventana de {nombre} tiene tomado el candado de la memoria "
+                        "y no lo soltó en 10 segundos")
+            que_hacer = (f"Fijate si quedó otra ventana de {nombre} colgada, cerrala y "
+                         "corré esto de nuevo")
+        else:
+            que_paso, que_hacer = por_que_no_hay_candado(e)
+        avisar(f"error: {que_paso}. Sin candado no escribo la memoria, así que lo que "
+               f"los agentes de {nombre} anotaron en esta corrida (lo que aprendieron y la "
+               f"cuenta de consultas a la IA) NO se guardó en "
+               f"{os.path.basename(archivo_memoria)}: no va a estar en la próxima. "
+               f"{que_hacer}")
 
     def cerrar_memoria():
         """Al terminar 'correr': guarda lo que recuerdan los agentes (si cambió) y suma
@@ -13873,29 +14151,14 @@ def _main(argv, donde):
                        "termina solo (un mostrador, cuando se sale con su palabra de "
                        "salida, no con Ctrl+C). "
                        f"{'Sigue' if esperan == 1 else 'Siguen'} ahí para la próxima vez")
-        if nueva != aprendido["leida"]:
-            # Antes de guardar se mira el archivo de nuevo: si cambió mientras el programa
-            # corría (otra ventana anotó una lección o sumó consultas), se suma lo de esta
-            # corrida a lo que dice ahora, en vez de pisarlo.
-            try:
-                en_disco = leer_memoria(archivo_memoria)[0]
-            except ErrorMate:
-                en_disco = None
-            if en_disco is None and aprendido["leida"] is not None:
-                avisar(f"aviso: no guardé la memoria: {os.path.basename(archivo_memoria)} "
-                       "cambió mientras el programa corría y ahora no se entiende. Lo que "
-                       "pasó en esta corrida no va a estar en la próxima; abrilo con el Bloc "
-                       "de notas y arreglalo")
-                nueva = None
-            elif en_disco is not None and en_disco != (aprendido["leida"] or {}):
-                nueva = fundir_memoria(aprendido["leida"] or {}, nueva, en_disco)
-                if nueva == en_disco:
-                    nueva = None
-        if nueva is not None and nueva != aprendido["leida"] and (
-                nueva or os.path.lexists(archivo_memoria)):
-            problema = guardar_memoria(archivo_memoria, os.path.basename(ruta), nueva)
-            if problema:
-                avisar(f"aviso: {problema}")
+        if nueva != aprendido["leida"] and (nueva or os.path.lexists(archivo_memoria)):
+            # Hay algo para guardar. Va con el candado de la memoria tomado (un programa con
+            # 'estado recordado' ya lo tiene; uno sin, lo toma ahora, por un momento) y sobre
+            # lo que dice el archivo AHORA, leído con el candado ya tomado: si cambió
+            # mientras el programa corría (otra ventana anotó una lección o sumó consultas),
+            # se suma lo de esta corrida a eso, en vez de pisarlo. Sin candado no se escribe.
+            if not con_candado(lambda: guardar_lo_nuevo(nueva), 10):
+                avisar_que_no_se_guardo_la_memoria()
         problema = guardar_bitacora(archivo_de(ruta, "bitacora.txt"), os.path.basename(ruta),
                                     interprete.bitacora or [], escrito=ruta)
         if problema:
@@ -13943,7 +14206,8 @@ def _main(argv, donde):
             # solo si el proceso muere. 'probar', 'verificar' y 'ensayar' no lo piden.
             if tiene_estado_recordado(programa):
                 try:
-                    aprendido["candado"] = tomar_candado_de_memoria(archivo_candado)
+                    aprendido["candado"] = tomar_candado_de_memoria(archivo_candado,
+                                                                    ESPERA_AL_ABRIR)
                     ocupado = aprendido["candado"] is None
                 except OSError as e:
                     # No se pudo tomar, y no es por otra ventana: el sistema no da candados
@@ -13976,46 +14240,98 @@ def _main(argv, donde):
                               "computadora y corrélo desde ahí. " if os.name == "nt" else "")
                            + "Acá no se tocó nada: ni la memoria ni el buzón")
                     return 2
-            elif any(s[0] == "agente_ajeno" for s in programa):
-                # Un programa sin 'estado recordado' no tiene el candado toda la corrida
-                # (se puede abrir en dos ventanas), pero si les envía mensajes a otros
-                # programas ('usar buzon') lo necesita al terminar, para anotarlos y
-                # repartirlos. Si acá no se puede tener un candado, se sabe ahora: no se
-                # arranca, en vez de atender y perder al final lo que se envió. (Si lo
-                # tiene otra corrida es por un momento, mientras guarda: se sigue.)
-                if not con_candado(lambda: None, 0) and aprendido["sin_candado"] is not None:
-                    que_paso, que_hacer = por_que_no_hay_candado(aprendido["sin_candado"])
-                    if getattr(aprendido["sin_candado"], "motivo", ""):
-                        que_paso += (". Este programa les envía mensajes a otros programas "
-                                     "('usar buzon') y sin candado no los puedo anotar ni "
-                                     "repartir sin riesgo de perder alguno, así que no lo "
-                                     "corro")
-                    avisar(f"{que_paso}. {que_hacer}. Acá no se tocó nada: ni la memoria "
-                           "ni el buzón")
-                    return 2
             # Lo que aprendieron los agentes (0.4): solo 'correr' lee y escribe su memoria.
-            try:
-                memoria, avisos = leer_memoria(archivo_memoria)
-                aprendido["leida"] = json.loads(json.dumps(memoria))
-            except ErrorMate as e:
-                if "--olvidar" not in opciones:
-                    avisar(e.mensaje)
-                    return 2
+            # La lectura del arranque se hace CON el candado de la memoria tomado: así no
+            # cae justo mientras otra corrida reemplaza el archivo (en Windows eso es un
+            # "no hay permiso" y la corrida no arrancaba), ni lee una memoria a medio
+            # cambiar. Un programa con 'estado recordado' ya lo tiene. Uno sin, lo toma
+            # para leer y lo suelta (se puede abrir en dos ventanas), y solo si hay algo
+            # que cuidar: el archivo de memoria existe, o el programa les envía mensajes a
+            # otros ('usar buzon'). Un programa que no recuerda nada no crea ningún archivo.
+            inicio = {}
+
+            def leer_al_arrancar():
+                try:
+                    inicio["memoria"], inicio["avisos"] = leer_memoria(archivo_memoria)
+                    inicio.pop("error", None)
+                except ErrorMate as e:
+                    inicio["error"] = e
+                inicio["buzon"] = leer_buzon_de_memoria(archivo_memoria)
+
+            envia_a_otros = any(s[0] == "agente_ajeno" for s in programa)
+            if aprendido["candado"] is not None:
+                leer_al_arrancar()
+            elif envia_a_otros or os.path.lexists(archivo_memoria):
+                if not con_candado(leer_al_arrancar, 2):
+                    # Un programa sin 'estado recordado' que les envía mensajes a otros
+                    # programas necesita el candado al terminar, para anotarlos y
+                    # repartirlos. Si acá no se puede tener un candado, se sabe ahora: no
+                    # se arranca, en vez de atender y perder al final lo que se envió.
+                    if envia_a_otros and aprendido["sin_candado"] is not None:
+                        que_paso, que_hacer = por_que_no_hay_candado(aprendido["sin_candado"])
+                        if getattr(aprendido["sin_candado"], "motivo", ""):
+                            que_paso += (". Este programa les envía mensajes a otros "
+                                         "programas ('usar buzon') y sin candado no los "
+                                         "puedo anotar ni repartir sin riesgo de perder "
+                                         "alguno, así que no lo corro")
+                        avisar(f"{que_paso}. {que_hacer}. Acá no se tocó nada: ni la "
+                               "memoria ni el buzón")
+                        return 2
+                    # (Lo tiene otra corrida y no lo soltó en 2 segundos, o acá no hay
+                    # candados y el programa no envía nada: se lee sin candado, que para
+                    # leer alcanza; leer_archivo_de_memoria insiste si el archivo está
+                    # siendo reemplazado. Para ESCRIBIR va a hacer falta el candado.)
+                    leer_al_arrancar()
+            else:
+                leer_al_arrancar()
+            if "error" in inicio and "--olvidar" in opciones:
                 # No se entendía, y pidieron empezar de cero: ahí adentro puede haber
                 # lecciones, así que el archivo roto no se pisa: queda guardado aparte.
-                memoria, avisos, rota = {}, [], archivo_de(ruta, "memoria.rota.json")
-                try:
-                    os.replace(archivo_memoria, rota)
-                except OSError:
-                    avisar(f"{e.mensaje}\n(--olvidar no lo pisa: ahí pueden estar las "
-                           "lecciones, y no pude guardarlo aparte)")
+                # Moverlo es cambiar la memoria: va con el candado tomado, y después de
+                # leerla de nuevo (si otra ventana la arregló recién, no se mueve nada).
+                rota = archivo_de(ruta, "memoria.rota.json")
+
+                def apartar_la_rota():
+                    leer_al_arrancar()
+                    if "error" not in inicio:
+                        return
+                    try:
+                        escribir_memoria(archivo_memoria, aprendido["candado"], mover_a=rota)
+                        inicio["apartada"] = True
+                    except OSError:
+                        pass
+
+                if not con_candado(apartar_la_rota, 2):
+                    if aprendido["sin_candado"] is None:
+                        por_que = (f"otra ventana de {os.path.basename(ruta)} tiene tomado "
+                                   "el candado de la memoria: cerrala y probá de nuevo")
+                    else:
+                        por_que = ". ".join(por_que_no_hay_candado(aprendido["sin_candado"]))
+                    avisar(f"{inicio['error'].mensaje}\n(--olvidar no lo pisa: ahí pueden "
+                           "estar las lecciones, y no lo pude guardar aparte sin el candado "
+                           f"de la memoria: {por_que})")
                     return 2
-                avisar("aviso: --olvidar: los agentes arrancan de cero. "
-                       f"{os.path.basename(archivo_memoria)} estaba mal escrito y no se "
-                       "entendía, así que esta vez se pierden también las "
-                       f"lecciones. Lo dejé como estaba en {rota} (se abre con el Bloc de "
-                       "notas) por si querés rescatar alguna y anotarla de nuevo con "
-                       "'corregir'")
+                if "error" in inicio and not inicio.get("apartada"):
+                    avisar(f"{inicio['error'].mensaje}\n(--olvidar no lo pisa: ahí pueden "
+                           "estar las lecciones, y no pude guardarlo aparte)")
+                    return 2
+                if "error" in inicio:
+                    inicio["memoria"], inicio["avisos"] = {}, []
+                    inicio["buzon"] = leer_buzon_de_memoria(archivo_memoria)
+                    avisar("aviso: --olvidar: los agentes arrancan de cero. "
+                           f"{os.path.basename(archivo_memoria)} estaba mal escrito y no se "
+                           "entendía, así que esta vez se pierden también las "
+                           f"lecciones. Lo dejé como estaba en {rota} (se abre con el Bloc "
+                           "de notas) por si querés rescatar alguna y anotarla de nuevo con "
+                           "'corregir'")
+                else:  # (otra ventana la arregló justo: vale lo que dice ahora)
+                    aprendido["leida"] = json.loads(json.dumps(inicio["memoria"]))
+            elif "error" in inicio:
+                avisar(inicio["error"].mensaje)
+                return 2
+            else:
+                aprendido["leida"] = json.loads(json.dumps(inicio["memoria"]))
+            memoria, avisos = inicio["memoria"], inicio["avisos"]
             for aviso in avisos:
                 avisar(f"aviso: {aviso}")
             if "--olvidar" in opciones:
@@ -14044,7 +14360,7 @@ def _main(argv, donde):
             # se cortó entre guardar y repartir sale ahora, antes que nada.
             buzon = aprendido["buzon"] = interprete.buzon = Buzon(
                 ruta, lambda texto: avisar(f"aviso: {texto}"))
-            buzon.leido, avisos = leer_buzon_de_memoria(archivo_memoria)
+            buzon.leido, avisos = inicio["buzon"]
             for aviso in avisos:
                 avisar(f"aviso: {aviso}")
             def recuperar_lo_por_salir():
@@ -14063,11 +14379,9 @@ def _main(argv, donde):
                 except ErrorMate:
                     return  # (cambió y no se entiende: no se pisa; se avisa al terminar)
                 en_buzon = leer_buzon_de_memoria(archivo_memoria)[0]
-                guardar_memoria(
-                    archivo_memoria, os.path.basename(ruta), ahora,
-                    dict(en_buzon, por_salir=[
-                        p for p in en_buzon["por_salir"]
-                        if (p["carpeta"], p["sobre"]["id"]) not in buzon.repartidos]))
+                guardar(ahora, dict(en_buzon, por_salir=[
+                    p for p in en_buzon["por_salir"]
+                    if (p["carpeta"], p["sobre"]["id"]) not in buzon.repartidos]))
 
             if buzon.leido["por_salir"]:
                 # (Si otra corrida de este programa tiene el candado, lo está repartiendo
@@ -14094,12 +14408,27 @@ def _main(argv, donde):
             buzon.cambio_la_memoria = cambio_la_memoria
 
             def se_puede_guardar(cuantos):
-                """Antes de atender lo que llegó al buzón: ¿se puede tomar el candado de la
-                memoria? Si acá no se puede tener uno, no se atiende nada: los mensajes
-                quedan en su carpeta y se avisa. (Si lo tiene otra corrida de este programa
-                es por un momento, mientras guarda: se sigue, y se pide de nuevo al terminar.)"""
-                if con_candado(lambda: None, 2) or aprendido["sin_candado"] is None:
+                """Antes de atender lo que llegó al buzón: se toma el candado de la memoria
+                y NO se suelta hasta que la corrida termina de guardar. Atender un mensaje
+                es anotar después, en la memoria, que se atendió: si al terminar el candado
+                no se pudiera tomar, el mensaje quedaría en el buzón ya atendido y se
+                atendería otra vez. Por eso el manejador de un sobre no corre nunca sin el
+                candado ya en la mano.
+                Devuelve True si esta corrida lo tiene; None si lo tiene otra corrida y no
+                lo soltó en 2 segundos (no se atiende nada, avisa el buzón); False si acá
+                no se puede tener un candado (no se atiende nada, y ya se avisó)."""
+                if aprendido["candado"] is not None:
                     return True
+                aprendido["sin_candado"] = None
+                try:
+                    candado = tomar_candado_de_memoria(archivo_candado, 2)
+                except OSError as e:
+                    aprendido["sin_candado"], candado = e, None
+                if candado is not None:
+                    aprendido["candado"] = candado  # (se suelta al final de la corrida)
+                    return True
+                if aprendido["sin_candado"] is None:
+                    return None
                 esperan = (f"{cuantos_mensajes(cuantos)} "
                            f"{'queda' if cuantos == 1 else 'quedan'} en "
                            f"{os.path.basename(buzon.carpeta)} y se "
@@ -14123,41 +14452,64 @@ def _main(argv, donde):
                 terminar, y se suma lo que haya anotado otra ventana (el mismo programa
                 abierto dos veces, o la orden 'proponer'): el tope es uno solo. Lo demás
                 de la memoria queda como estaba; se guarda al final."""
-                leida = aprendido["leida"] or {}
-                nueva = json.loads(json.dumps(leida))
-                for nombre, agente in interprete.agentes.items():
-                    gasto = gasto_limpio(agente.gasto)
-                    if gasto:
-                        nueva.setdefault(nombre, {"estado": {}, "lecciones": []})["gasto"] = gasto
-                try:
-                    en_disco = leer_memoria(archivo_memoria)[0]
+                def con_la_cuenta(leida):
+                    nueva = json.loads(json.dumps(leida))
+                    for nombre, agente in interprete.agentes.items():
+                        gasto = gasto_limpio(agente.gasto)
+                        if gasto:
+                            nueva.setdefault(
+                                nombre, {"estado": {}, "lecciones": []})["gasto"] = gasto
+                    return nueva
+
+                def anotar():
+                    """(con el candado de la memoria tomado: lee el archivo de nuevo)"""
+                    leida = aprendido["leida"] or {}
+                    nueva = con_la_cuenta(leida)
+                    try:
+                        en_disco = leer_memoria(archivo_memoria)[0]
+                    except ErrorMate:
+                        return  # (cambió y no se entiende: no se pisa; se avisa al terminar)
+                    if en_disco == leida:
+                        if nueva != leida and not guardar(nueva):
+                            aprendido["leida"] = nueva
+                        return
+                    junta = fundir_memoria(leida, nueva, en_disco)
+                    if junta != en_disco and guardar(junta):
+                        return
+                    # La cuenta de los agentes pasa a ser la del archivo (con lo de la otra
+                    # ventana adentro). Lecciones y estado siguen como al empezar la corrida.
+                    for nombre, agente in interprete.agentes.items():
+                        gasto = junta.get(nombre, {}).get("gasto", {})
+                        for dia, cuenta in gasto.items():
+                            agente.ensayo_desde[dia] = (
+                                agente.ensayo_desde.get(dia, 0) + cuenta["simuladas"]
+                                - agente.gasto.get(dia, {}).get("simuladas", 0))
+                        agente.gasto = {dia: dict(cuenta) for dia, cuenta in gasto.items()}
+                        ficha = nueva.get(nombre)
+                        if ficha is not None:
+                            ficha.pop("gasto", None)
+                        if gasto:
+                            nueva.setdefault(nombre, {"estado": {}, "lecciones": []})[
+                                "gasto"] = json.loads(json.dumps(gasto))
+                    aprendido["leida"] = {a: f for a, f in nueva.items() if any(f.values())}
+
+                try:  # (si no hay nada que anotar ni que sumar, no se pide el candado)
+                    leida = aprendido["leida"] or {}
+                    if leer_memoria(archivo_memoria)[0] == leida == con_la_cuenta(leida):
+                        return
                 except ErrorMate:
                     return  # (cambió y no se entiende: no se pisa; se avisa al terminar)
-                if en_disco == leida:
-                    if nueva != leida and not guardar_memoria(
-                            archivo_memoria, os.path.basename(ruta), nueva):
-                        aprendido["leida"] = nueva
+                if con_candado(anotar, 2) or aprendido.get("cuenta_avisada"):
                     return
-                junta = fundir_memoria(leida, nueva, en_disco)
-                if junta != en_disco and guardar_memoria(
-                        archivo_memoria, os.path.basename(ruta), junta):
-                    return
-                # La cuenta de los agentes pasa a ser la del archivo (con lo de la otra
-                # ventana adentro). Lecciones y estado siguen como al empezar la corrida.
-                for nombre, agente in interprete.agentes.items():
-                    gasto = junta.get(nombre, {}).get("gasto", {})
-                    for dia, cuenta in gasto.items():
-                        agente.ensayo_desde[dia] = (
-                            agente.ensayo_desde.get(dia, 0) + cuenta["simuladas"]
-                            - agente.gasto.get(dia, {}).get("simuladas", 0))
-                    agente.gasto = {dia: dict(cuenta) for dia, cuenta in gasto.items()}
-                    ficha = nueva.get(nombre)
-                    if ficha is not None:
-                        ficha.pop("gasto", None)
-                    if gasto:
-                        nueva.setdefault(nombre, {"estado": {}, "lecciones": []})[
-                            "gasto"] = json.loads(json.dumps(gasto))
-                aprendido["leida"] = {a: f for a, f in nueva.items() if any(f.values())}
+                # Sin candado no se escribe. La cuenta sigue en la mano y se anota al
+                # terminar (ahí, si tampoco se puede, se dice fuerte y el código no es 0).
+                aprendido["cuenta_avisada"] = True
+                e = aprendido["sin_candado"]
+                avisar("aviso: no pude anotar ahora la cuenta de consultas a la IA en "
+                       f"{os.path.basename(archivo_memoria)}: "
+                       + (f"otra ventana de {os.path.basename(ruta)} tiene tomado el candado "
+                          "de la memoria" if e is None else por_que_no_hay_candado(e)[0])
+                       + ". Sin candado no escribo la memoria: la anoto al terminar")
 
             interprete.guardar_cuenta = guardar_cuenta
             interprete.avisar = lambda texto: avisar(f"aviso: {texto}")

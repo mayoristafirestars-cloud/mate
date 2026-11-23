@@ -814,7 +814,8 @@ Lo que hay que saber:
   (Si las dos anotaran, la que cierra última pisaría el stock que guardó la otra, y dos
   cajas podrían vender la misma última unidad.) Vale para cualquier programa con `estado
   recordado`: ver [Memoria](#memoria-estado-recordado). `probar`, `verificar` y `ensayar` se
-  pueden usar igual con la charla abierta.
+  pueden usar igual con la charla abierta; `corregir` y aprobar una propuesta, no: cambian
+  la memoria, y esperan a que cierres la charla.
 - **Nada se anota sin un `si`.** Ventas no anota directo. Cuando entiende un pedido lo
   repite con la cuenta completa y con cuántos **bultos** son, usando la unidad en que se
   vende, y pregunta:
@@ -1222,7 +1223,11 @@ atendió). Lo único que se puede repetir es lo que el agente había mostrado en
   `buzon deposito.mate` se puede mirar siempre. Si el programa no tiene `estado recordado`,
   las dos ventanas corren y el buzón lo atiende una sola (la otra avisa y no recibe); lo que
   quedó por salir de una corrida cortada lo reparte una sola, con el candado de la memoria
-  tomado y leyendo la memoria de nuevo en ese momento.
+  tomado y leyendo la memoria de nuevo en ese momento. La ventana que atiende el buzón toma
+  el candado de la memoria **antes del primer mensaje y no lo suelta hasta guardar**: un
+  mensaje no se atiende nunca si después no se va a poder anotar que se atendió. Si ese
+  candado lo tiene otra corrida y no lo suelta en un par de segundos, no atiende nada: avisa
+  `sin candado no atiendo el buzón` y los mensajes quedan en su carpeta para la próxima vez.
 - **Sin candado no sale ni entra ningún mensaje.** Si Mate no puede tomar el candado de la
   memoria (la carpeta está en un lugar donde el sistema no los da, como algunas carpetas de
   red; no se puede crear el archivo; o con ese nombre hay otra cosa), no escribe nada de lo
@@ -1240,8 +1245,8 @@ atendió). Lo único que se puede repetir es lo que el agente había mostrado en
   - Si el candado andaba al arrancar y deja de poder tomarse justo al terminar (una falla
     pasajera, u otra ventana del mismo programa que no lo suelta en 10 segundos), Mate
     tampoco escribe: avisa con `error:` que lo que el programa envió en esa corrida **no
-    salió ni quedó anotado** (hay que hacerlo de nuevo), que lo que había atendido del buzón
-    sigue ahí para atenderse otra vez, y termina con código 1.
+    salió ni quedó anotado** (hay que hacerlo de nuevo), y termina con código 1. (Lo que
+    llegó al buzón ya no corre ese riesgo: se atiende con el candado en la mano.)
 
   Nada sale ni se atiende dos veces; para destrabarlo, copiá la carpeta de los programas a
   un disco de esa computadora.
@@ -1682,13 +1687,30 @@ python mate\mate.py correr mi_mostrador.mate          (arranca en 1 y termina en
   candado ocupado: ahí el aviso es `ya hay otra ventana abierta`, y agrega qué hacer si no
   hay ninguna.)
 - **Con el programa abierto en una ventana se puede seguir trabajando desde otra** en todo
-  lo que no es correrlo: `probar`, `verificar` y `ensayar` no se traban (no escriben el
-  estado), y tampoco anotar una lección con `corregir` o aprobar una propuesta. Al guardar,
-  Mate relee el archivo y le **suma** lo de esa corrida (lo que cambió del estado, las
-  lecciones y propuestas nuevas, las consultas que hizo) en vez de pisarlo. Lo anotado desde
-  la otra ventana lo usa el agente desde su próxima corrida. Un programa **sin** `estado
-  recordado` (uno que solo tiene lecciones o frenos) sí se puede correr en dos ventanas a
-  la vez, como antes.
+  lo que no cambia la memoria: `probar`, `verificar`, `ensayar`, `buzon`, y ver las
+  `lecciones` y las `propuestas`, no se traban.
+- **La memoria se escribe siempre con el candado tomado, y sobre lo recién leído.** Todo lo
+  que cambia el archivo de memoria (guardar al terminar, anotar la cuenta de consultas a la
+  IA, `corregir`, `lecciones --borrar`, `proponer`, aprobar o descartar una propuesta, las
+  propuestas que deja `ensayar`, y `--olvidar`) hace lo mismo: toma el candado, **lee el
+  archivo de nuevo**, le aplica el cambio y lo escribe. Así nadie guarda una copia vieja
+  encima de lo que otra ventana acaba de anotar (una caja no vuelve a vender la unidad que
+  ya vendió). Lo que eso significa para vos:
+  - **Con la charla abierta no se puede `corregir`** (ni `proponer`, ni borrar una lección,
+    ni aprobar o descartar una propuesta) en un programa con `estado recordado`: ese
+    programa tiene el candado mientras está abierto. La orden espera unos segundos y, si
+    sigue ocupado, avisa `está abierto en otra ventana ... Cerrá la otra ventana y probá de
+    nuevo`, termina con código 2 y no toca nada. Terminá la charla (`chau`) y repetí la
+    orden. `ensayar` corre igual; si tenía lecciones para proponer, avisa que no las dejó.
+  - Un programa **sin** `estado recordado` (uno que solo tiene lecciones o frenos) se puede
+    correr en dos ventanas a la vez, como antes: toma el candado solo un momento, al
+    arrancar (para leer la memoria) y cada vez que escribe, y le **suma** lo de esa corrida
+    (las lecciones y propuestas nuevas, las consultas que hizo) a lo que el archivo dice en
+    ese momento. Si justo no puede tomarlo (otra ventana no lo suelta en 10 segundos, o la
+    carpeta no da candados), **no escribe**: avisa con `error:` que lo que los agentes
+    anotaron en esa corrida no se guardó, y termina con código 1.
+  - `--olvidar` sobre una memoria mal escrita la deja aparte (`.memoria.rota.json`) también
+    con el candado tomado; si no lo puede tomar, no mueve nada y no corre.
 
 Así se ve el archivo:
 
@@ -2060,7 +2082,8 @@ frenos no tienen reserva, falla con un error que se ataja con `intentar`
   (`mi_mostrador.memoria.json`), después de cada consulta de verdad. Al día siguiente
   arranca de cero. Las copias de un agente (`crear`) cuentan todas juntas, con el original.
   Si el mismo programa está abierto en dos ventanas, el tope es uno solo: antes de cada
-  consulta Mate mira lo que ya anotó la otra.
+  consulta Mate mira lo que ya anotó la otra. La cuenta se anota con el candado de la
+  memoria tomado; si en ese momento no lo puede tomar, avisa y la anota al terminar.
 - **Cuenta toda consulta que se cobra**, también la que llegó a la IA y volvió sin servir
   (una respuesta cortada por lo larga, sin texto, o frenada por un filtro): Anthropic la
   cobra igual, y si no contara, un programa que reintenta podría gastar sin límite.
@@ -3191,6 +3214,7 @@ archivo viejo deja de andar, casi seguro es por una de estas:
 
 | Qué pasa ahora | Cómo se arregla |
 |---|---|
+| `corregir`, `proponer`, `lecciones --borrar` y aprobar o descartar una propuesta no se pueden usar mientras el programa está abierto en otra ventana, si tiene `estado recordado` (0.7): esperan unos segundos, avisan `está abierto en otra ventana` y terminan con código 2 sin tocar nada. Antes escribían igual, y podían pisar una venta que la caja guardaba justo en ese momento | Terminar la charla de la otra ventana (`chau`) y repetir la orden |
 | Un programa con `estado recordado` no se puede `correr` en dos ventanas a la vez (0.7): la segunda avisa `ya hay otra ventana abierta con ...` y termina con código 2. Antes corrían las dos y la que cerraba última pisaba lo que guardó la otra | Terminar la charla de la otra ventana y correrlo de nuevo |
 | En el equipo (ejemplo 13 y `nuevo equipo`), `ConsultaDeCliente` lleva un campo más, `cliente`, y `DejarDeEsperar` también (0.7): el pedido que espera el `si` es de ese cliente. Un equipo creado antes es una copia fija y sigue como estaba | Crear el equipo de nuevo; si armabas `ConsultaDeCliente` a mano, agregarle `cliente: "..."` |
 | `buzon` es una orden (0.7): `python mate\mate.py buzon deposito.mate` muestra el buzón de ese programa, y `buzon` sola ya no corre un archivo llamado `buzon.mate` (pide el programa). Dentro de un programa `buzon` sigue sirviendo como nombre: solo significa otra cosa después de `usar` | Escribir la orden entera: `correr buzon.mate` |
@@ -3373,9 +3397,14 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
   termina con código 1. Eso incluye una carpeta
   de solo lectura: un ejemplo con `estado recordado` o con `usar buzon` hay que copiarlo a
   una carpeta donde se pueda escribir para correrlo. Otro usuario de la misma computadora que pueda leer la carpeta puede tener
-  tomado el candado y dejar el programa sin arrancar. Las órdenes que anotan en la memoria
-  sin correr el programa (`corregir`, aprobar una propuesta) no toman el candado: dos a la
-  vez, justo en el mismo instante, pueden pisarse una lección. El pedido que espera el
+  tomado el candado y dejar el programa sin arrancar. Las órdenes que cambian la memoria
+  sin correr el programa (`corregir`, `proponer`, borrar una lección, aprobar o descartar
+  una propuesta) también toman el candado y leen la memoria de nuevo antes de escribir: por
+  eso **no se pueden usar con el programa abierto** en otra ventana si tiene `estado
+  recordado` (avisan, terminan con código 2 y no tocan nada; hay que cerrar la charla), y
+  tampoco en una carpeta que no da candados. Un programa sin `estado recordado` que no
+  puede tomar el candado al momento de guardar (lo que aprendió, la cuenta de consultas)
+  no guarda: lo dice con `error:` y termina con código 1. El pedido que espera el
   `si` es por cliente, pero la charla por teclado tiene un solo cliente. Ese pedido no caduca solo: espera hasta que ese cliente vuelva a escribir o el programa termine (el nombre del cliente vale sin los espacios de alrededor). Las lecciones solo le llegan a la IA por `consultar_ia`: no cambian lo que
   hace el resto del programa (para eso está `lecciones()`).
 - El registro de errores de uso anota un renglón por corrida que falla (el primer error, y
