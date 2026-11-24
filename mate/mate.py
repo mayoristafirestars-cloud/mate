@@ -10242,6 +10242,13 @@ prueba "tu planilla está bien cargada" {
     si mal_escrito != nada {
         fallar(mal_escrito)
     }
+    # Y que ningún renglón de tu planilla se parezca a un dato del negocio: lo que está
+    # escrito en la planilla no cuenta como inventado, pero si igual alguno se frenara
+    # (no se conoce ningún caso: es una red), acá te enterás antes que el cliente.
+    sea frenados = renglones_frenados(precios)
+    si frenados != nada {
+        fallar(frenados)
+    }
 }
 
 prueba "la cuenta la hace el programa, no la IA" {
@@ -10405,6 +10412,15 @@ prueba "una respuesta que no nombra ningún dato del negocio pasa como está" {
     sea con_promo = [{ producto: "Promo yerba y azúcar", presentacion: "caja", precio: 40000, stock: 5 }]
     asegurar dato_inventado({}, "Tenemos la Promo yerba y azúcar.", con_promo) == nada
     asegurar dato_inventado({}, "Tenemos la Promo yerba y azúcar.", lista_de_prueba()) == "promociones"
+    # Ni una presentación escrita "12 x 900" o "8.30": no es una promoción ni un horario.
+    sea con_equis = [{ producto: "Aceite", presentacion: "caja 12 x 900 ml", precio: 31200, stock: 5 },
+                     { producto: "Cinta", presentacion: "pack 8.30 cm", precio: 5000, stock: 5 }]
+    asegurar dato_inventado({}, "Aceite (caja 12 x 900 ml): $ 31.200,00", con_equis) == nada
+    asegurar dato_inventado({}, "El aceite viene en caja de 12 x 900 ml.", con_equis) == nada
+    asegurar dato_inventado({}, "Cinta (pack 8.30 cm): $ 5.000,00", con_equis) == nada
+    asegurar dato_inventado({}, "Hay 3 x 2 en aceite.", con_equis) == "promociones"
+    asegurar dato_inventado({}, "Los precios son por bulto cerrado.", con_equis) == nada
+    asegurar renglones_frenados(con_equis) == nada y renglones_frenados(lista_de_prueba()) == nada
 }
 
 prueba "con los datos cargados, cada cosa se compara con el dato de su tema" {
@@ -10779,6 +10795,13 @@ prueba "tu planilla está bien cargada" {
     sea mal_escrito = datos_mal_puestos(datos_del_negocio)
     si mal_escrito != nada {
         fallar(mal_escrito)
+    }
+    # Y que ningún renglón de tu planilla se parezca a un dato del negocio: lo que está
+    # escrito en la planilla no cuenta como inventado, pero si igual alguno se frenara
+    # (no se conoce ningún caso: es una red), acá te enterás antes que el cliente.
+    sea frenados = renglones_frenados(lista)
+    si frenados != nada {
+        fallar(frenados)
     }
 }
 

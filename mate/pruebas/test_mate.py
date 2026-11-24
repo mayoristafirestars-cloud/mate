@@ -10369,7 +10369,7 @@ def test_el_ejemplo_12_resuelve_los_pedidos_sin_consultar_a_la_ia(tmp_path, caps
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["probar", ruta]) == 0
     salida = capsys.readouterr().out
-    assert "38 de 38 pruebas pasaron" in salida
+    assert "39 de 39 pruebas pasaron" in salida
     assert "✓ los dos pedidos que una IA contestó mal: total exacto, envío bien y sin IA" in salida
     assert sorted(p.name for p in tmp_path.iterdir()) == [nombre, "precios.csv"]  # probar no deja nada
     # corrido de verdad, con el teclado: el pedido lo contesta el programa aunque la IA
@@ -20158,3 +20158,100 @@ def test_071_vuelta_3_los_errores_al_cargar_un_dato_dicen_que_hacer(tmp_path, ca
     leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
     assert "**El teléfono también va entre comillas.**" in leeme
     assert "`verificar` o `probar` lo dicen" not in leeme
+
+
+# ───────── 0.7.1, vuelta 4: lo que está escrito en la planilla no es un dato inventado ─────────
+
+PLANILLA_CON_EQUIS = ("producto;presentacion;precio;stock\n"
+                      "Aceite de girasol;caja 12 x 900 ml;31.200;8\n"
+                      "Gaseosa cola;pack 6x1.5 l;9.000;8\n"
+                      "Agua mineral;pack 6 x 2,25 l;7.000;8\n"
+                      "Harina 000;bolsa 10 x 1 kg;14.500;8\n"
+                      "Cinta métrica;pack 8.30 cm;5.000;8\n"
+                      "Alcohol 70%;caja x 24;20.000;8\n"
+                      "Reloj 8:30;unidad;12.000;8\n")
+RENGLONES_CON_EQUIS = [
+    ("tenes aceite?", "Aceite de girasol (caja 12 x 900 ml): $ 31.200,00"),
+    ("cuanto sale el aceite?", "Aceite de girasol (caja 12 x 900 ml): $ 31.200,00"),
+    ("tenes gaseosa?", "Gaseosa cola (pack 6x1.5 l): $ 9.000,00"),
+    ("tenes agua?", "Agua mineral (pack 6 x 2,25 l): $ 7.000,00"),
+    ("tenes harina?", "Harina 000 (bolsa 10 x 1 kg): $ 14.500,00"),
+    ("tenes cinta?", "Cinta métrica (pack 8.30 cm): $ 5.000,00"),
+    ("tenes alcohol?", "Alcohol 70% (caja x 24): $ 20.000,00"),
+    ("tenes reloj?", "Reloj 8:30 (unidad): $ 12.000,00"),
+]
+
+
+@pytest.mark.parametrize("que", ["mostrador", "equipo"])
+def test_071_vuelta_4_una_presentacion_n_x_m_no_se_toma_por_promocion(
+        tmp_path, capsys, monkeypatch, que):
+    # P203: con "caja 12 x 900 ml" en la planilla, a "tenes aceite?" le llegaba "Sobre las
+    # promociones: eso te lo confirma una persona." (y con "pack 8.30 cm", "Sobre el horario").
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "alm"]) == 0
+    (tmp_path / "alm_precios.csv").write_text(PLANILLA_CON_EQUIS, encoding="utf-8")
+    capsys.readouterr()
+    preguntas = [pregunta for pregunta, _ in RENGLONES_CON_EQUIS]
+    if que == "mostrador":
+        dicho = charla_con("alm.mate", capsys, monkeypatch, *preguntas)
+    else:
+        dicho, _ = charla_del_equipo("alm.mate", capsys, monkeypatch, *preguntas)
+        dicho = [d.split(": ", 1)[1] for d in dicho]
+    assert dicho == [renglon for _, renglon in RENGLONES_CON_EQUIS]
+    assert not any("confirma una persona" in d for d in dicho)
+    # y 'probar' pasa entero con esa planilla: ningún renglón se frenaría
+    assert mate.main(["probar", "alm.mate"]) == 0
+    salida = capsys.readouterr().out
+    assert "✓ tu planilla está bien cargada" in salida and "✗" not in salida
+
+
+@pytest.mark.parametrize("que", ["mostrador", "equipo"])
+def test_071_vuelta_4_probar_avisa_si_un_renglon_de_la_planilla_se_frenaria(
+        tmp_path, capsys, monkeypatch, que):
+    # P210: la prueba "tu planilla está bien cargada" pasa cada renglón de la planilla del
+    # dueño por la revisión. Lo único que queda afuera de la regla (una celda que es un
+    # número solo con pinta de hora) se avisa ahí, antes de que lo vea un cliente.
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "alm"]) == 0
+    capsys.readouterr()
+    assert mate.main(["probar", "alm.mate"]) == 0
+    assert "✓ tu planilla está bien cargada" in capsys.readouterr().out
+    # Con la planilla leída de un archivo no se conoce ningún renglón que se frene (una
+    # celda "8.30" sola se lee como el número 8,3): se prueba con una lista escrita a mano.
+    ruta = tmp_path / "alm.mate"
+    texto = ruta.read_text(encoding="utf-8-sig")
+    tabla = "precios" if que == "mostrador" else "lista"
+    llamada = f"sea frenados = renglones_frenados({tabla})"
+    assert texto.count(llamada) == 1
+    ruta.write_text(texto.replace(llamada, 'sea frenados = renglones_frenados([{ producto: '
+                                  '"Yerba mate", presentacion: "bolsón", precio: 1, stock: 1 }, '
+                                  '{ producto: "Pan", presentacion: "8.30", precio: 1, stock: 1 }])'),
+                    encoding="utf-8-sig")
+    assert mate.main(["probar", "alm.mate"]) == 1
+    salida = capsys.readouterr().out
+    assert "✗ tu planilla está bien cargada" in salida
+    assert ("En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, "
+            "una promoción): 'Pan' (8.30). Cuando la IA lo nombre") in salida
+    assert "'Yerba mate'" not in salida.split("En tu planilla, esto se parece")[1].split("\n")[0]
+
+
+def test_071_vuelta_4_con_una_planilla_larga_probar_sigue_pasando(tmp_path, capsys, monkeypatch):
+    # Mirar cada renglón contra toda la planilla pasaba el tope de pasos con 600 productos:
+    # cada renglón se mira contra él solo, y hasta los primeros 300.
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", "mostrador", "alm"]) == 0
+    renglones = [f"Producto marca {n} sabor limón;caja {n % 12 + 2} x {n} ml;{1000 + n};5"
+                 for n in range(3000)]
+    (tmp_path / "alm_precios.csv").write_text(
+        "producto;presentacion;precio;stock\n" + "\n".join(renglones) + "\n", encoding="utf-8")
+    capsys.readouterr()
+    assert mate.main(["probar", "alm.mate"]) == 0
+    assert "18 de 18 pruebas pasaron" in capsys.readouterr().out
+
+
+def test_071_vuelta_4_la_regla_esta_en_el_ejemplo_y_en_las_mejoras():
+    ejemplo = (RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
+    for funcion in ("celdas_de_la_planilla", "sin_lo_de_la_planilla", "en_la_planilla",
+                    "renglones_frenados"):
+        assert f"\nfuncion {funcion}(" in ejemplo
+    assert "Nota de la vuelta 4" in (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
