@@ -20,8 +20,14 @@
 #     programa, con lo que cargaste tal cual; y lo que dejaste vacío no se inventa: "eso
 #     te lo confirma una persona".
 # La IA queda para todo lo demás (saludar, contar qué hay), con frenos. Y a lo que
-# contesta se le mira, además, que no nombre un día, una hora, un teléfono o una forma de
-# pago que vos no cargaste: si lo hace, esa respuesta no le llega al cliente.
+# contesta se le mira, además, que no nombre un día, una hora, una dirección, un teléfono,
+# una forma de pago, una entrega o una promoción que vos no cargaste: si lo hace, esa
+# respuesta no le llega al cliente.
+# OJO: esa revisión va por palabras. Ataja lo más común, NO TODO: un modelo puede decir un
+# dato de una manera que no está prevista (más abajo hay una prueba con ejemplos de lo que
+# se escapa). Por eso conviene CARGAR LOS DATOS (con el dato cargado, si la IA dice otra
+# cosa, al cliente le llega el tuyo) y ENSAYAR con el modelo de verdad antes de dejarlo
+# atender.
 #
 # PROBALO ASÍ, en PowerShell (no hace falta clave ni internet, y no gasta nada). Si en tu
 # computadora Python se llama con py, escribí py donde dice python:
@@ -129,7 +135,7 @@ agente Mostrador {
             sea contestado = consultar_ia(instrucciones, c.pregunta, c.sin_ia)
             # Pasó los frenos. Falta mirar una cosa más, que la mira el programa: que no
             # nombre un horario, un teléfono o una forma de pago que no está cargada.
-            responder Atencion { respuesta: sin_inventar(c.datos, contestado) }
+            responder Atencion { respuesta: sin_inventar(c.datos, contestado, filas) }
         } si falla motivo {
             # Sin clave, sin internet o sin crédito: se contesta con lo que dice la lista.
             responder Atencion { respuesta: c.sin_ia, aviso: motivo }
@@ -679,33 +685,43 @@ funcion buscar_en_lista(tabla, dicho) {
 #   - titulo y nombre: cómo se le dice al cliente ("Horario: ..." y "el horario");
 #   - palabras: las que usa un cliente para preguntar por eso, en minúsculas y sin tildes.
 #     Si tus clientes preguntan con otra palabra, agregala en la lista que le toca.
+#   - flojas: palabras que también se usan para otra cosa ("¿cuánto pago por 12 azúcar?",
+#     "dame 5 para el sábado"). Valen igual que las otras, salvo cuando la frase es un
+#     pedido con su cantidad: ahí el programa contesta la cuenta y no agrega nada.
 funcion temas_del_negocio() {
     devolver [
         { clave: "horario", titulo: "Horario", nombre: "el horario",
-          palabras: ["horario", "horarios", "hora", "horas", "abren", "abris", "abre", "abierto",
-                     "abiertos", "cierran", "cierra", "cerras", "cerrado", "cerrados", "atienden",
-                     "atendes", "sabado", "sabados", "domingo", "domingos", "feriado", "feriados"] },
+          palabras: ["horario", "horarios", "abren", "abris", "abre", "abierto", "abiertos",
+                     "cierran", "cierra", "cerras", "cerrado", "cerrados", "atienden", "atendes"],
+          flojas: ["hora", "horas", "dia", "dias", "sabado", "sabados", "domingo", "domingos",
+                   "feriado", "feriados", "cuando", "pasar", "trabajan", "trabajas", "mediodia",
+                   "finde", "mañana", "tarde", "noche"] },
         { clave: "direccion", titulo: "Dirección", nombre: "la dirección",
           palabras: ["direccion", "direcciones", "ubicacion", "ubicados", "ubicado", "ubican",
-                     "donde", "adonde", "calle", "sucursal", "sucursales", "localidad", "barrio"] },
+                     "donde", "adonde", "calle", "sucursal", "sucursales", "localidad", "barrio",
+                     "local"],
+          flojas: ["llego", "retirar", "retiro"] },
         { clave: "telefono", titulo: "Teléfono", nombre: "el teléfono",
           palabras: ["telefono", "telefonos", "tel", "celular", "celu", "whatsapp", "wsp", "wpp",
                      "wasap", "llamar", "llamo", "llamarlos", "llamarte", "contacto", "mail",
-                     "email", "correo", "instagram", "facebook"] },
+                     "email", "correo", "instagram", "facebook", "web", "pagina", "redes"],
+          flojas: [] },
         { clave: "formas_de_pago", titulo: "Formas de pago", nombre: "las formas de pago",
-          palabras: ["pago", "pagos", "pagar", "pagarte", "pagarles", "paga", "pagan", "pagas",
-                     "cobran", "cobras", "abonar", "abono", "abona", "tarjeta",
-                     "tarjetas", "debito", "credito", "transferencia", "transferencias",
-                     "transferir", "transfiero", "efectivo", "cheque", "cheques", "mercadopago",
-                     "qr", "cuotas", "cuota", "cbu", "cvu", "alias", "factura", "facturas",
-                     "facturan", "fiado", "fian", "fias", "contado"] },
+          palabras: ["pagos", "pagarte", "pagarles", "cobran", "cobras", "abonar", "abono",
+                     "abona", "tarjeta", "tarjetas", "debito", "credito", "transferencia",
+                     "transferencias", "transferir", "transfiero", "transfe", "efectivo", "cheque",
+                     "cheques", "mercadopago", "qr", "cuotas", "cuota", "cbu", "cvu", "alias",
+                     "factura", "facturas", "facturan", "fiado", "fian", "fias", "contado", "visa",
+                     "mastercard", "amex", "dolares"],
+          flojas: ["pago", "pagar", "paga", "pagan", "pagas"] },
         { clave: "entregas", titulo: "Entregas", nombre: "las entregas",
           palabras: ["entrega", "entregas", "entregan", "entregar", "plazo", "plazos", "demora",
-                     "demoran", "demoras", "tarda", "tardan", "tardas", "llega", "llegan", "zona",
-                     "zonas", "reparten"] },
+                     "demoran", "demoras", "tarda", "tardan", "tardas", "zona", "zonas", "reparten"],
+          flojas: ["llega", "llegan"] },
         { clave: "promociones", titulo: "Promociones", nombre: "las promociones",
           palabras: ["promo", "promos", "promocion", "promociones", "oferta", "ofertas",
-                     "descuento", "descuentos", "rebaja", "rebajas", "bonificacion"] }
+                     "descuento", "descuentos", "rebaja", "rebajas", "bonificacion"],
+          flojas: [] }
     ]
 }
 
@@ -743,15 +759,25 @@ funcion tema_de(clave) {
 }
 
 # Por qué temas del negocio pregunta la frase: una lista de temas, vacía si por ninguno.
-funcion temas_preguntados(dicho) {
-    # (las palabras, sin tildes ni signos: "¿Dónde?" y "donde" son lo mismo)
-    sea palabras = palabras_de(dicho)
+# (con_flojas: falso cuando la frase ya se contestó como un pedido con su cantidad; ahí
+# las palabras flojas no cuentan.)
+funcion temas_preguntados(dicho, con_flojas = verdadero) {
+    # (las palabras, sin tildes ni signos: "¿Dónde?" y "donde" son lo mismo; la marca "|"
+    # dice dónde corta la frase)
+    sea frase = palabras_y_cortes(dicho)
     var preguntados = []
     para tema en temas_del_negocio() {
         # ¿Alguna palabra de la frase es de las de este tema?
         var esta = falso
-        para palabra en palabras {
-            si tiene(tema.palabras, palabra) {
+        para i en rango(largo(frase)) {
+            # "Mi teléfono es...", "mi dirección": habla de él, no pregunta por el negocio.
+            si tiene(["mi", "mis"], la_palabra(frase, i - 1)) {
+                continuar
+            }
+            si tiene(tema.palabras, frase[i]) {
+                esta = verdadero
+            }
+            si con_flojas y tiene(obtener(tema, "flojas", []), frase[i]) y cuenta_la_floja(frase, i) {
                 esta = verdadero
             }
         }
@@ -760,6 +786,36 @@ funcion temas_preguntados(dicho) {
         }
     }
     devolver preguntados
+}
+
+# Una palabra floja, ¿acá pregunta por un dato del negocio? Casi siempre sí. No cuando
+# es un saludo ("buen día"), ni cuando preguntan por un producto ("¿trabajan café?") o
+# piden la lista ("¿me podés pasar la lista?").
+funcion cuenta_la_floja(frase, i) {
+    sea palabra = frase[i]
+    sea antes = la_palabra(frase, i - 1)
+    sea sigue = la_palabra(frase, i + 1)
+    # "Buen día", "buenos días".
+    si tiene(["dia", "dias"], palabra) {
+        devolver no tiene(["buen", "buenos"], antes)
+    }
+    # "A la tarde", "por la mañana". ("Buenas tardes" y "mañana te aviso" no preguntan.)
+    si tiene(["mañana", "tarde", "noche"], palabra) {
+        devolver antes == "la"
+    }
+    # "¿Mañana trabajan?", "¿hoy trabajan?". ("¿Trabajan café?" pregunta por un producto.)
+    si tiene(["trabajan", "trabajas"], palabra) {
+        devolver tiene(frase, "hoy") o tiene(frase, "mañana") o tiene(frase, "finde")
+    }
+    # "¿Cuándo puedo pasar?", "paso a retirar". ("Pasar la lista" es otra cosa.)
+    si palabra == "pasar" {
+        devolver no tiene(["el", "la", "los", "las", "un", "una", "lista", "precios", "tu", "su"], sigue)
+    }
+    # "¿Cuándo llega?" ("¿Me llega la lista de precios?" es otra cosa.)
+    si tiene(["llega", "llegan"], palabra) {
+        devolver no tiene(frase, "lista")
+    }
+    devolver verdadero
 }
 
 # Un texto, con su punto al final si no termina en un signo.
@@ -804,8 +860,8 @@ funcion respuesta_de_temas(datos, temas) {
 
 # ¿La frase pregunta por un dato del negocio? Si sí, devuelve lo que se contesta (lo
 # arma el programa: a la IA no se le pregunta); si no, nada.
-funcion responder_dato(datos, dicho) {
-    sea temas = temas_preguntados(dicho)
+funcion responder_dato(datos, dicho, con_flojas = verdadero) {
+    sea temas = temas_preguntados(dicho, con_flojas)
     # No pregunta por ninguno: no es para acá.
     si largo(temas) == 0 {
         devolver nada
@@ -814,14 +870,40 @@ funcion responder_dato(datos, dicho) {
 }
 
 # Una respuesta del programa y, si en la misma frase preguntaron también por un dato del
-# negocio ("quiero 1 kg de yerba, ¿aceptan tarjeta?"), lo que se contesta de eso.
+# negocio ("quiero 1 kg de yerba, ¿aceptan tarjeta?"), lo que se contesta de eso. Como la
+# frase ya se contestó como un pedido, las palabras flojas no cuentan: "¿cuánto pago por
+# 12 azúcar?" es la cuenta y nada más.
 funcion con_los_datos(respuesta, datos, dicho) {
-    sea del_dato = responder_dato(datos, dicho)
+    sea del_dato = responder_dato(datos, dicho, falso)
     # (casi siempre no preguntan nada más: la respuesta queda como estaba)
     si del_dato == nada {
         devolver respuesta
     }
     devolver "{con_punto(respuesta)} {del_dato}"
+}
+
+# El renglón de la lista de cada producto que nombra la frase, uno atrás del otro; "" si
+# no nombra ninguno.
+funcion renglones_de_la_lista(tabla, dicho) {
+    var renglones = []
+    para nombrado en entender(tabla, dicho).nombrados {
+        sea fila = nombrado.fila
+        renglones = agregar(renglones, "{fila.producto} ({fila.presentacion}): {pesos(fila.precio)}")
+    }
+    devolver unir(renglones, ". ")
+}
+
+# Lo que se contesta por un dato del negocio y, si la misma frase nombra un producto de
+# la lista ("¿cuánto sale la yerba? ¿aceptan tarjeta?", "¿dónde consigo yerba?"), adelante
+# el renglón de ese producto, con el aviso si no hay stock. Todo lo arma el programa.
+# (stocks: cuánto hay de cada producto nombrado, { nombre del producto: unidades })
+funcion con_los_productos(del_dato, tabla, dicho, stocks) {
+    sea renglones = renglones_de_la_lista(tabla, dicho)
+    # (lo común: pregunta solo por el dato)
+    si renglones == "" {
+        devolver del_dato
+    }
+    devolver "{con_punto(con_aviso_de_stock(renglones, stocks))} {del_dato}"
 }
 
 # Los datos como se los damos a leer a la IA: un renglón por dato. Los vacíos van
@@ -927,29 +1009,70 @@ funcion solo_cifras(dicho) {
     devolver cifras
 }
 
-# Los números largos que hay en un texto y que no son plata: 8 cifras o más, juntas o
-# separadas por espacios o guiones ("4555-1234", "11 4555 1234"). Es como se escribe un
-# teléfono. Un precio no entra: lleva puntos o coma, que cortan la tira.
+# ¿Ese número, tal como está escrito, es plata o una cantidad? Lo es si lleva coma
+# ("9.800,50") o si sus puntos son los de los miles ("35.000", "1.250.000"). "4444.5555"
+# no: así se escribe un teléfono.
+funcion es_importe(escrito) {
+    si tiene(escrito, ",") {
+        devolver verdadero
+    }
+    sea grupos = partir(escrito, ".")
+    # (sin puntos, no se sabe: puede ser parte de un teléfono)
+    si largo(grupos) < 2 {
+        devolver falso
+    }
+    para i en rango(1, largo(grupos)) {
+        si largo(grupos[i]) != 3 {
+            devolver falso
+        }
+    }
+    devolver verdadero
+}
+
+# Los números largos que hay en un texto y que no son plata: 7 cifras o más, juntas o
+# separadas por espacios, guiones o puntos ("4555-1234", "11 4555 1234", "4444.5555").
+# Es como se escribe un teléfono. Un precio no entra ("$ 35.000,00"): corta la tira.
 funcion numeros_largos(dicho) {
     var encontrados = []
     # (la tira de cifras que se viene juntando)
     var tira = ""
-    para i en rango(largo(dicho)) {
+    sea fin = largo(dicho)
+    var i = 0
+    mientras i < fin {
         sea letra = dicho[i]
-        # (un espacio o un guion entre dos cifras no corta la tira)
-        sea une = tiene(" -", letra) y tira != "" y i + 1 < largo(dicho) y es_cifra(dicho[i + 1])
         si es_cifra(letra) {
-            tira += letra
-        } sino si no une {
-            # Se cortó la tira: si era larga, es un teléfono.
-            si largo(tira) >= 8 {
-                encontrados = agregar(encontrados, tira)
+            # Un número, entero: sus cifras con los puntos y las comas que tenga adentro.
+            var j = i
+            mientras j + 1 < fin y (es_cifra(dicho[j + 1]) o (j + 2 < fin y tiene(".,", dicho[j + 1]) y es_cifra(dicho[j + 2]))) {
+                j += 1
             }
-            tira = ""
+            sea escrito = porcion(dicho, i, j + 1)
+            # (con el signo de pesos adelante también es plata)
+            sea con_pesos = (i >= 1 y dicho[i - 1] == "$") o (i >= 2 y dicho[i - 2] == "$")
+            si es_importe(escrito) o con_pesos {
+                si largo(tira) >= 7 {
+                    encontrados = agregar(encontrados, tira)
+                }
+                tira = ""
+            } sino {
+                tira += solo_cifras(escrito)
+            }
+            i = j + 1
+        } sino {
+            # Un espacio o un guion entre dos números no corta la tira. Lo demás sí: si
+            # era larga, es un teléfono.
+            sea une = tiene(" -", letra) y tira != "" y i + 1 < fin y es_cifra(dicho[i + 1])
+            si no une {
+                si largo(tira) >= 7 {
+                    encontrados = agregar(encontrados, tira)
+                }
+                tira = ""
+            }
+            i += 1
         }
     }
     # (y la que quedó al final del texto)
-    si largo(tira) >= 8 {
+    si largo(tira) >= 7 {
         encontrados = agregar(encontrados, tira)
     }
     devolver encontrados
@@ -976,30 +1099,135 @@ funcion horas_con_dos_puntos(dicho) {
     devolver encontradas
 }
 
-# Las palabras que, en una respuesta de la IA, nombran un dato del negocio. Solo se
-# dejan pasar si están escritas en los datos cargados.
+# ── Lo que contesta la IA: que no nombre un dato que no está cargado ─────────────────
+# Cómo se mira una respuesta, paso por paso (lo hace dato_inventado(), más abajo):
+#   1. Se parte en palabras, sin tildes ni mayúsculas.
+#   2. Se juntan sus MENCIONES: cada cosa que dice de un tema del negocio. Una hora ("a
+#      las 9", "de 8 a 18"), un plazo ("2 días"), un día, una forma de pago, una
+#      promoción, un contacto. Las arman hora_nombrada(), plazo_nombrado() y
+#      palabra_nombrada(); las frases enteras salen de frases_de_datos().
+#   3. Cada mención se compara con lo cargado de SU tema (mencion_cargada()): si la
+#      palabra o la serie no están escritas ahí, la respuesta inventó.
+#   4. Aparte se miran las horas con dos puntos ("8:30"), los números largos (un
+#      teléfono), los mails y las páginas, y si dice dónde queda el negocio.
+#   5. A la primera cosa inventada se deja de mirar: se devuelve de qué tema es.
+# Si inventó, sin_inventar() cambia la respuesta ENTERA por lo que el programa sabe de
+# ese tema (el dato cargado, o que lo confirma una persona). No se intenta arreglar la
+# frase de la IA: se la reemplaza.
+#
+# Las listas que siguen son las palabras y las frases con las que una respuesta nombra
+# un dato del negocio. Van en minúsculas y sin tildes. Si tu modelo inventa algo con una
+# palabra que no está, agregala en la lista que le toca.
+# Si una lista frena de más (una palabra que tus productos o tus clientes usan para
+# otra cosa), sacala de ahí: el resto sigue andando igual.
+
+# Los días.
 funcion palabras_de_dias() {
     devolver ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "sabados",
-              "domingo", "domingos", "feriado", "feriados"]
+              "domingo", "domingos", "feriado", "feriados", "lun", "mie", "jue", "vie", "sab",
+              "dom"]
 }
 
-# Las formas de pago.
+# Los momentos del día. ("Mañana" y "tarde" sueltas no están: "mañana te aviso", "buenas
+# tardes". Están en las frases, más abajo: "a la tarde", "mañana y tarde".)
+funcion palabras_de_momento() {
+    devolver ["mediodia", "medianoche", "madrugada", "temprano"]
+}
+
+# Las formas de pago. ("Mercado Pago", "Cuenta DNI" y MODO se miran aparte, en
+# palabra_nombrada(): son dos palabras, o una que también quiere decir otra cosa.)
 funcion palabras_de_cobro() {
     devolver ["tarjeta", "tarjetas", "debito", "credito", "transferencia", "transferencias",
               "efectivo", "cheque", "cheques", "mercadopago", "cuotas", "qr", "cbu", "cvu", "alias",
-              "contado"]
+              "contado", "visa", "mastercard", "amex", "cabal", "billetera", "billeteras",
+              "dolar", "dolares", "usd", "posnet", "factura", "facturas", "fiado"]
 }
 
-# Las promociones. ("descuento" y "rebaja" ya están prohibidas en los frenos.)
+# Las promociones. ("2x1" y "10%" se miran aparte: no son palabras. "Descuento" y
+# "rebaja" además están prohibidas en los frenos del agente: acá quedan por si las sacás
+# de allá.)
 funcion palabras_de_promo() {
-    devolver ["promo", "promos", "promocion", "promociones", "oferta", "ofertas", "bonificacion"]
+    devolver ["promo", "promos", "promocion", "promociones", "oferta", "ofertas", "bonificacion",
+              "bonificado", "descuento", "descuentos", "rebaja", "rebajas", "gratis", "gratuito",
+              "gratuita", "regalo", "regalos", "regalamos", "obsequio"]
 }
 
-# Cómo empieza quien dice dónde queda ("estamos en...", "nuestra dirección es...").
+# Por dónde se los contacta. (Un teléfono se reconoce por sus cifras, y un mail o una
+# página por la arroba, el "www" o el ".com": ver numeros_largos() y pedazos_sueltos().)
+funcion palabras_de_contacto() {
+    devolver ["whatsapp", "wsp", "wpp", "wasap", "instagram", "facebook", "tiktok", "telegram"]
+}
+
+# Frases que nombran un dato, por tema. Pasan solo si están escritas así en lo cargado:
+# con "Lunes a viernes de 8 a 17" cargado, "atendemos todos los días" no pasa.
+# (Se buscan enteras y en ese orden: "a la tarde" no es "tarde a la".)
+funcion frases_de_datos() {
+    devolver {
+        horario: ["todos los dias", "de corrido", "horario corrido", "fin de semana",
+                  "fines de semana", "dias habiles", "mañana y tarde", "a la mañana", "a la tarde",
+                  "a la noche", "por la mañana", "por la tarde", "por la noche", "hasta tarde"],
+        entregas: ["todo el pais", "mañana mismo", "hoy mismo", "en el dia", "mismo dia",
+                   "dia siguiente", "otro dia", "pasado mañana", "semana que viene",
+                   "proxima semana", "esta semana", "en el acto"],
+        formas_de_pago: ["medios de pago", "medio de pago", "cuenta corriente"]
+    }
+}
+
+# Palabras y frases FLOJAS, por tema: no dicen el dato, pero hablan de él ("abrimos...",
+# "aceptamos...", "te llega..."). Frenan la respuesta solo si de ese tema no hay NADA
+# cargado: sin el dato, lo que digan es inventado. Con el dato cargado, pasan.
+funcion palabras_flojas() {
+    devolver {
+        horario: ["horario", "horarios", "abrimos", "cerramos", "abierto", "abiertos", "cerrado",
+                  "cerrados"],
+        formas_de_pago: ["aceptamos", "abonar", "abonas"],
+        entregas: ["entregamos", "despachamos", "demora", "demoran", "demoramos", "tardamos"],
+        telefono: ["llamanos", "escribinos", "seguinos", "contactanos"]
+    }
+}
+
+# Las frases flojas: lo mismo que las palabras flojas, pero de dos o tres palabras.
+# ("Formas de pago" está acá porque también la usa una IA que contesta bien: "las formas
+# de pago te las confirma una persona". Sin el dato cargado, al cliente le llega eso mismo.)
+funcion frases_flojas() {
+    devolver {
+        horario: ["atendemos de", "atendemos desde", "atendemos hasta", "atendemos entre",
+                  "atendemos los", "atendemos el", "atendemos todos", "atendemos por"],
+        formas_de_pago: ["pagar con", "pagas con", "pagar en", "pago con", "se paga", "se abona",
+                         "formas de pago", "forma de pago"],
+        entregas: ["te llega", "te llegan", "llega en", "llegan en", "te lo llevamos",
+                   "te lo mandamos", "enviamos a", "envios a"],
+        telefono: ["nuestro telefono", "nuestro numero", "nuestro mail", "nuestras redes"]
+    }
+}
+
+# Cómo empieza quien dice dónde queda ("nuestra dirección es...", "te esperamos en...").
+# ("Estamos en..." se mira aparte: "estamos en contacto" no es una dirección.)
 funcion frases_de_direccion() {
-    devolver ["estamos en", "estamos ubicados", "nos encontramos en", "nos encontras en",
-              "quedamos en", "nuestra direccion", "la direccion es", "ubicados en",
-              "nuestro local esta", "nuestro local queda"]
+    devolver ["estamos ubicados", "nos encontramos en", "nos encontras en", "quedamos en",
+              "nuestra direccion", "la direccion es", "ubicados en", "nuestro local",
+              "nuestra sucursal", "nuestras sucursales", "nuestro deposito", "te esperamos en",
+              "los esperamos en", "estamos sobre", "nos encontramos sobre", "pasate por"]
+}
+
+# Las horas, escritas con letras ("a las nueve", "de ocho a dieciocho"). "Una" no está:
+# casi siempre es otra cosa ("una caja"). Solo se mira en "a la una", en hora_nombrada().
+funcion numeros_en_letras() {
+    devolver ["dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once",
+              "doce", "trece", "catorce", "quince", "dieciseis", "diecisiete", "dieciocho",
+              "diecinueve", "veinte", "veintiuna", "veintidos", "veintitres", "veinticuatro"]
+}
+
+# Lo que, atrás de un número, dice que es una cantidad y no una hora ("de 10 a 25 kg",
+# "las 10 unidades", "de 2 a 3 semanas").
+funcion palabras_de_bulto() {
+    devolver ["unidad", "unidades", "bolsa", "bolsas", "bolson", "bolsones", "caja", "cajas",
+              "paquete", "paquetes", "pack", "packs", "bulto", "bultos", "botella", "botellas",
+              "lata", "latas", "frasco", "frascos", "docena", "docenas", "kg", "kilo", "kilos",
+              "g", "gr", "grs", "gramos", "l", "lt", "lts", "litro", "litros", "ml", "cc",
+              "producto", "productos", "articulos", "opciones", "marcas", "variedades", "tipos",
+              "sabores", "pesos", "mil", "cuotas", "x", "dia", "dias", "semana", "semanas",
+              "minutos", "mes", "meses"]
 }
 
 # ¿Es un número escrito con cifras ("8", "18", "24")?
@@ -1016,82 +1244,407 @@ funcion la_palabra(palabras, i) {
     devolver palabras[i]
 }
 
-# Lo que la IA contestó, ¿nombra un dato del negocio que NO está cargado? Mira si dice un
-# día de la semana, una hora ("18 hs", "a las 9", "de 8 a 18", "8:30"), un plazo ("2
-# días"), una forma de pago, una promoción, un teléfono o dónde queda el negocio. Cada
-# cosa de esas pasa solo si está escrita en los datos cargados. Devuelve la clave del tema
-# que inventó ("horario", "telefono"...), o nada si no inventó.
-# No depende de que el modelo obedezca: lo mira el programa, después de la IA.
-# (No lo ve todo: una dirección dicha de otra manera, o "abrimos temprano", pasan. Por
-# eso las preguntas por estos datos ni siquiera le llegan a la IA: ver responder_dato().)
-funcion dato_inventado(datos, respuesta) {
-    # Lo que está cargado: el texto entero, y sus palabras (las únicas que valen).
-    sea cargado = todos_los_datos(datos)
-    sea sabidas = palabras_de(cargado)
-    # Lo que contestó la IA, palabra por palabra.
-    sea p = palabras_de(respuesta)
-    para i en rango(largo(p)) {
-        sea palabra = p[i]
-        sea antes = la_palabra(p, i - 1)
-        sea sigue = la_palabra(p, i + 1)
-        # ¿Esta palabra nombra un dato del negocio? ¿De qué tema?
-        var tema = nada
-        si tiene(palabras_de_dias(), palabra) {
-            tema = "horario"
-        } sino si tiene(palabras_de_cobro(), palabra) o (palabra == "mercado" y sigue == "pago") {
-            tema = "formas_de_pago"
-        } sino si tiene(palabras_de_promo(), palabra) {
-            tema = "promociones"
-        } sino si es_un_numero(palabra) {
-            # "18 hs", "9 horas", "8 am". (De 24 para arriba es un plazo: "en 48 hs".)
-            si tiene(["hs", "h", "hora", "horas", "am", "pm"], sigue) {
-                tema = "horario"
-                sea cuanto = numero_de(palabra)
-                si cuanto != nada y cuanto >= 24 {
-                    tema = "entregas"
-                }
-            }
-            # "a las 9", "a la 1"
-            si (antes == "las" o antes == "la") y la_palabra(p, i - 2) == "a" {
-                tema = "horario"
-            }
-            # "de 8 a 18": los dos números
-            si antes == "de" y sigue == "a" y es_un_numero(la_palabra(p, i + 2)) {
-                tema = "horario"
-            }
-            si antes == "a" y es_un_numero(la_palabra(p, i - 2)) y la_palabra(p, i - 3) == "de" {
-                tema = "horario"
-            }
-            # "2 días", "1 semana", "30 minutos"
-            si tiene(["dia", "dias", "semana", "semanas", "minutos"], sigue) {
-                tema = "entregas"
-            }
-        }
-        # Si nombra uno, tiene que estar escrita en los datos cargados. Si no, lo inventó.
-        si tema != nada y no esta_sabida(palabra, sabidas) {
-            devolver tema
+# ¿Así se puede escribir una hora? "8", "18", "08", "8.30", "18.00", o con letras
+# ("nueve"). No lo son "100", "000", "35.000" ni "2,5".
+funcion puede_ser_hora(palabra) {
+    si tiene(numeros_en_letras(), palabra) {
+        devolver verdadero
+    }
+    si no es_un_numero(palabra) o tiene(palabra, ",") {
+        devolver falso
+    }
+    sea partes = partir(palabra, ".")
+    # (la hora: una o dos cifras, hasta 24)
+    si largo(partes) > 2 o largo(partes[0]) > 2 o solo_cifras(partes[0]) != partes[0] {
+        devolver falso
+    }
+    si numero(partes[0]) > 24 {
+        devolver falso
+    }
+    # (los minutos, si hay: dos cifras, hasta 59)
+    si largo(partes) == 2 {
+        devolver largo(partes[1]) == 2 y solo_cifras(partes[1]) == partes[1] y numero(partes[1]) < 60
+    }
+    devolver verdadero
+}
+
+# "Sábados" y "sábado" son el mismo día: se comparan en singular.
+funcion un_dia(palabra) {
+    si tiene(["sabados", "domingos", "feriados"], palabra) {
+        devolver porcion(palabra, 0, largo(palabra) - 1)
+    }
+    devolver palabra
+}
+
+# Una mención: algo que la respuesta de la IA dice de un tema del negocio.
+#   - tema: la clave del tema ("horario", "entregas"...);
+#   - palabra: la que tiene que estar escrita en lo cargado de ese tema (o nada);
+#   - serie: las palabras que tienen que estar juntas y en ese orden ("8 a 18") (o nada);
+#   - floja: verdadero si solo frena cuando de ese tema no hay nada cargado ("abrimos").
+funcion mencion(tema, palabra, serie = nada, floja = falso) {
+    devolver { tema: tema, palabra: palabra, serie: serie, floja: floja }
+}
+
+# ¿La palabra número i de la respuesta es una HORA? Devuelve la mención, o nada.
+# (frase: las palabras de la respuesta, con las marcas "|"; bultos: las palabras que,
+# atrás de un número, dicen que es una cantidad.)
+funcion hora_nombrada(frase, i, respuesta, bultos) {
+    sea palabra = frase[i]
+    sea antes = la_palabra(frase, i - 1)
+    sea sigue = la_palabra(frase, i + 1)
+    sea despues = la_palabra(frase, i + 2)
+    # Se prueban las maneras de decir una hora, de a una. Con que una valga, alcanza.
+    # "A la una", "hasta la 1".
+    si tiene(["una", "1"], palabra) y antes == "la" y tiene(["a", "hasta", "desde"], la_palabra(frase, i - 2)) {
+        devolver mencion("horario", palabra)
+    }
+    # Plata ("$ 12") o un número que no puede ser una hora ("100", "35.000").
+    si antes == "$" o no puede_ser_hora(palabra) {
+        devolver nada
+    }
+    sea en_cifras = es_un_numero(palabra)
+    var vale = falso
+    var serie = nada
+    # (lo que viene atrás de la hora: si es un bulto o una medida, era una cantidad)
+    var atras = sigue
+    # "8.30", "18.00".
+    si tiene(palabra, ".") {
+        vale = verdadero
+    }
+    # "A las 9", "hasta las 18", "desde las 8", "entre las 9 y las 18", "a las nueve".
+    si antes == "las" {
+        vale = verdadero
+    }
+    # "18 hs", "9 horas", "8 am". ("24 hs" es un plazo, salvo "las 24 hs".)
+    si en_cifras y tiene(["hs", "h", "hora", "horas", "am", "pm"], sigue) y (numero(palabra) < 24 o antes == "las") {
+        vale = verdadero
+        atras = despues
+    }
+    # "6 de la tarde", "ocho de la mañana".
+    si sigue == "de" y despues == "la" y tiene(["mañana", "tarde", "noche"], la_palabra(frase, i + 3)) {
+        vale = verdadero
+    }
+    # "De 8 a 18", "8 a 18", "de ocho a seis": los dos números van como serie.
+    si sigue == "a" y puede_ser_hora(despues) {
+        vale = verdadero
+        serie = "{palabra} a {despues}"
+        atras = la_palabra(frase, i + 3)
+    }
+    # "8-18" (el guion se mira en la respuesta tal cual vino).
+    si en_cifras y es_un_numero(sigue) y puede_ser_hora(sigue) y (tiene(respuesta, "{palabra}-{sigue}") o tiene(respuesta, "{palabra} - {sigue}") o tiene(respuesta, "{palabra}–{sigue}")) {
+        vale = verdadero
+        serie = "{palabra} a {sigue}"
+        atras = despues
+    }
+    # "De 10 a 20 unidades", "las 2 bolsas", "2.25 l": es una cantidad, no una hora.
+    si no vale o (atras != "" y esta_sabida(atras, bultos)) {
+        devolver nada
+    }
+    devolver mencion("horario", palabra, serie)
+}
+
+# ¿La palabra número i es la cuenta de un PLAZO ("2 días", "una semana", "48 hs")?
+# Devuelve la mención, o nada.
+funcion plazo_nombrado(frase, i) {
+    sea palabra = frase[i]
+    sea sigue = la_palabra(frase, i + 1)
+    sea serie = "{palabra} {sigue}"
+    # (la cuenta: con cifras, con letras, o "unos", "pocos"...)
+    sea cuenta = es_un_numero(palabra) o tiene(numeros_en_letras(), palabra) o tiene(["unos", "unas", "pocos", "pocas", "varios"], palabra)
+    # "2 días", "tres semanas", "30 minutos".
+    si cuenta y tiene(["dia", "dias", "semana", "semanas", "minuto", "minutos", "mes", "meses"], sigue) {
+        devolver mencion("entregas", nada, serie)
+    }
+    # "Una semana", "una hora". ("Un día" no: "que tengas un día lindo".)
+    si tiene(["un", "una"], palabra) y tiene(["semana", "mes", "quincena", "hora", "rato"], sigue) {
+        devolver mencion("entregas", nada, serie)
+    }
+    # "48 hs", "dos horas", "24 hs": horas que no son las del reloj.
+    si cuenta y tiene(["hs", "h", "hora", "horas"], sigue) {
+        sea del_reloj = es_un_numero(palabra) y puede_ser_hora(palabra) y (numero(palabra) < 24 o la_palabra(frase, i - 1) == "las")
+        si no del_reloj {
+            devolver mencion("entregas", nada, serie)
         }
     }
-    # Una hora con dos puntos ("8:30") pasa si está escrita igual en los datos.
+    devolver nada
+}
+
+# ¿La palabra número i nombra un día, una forma de pago, una promoción o un contacto, o
+# habla de eso ("abrimos", "aceptamos")? Devuelve la mención, o nada.
+funcion palabra_nombrada(frase, i, respuesta) {
+    sea palabra = frase[i]
+    sea antes = la_palabra(frase, i - 1)
+    sea sigue = la_palabra(frase, i + 1)
+    # Un día. "Lunes a viernes" va además como serie: con "lunes a viernes y sábados"
+    # cargado, "lunes a sábados" no pasa.
+    si tiene(palabras_de_dias(), palabra) {
+        si sigue == "a" y tiene(palabras_de_dias(), la_palabra(frase, i + 2)) {
+            devolver mencion("horario", palabra, "{un_dia(palabra)} a {un_dia(la_palabra(frase, i + 2))}")
+        }
+        devolver mencion("horario", palabra)
+    }
+    si tiene(palabras_de_momento(), palabra) {
+        devolver mencion("horario", palabra)
+    }
+    # Una forma de pago. ("Mercado Pago" y "Cuenta DNI" son dos palabras; MODO, la
+    # billetera, se reconoce solo en mayúsculas: "de ese modo" es otra cosa.)
+    si tiene(palabras_de_cobro(), palabra) {
+        devolver mencion("formas_de_pago", palabra)
+    }
+    si (palabra == "mercado" y sigue == "pago") o (palabra == "cuenta" y sigue == "dni") {
+        devolver mencion("formas_de_pago", nada, "{palabra} {sigue}")
+    }
+    si palabra == "modo" y tiene(respuesta, "MODO") {
+        devolver mencion("formas_de_pago", palabra)
+    }
+    # Una promoción. ("Una amplia oferta de productos" no lo es.)
+    si tiene(palabras_de_promo(), palabra) y no tiene(["amplia", "gran", "variada", "nuestra", "toda"], antes) {
+        devolver mencion("promociones", palabra)
+    }
+    # "2x1", "3 x 2".
+    si palabra == "x" y es_un_numero(antes) y es_un_numero(sigue) {
+        devolver mencion("promociones", nada, "{antes} x {sigue}")
+    }
+    # Una red o el WhatsApp.
+    si tiene(palabras_de_contacto(), palabra) {
+        devolver mencion("telefono", palabra)
+    }
+    # Las flojas: hablan del tema sin decir el dato.
+    para tema, flojas en palabras_flojas() {
+        si tiene(flojas, palabra) {
+            devolver mencion(tema, nada, nada, verdadero)
+        }
+    }
+    devolver nada
+}
+
+# Las palabras de la planilla (los nombres y las presentaciones): si un producto se llama
+# "Promo yerba + azúcar", nombrarlo no es inventar una promoción. (Sin los números ni las
+# palabras de una o dos letras, como "de".)
+funcion palabras_de_la_lista(tabla) {
+    var todas = []
+    para fila en tabla {
+        para palabra en palabras_de("{fila.producto} {fila.presentacion}") {
+            si largo(palabra) > 2 y no es_un_numero(palabra) {
+                todas = agregar(todas, palabra)
+            }
+        }
+    }
+    devolver todas
+}
+
+# Todo lo que la respuesta de la IA dice de los temas del negocio: una lista de menciones.
+# (frase: sus palabras, con las marcas "|"; de_la_lista: las palabras de la planilla.)
+funcion menciones_de(frase, respuesta, de_la_lista) {
+    var encontradas = []
+    sea bultos = palabras_de_bulto() + de_la_lista
+    para i en rango(largo(frase)) {
+        si frase[i] == "|" {
+            continuar
+        }
+        # Una hora o un plazo.
+        para vista en [hora_nombrada(frase, i, respuesta, bultos), plazo_nombrado(frase, i)] {
+            si vista != nada {
+                encontradas = agregar(encontradas, vista)
+            }
+        }
+        # Una palabra: salvo que sea de un producto de la planilla.
+        sea vista = palabra_nombrada(frase, i, respuesta)
+        si vista != nada y no esta_sabida(frase[i], de_la_lista) {
+            encontradas = agregar(encontradas, vista)
+        }
+    }
+    # Las frases: se buscan enteras, en la respuesta sin signos.
+    sea corrida = " {unir(quitar(frase, "|"), " ")} "
+    para tema, frases en frases_de_datos() {
+        para dicha en frases {
+            si tiene(corrida, " {dicha} ") {
+                encontradas = agregar(encontradas, mencion(tema, nada, dicha))
+            }
+        }
+    }
+    para tema, frases en frases_flojas() {
+        para dicha en frases {
+            si tiene(corrida, " {dicha} ") {
+                encontradas = agregar(encontradas, mencion(tema, nada, nada, verdadero))
+            }
+        }
+    }
+    devolver encontradas
+}
+
+# Lo que está cargado y vale para ese tema, en un solo texto: su dato, los datos vecinos
+# (un día o una hora también pueden estar en las entregas: "martes y jueves, de 9 a 12")
+# y lo demás que escribió el dueño ("otros", o un renglón que agregó él). Cada tema se
+# compara solo con esto: el "11" de un teléfono no habilita "abrimos a las 11".
+funcion lo_cargado(datos, clave) {
+    # (los vecinos de cada tema; los demás temas no tienen)
+    sea vecinos = { horario: ["entregas", "promociones"], direccion: ["entregas"] }
+    var juntos = el_dato(datos, clave)
+    para vecino en obtener(vecinos, clave, []) {
+        juntos += ". " + el_dato(datos, vecino)
+    }
+    si tipo(datos) == "mapa" {
+        para otra en claves(datos) {
+            si tema_de(otra) == nada {
+                juntos += ". " + el_dato(datos, otra)
+            }
+        }
+    }
+    devolver juntos
+}
+
+# Las palabras de un dato cargado, menos las que el dato NIEGA: con "Efectivo o
+# transferencia. No aceptamos tarjeta" quedan "efectivo" y "transferencia", y "tarjeta"
+# no. (Lo negado va desde el "no", el "sin" o el "ni" hasta la coma o el punto.)
+funcion afirmadas(cargado) {
+    var quedan = []
+    var negando = falso
+    para palabra en palabras_y_cortes(cargado) {
+        si palabra == "|" o palabra == "pero" {
+            negando = falso
+        } sino si tiene(["no", "sin", "ni", "tampoco", "salvo", "excepto", "menos"], palabra) {
+            negando = verdadero
+        } sino si no negando {
+            quedan = agregar(quedan, palabra)
+        }
+    }
+    devolver quedan
+}
+
+# Esa mención, ¿está en los datos cargados?
+funcion mencion_cargada(datos, vista) {
+    # Una floja pasa si de su tema hay algo cargado.
+    si vista.floja {
+        devolver el_dato(datos, vista.tema) != ""
+    }
+    sea cargado = lo_cargado(datos, vista.tema)
+    # La palabra, en singular o en plural.
+    si vista.palabra != nada y no esta_sabida(vista.palabra, afirmadas(cargado)) {
+        devolver falso
+    }
+    # La serie: sus palabras, juntas y en ese orden.
+    si vista.serie != nada {
+        var corrido = []
+        para palabra en palabras_y_cortes(cargado) {
+            corrido = agregar(corrido, un_dia(palabra))
+        }
+        devolver tiene(" {unir(corrido, " ")} ", " {vista.serie} ")
+    }
+    devolver verdadero
+}
+
+# ¿La respuesta dice DÓNDE queda el negocio? ("Estamos en...", "Av. Mitre 1234", "sobre
+# Rivadavia al 5000".)
+funcion nombra_un_lugar(frase, de_la_lista) {
+    sea corrida = " {unir(quitar(frase, "|"), " ")} "
+    para arranque en frases_de_direccion() {
+        si tiene(corrida, " {arranque} ") {
+            devolver verdadero
+        }
+    }
+    para i en rango(largo(frase)) {
+        sea palabra = frase[i]
+        sea sigue = la_palabra(frase, i + 1)
+        # "Av.", "avenida", "calle"... (salvo que sea de un producto de la planilla)
+        si tiene(["av", "avda", "avenida", "calle", "ruta", "esquina", "esq", "pasaje", "bulevar"], palabra) y no tiene(de_la_lista, palabra) {
+            devolver verdadero
+        }
+        # "Al 5000": la altura de una calle.
+        si palabra == "al" y es_un_numero(sigue) y solo_cifras(sigue) == sigue y largo(sigue) >= 3 y largo(sigue) <= 5 {
+            devolver verdadero
+        }
+        # "Estamos en Lanús". ("Estamos en contacto" no es un lugar.)
+        si palabra == "estamos" y sigue == "en" y no tiene(["", "|", "contacto", "condiciones", "linea", "eso", "comunicacion", "todo", "temporada", "stock"], la_palabra(frase, i + 2)) {
+            devolver verdadero
+        }
+    }
+    devolver falso
+}
+
+# Si la respuesta dice dónde queda, ¿es la dirección cargada? Tiene que traer todos sus
+# números ("1234") y alguna de sus palabras ("mitre").
+funcion es_la_direccion(dato, frase) {
+    var alguna = falso
+    para palabra en palabras_de(dato) {
+        si es_un_numero(palabra) {
+            si no tiene(frase, palabra) {
+                devolver falso
+            }
+        } sino si largo(palabra) >= 4 y tiene(frase, palabra) {
+            alguna = verdadero
+        }
+    }
+    devolver alguna
+}
+
+# Los pedazos de la respuesta que son un mail, una página o un porcentaje ("ventas@...",
+# "www...", "...com.ar", "10%"): { tema: [pedazos] }, en minúsculas y sin el signo del final.
+funcion pedazos_sueltos(respuesta) {
+    var pedazos = { telefono: [], promociones: [] }
+    para pedazo en partir(reemplazar(minusculas(respuesta), "\n", " "), " ") {
+        # (sin el punto, la coma o el paréntesis que tenga en las puntas)
+        var limpio = pedazo
+        mientras limpio != "" y tiene(".,;:!?)", limpio[largo(limpio) - 1]) {
+            limpio = porcion(limpio, 0, largo(limpio) - 1)
+        }
+        mientras limpio != "" y tiene("(¡¿", limpio[0]) {
+            limpio = porcion(limpio, 1, largo(limpio))
+        }
+        si tiene(limpio, "@") o tiene(limpio, "www.") o tiene(limpio, ".com") o tiene(limpio, "http") {
+            pedazos.telefono = agregar(pedazos.telefono, limpio)
+        } sino si tiene(limpio, "%") {
+            pedazos.promociones = agregar(pedazos.promociones, limpio)
+        }
+    }
+    devolver pedazos
+}
+
+# Lo que la IA contestó, ¿nombra un dato del negocio que NO está cargado? Mira si dice un
+# día, una hora ("18 hs", "a las 9", "hasta las 18", "de 8 a 18", "8-18", "8:30", "a las
+# nueve"), un plazo ("2 días", "mañana mismo"), una forma de pago, una promoción ("2x1",
+# "gratis"), un teléfono, un mail o dónde queda el negocio. Cada cosa de esas pasa solo
+# si está escrita en lo cargado de SU tema. Y si de un tema no hay nada cargado, tampoco
+# pasa que hable de él ("abrimos...", "aceptamos...", "te llega...").
+# Devuelve la clave del tema que inventó ("horario", "telefono"...), o nada.
+# No depende de que el modelo obedezca: lo mira el programa, después de la IA.
+# (tabla: la lista de precios. Nombrar un producto de la lista no es inventar.)
+# OJO: va por palabras, no por sentido. Ataja lo más común, NO TODO: un modelo puede
+# decir un dato de una manera que acá no está prevista. Por eso las preguntas por estos
+# datos ni le llegan a la IA (ver responder_dato()), y por eso conviene cargar los datos
+# y ensayar con el modelo de verdad antes de dejarlo atender.
+funcion dato_inventado(datos, respuesta, tabla = []) {
+    # Lo que contestó la IA, palabra por palabra.
+    sea frase = palabras_y_cortes(respuesta)
+    sea de_la_lista = palabras_de_la_lista(tabla)
+    para vista en menciones_de(frase, respuesta, de_la_lista) {
+        si no mencion_cargada(datos, vista) {
+            devolver vista.tema
+        }
+    }
+    # Una hora con dos puntos ("8:30") pasa si está escrita igual en lo cargado.
     para hora en horas_con_dos_puntos(respuesta) {
-        si no tiene(cargado, hora) {
+        si no tiene(lo_cargado(datos, "horario"), hora) {
             devolver "horario"
         }
     }
-    # Un número largo, de teléfono: sus cifras tienen que estar en los datos.
+    # Un número largo, de teléfono: sus cifras tienen que estar en lo cargado.
     para cifras en numeros_largos(respuesta) {
-        si no tiene(solo_cifras(cargado), cifras) {
+        si no tiene(solo_cifras(lo_cargado(datos, "telefono")), cifras) {
             devolver "telefono"
         }
     }
-    # Dónde queda: solo si hay una dirección cargada.
-    si el_dato(datos, "direccion") == "" {
-        sea frase = " {unir(p, " ")} "
-        para arranque en frases_de_direccion() {
-            si tiene(frase, " {arranque} ") {
-                devolver "direccion"
+    # Un mail, una página o un porcentaje: tienen que estar escritos igual.
+    para tema, pedazos en pedazos_sueltos(respuesta) {
+        para pedazo en pedazos {
+            si no tiene(minusculas(lo_cargado(datos, tema)), pedazo) {
+                devolver tema
             }
         }
+    }
+    # Dónde queda: tiene que ser la dirección cargada.
+    si nombra_un_lugar(frase, de_la_lista) y no es_la_direccion(el_dato(datos, "direccion"), frase) {
+        devolver "direccion"
     }
     devolver nada
 }
@@ -1099,8 +1652,9 @@ funcion dato_inventado(datos, respuesta) {
 # La respuesta de la IA, si no inventa ningún dato del negocio. Si inventa uno, esa
 # respuesta no le llega al cliente: va lo que el programa sabe de ese tema (el dato
 # cargado, tal cual; o que eso lo confirma una persona).
-funcion sin_inventar(datos, respuesta) {
-    sea inventado = dato_inventado(datos, respuesta)
+# (tabla: la lista de precios, para no frenar el nombre de un producto.)
+funcion sin_inventar(datos, respuesta, tabla = []) {
+    sea inventado = dato_inventado(datos, respuesta, tabla)
     # (lo común: no inventó nada, y la respuesta pasa como está)
     si inventado == nada {
         devolver respuesta
@@ -1108,16 +1662,37 @@ funcion sin_inventar(datos, respuesta) {
     devolver respuesta_de_temas(datos, [tema_de(inventado)])
 }
 
-# Si la IA dice que un producto no se trabaja, se contesta eso y NADA MÁS: sin ofrecer
-# pedirlo ni conseguirlo. (Una IA llegó a contestar: "No trabajamos con café. Podés
-# pedirlo si querés".) Vale para cuando la frase no nombra ningún producto de la lista.
+# Si la IA dice que un producto no se trabaja o que no lo tienen, se contesta eso y NADA
+# MÁS: sin ofrecer pedirlo ni conseguirlo. (Una IA llegó a contestar: "No trabajamos con
+# café. Podés pedirlo si querés".) Vale para cuando la frase del cliente no nombra ningún
+# producto de la lista.
 funcion sin_ofrecer(respuesta) {
-    # (la respuesta sin tildes ni signos, con un espacio en cada punta: así se buscan
-    # palabras enteras)
-    sea frase = " {unir(palabras_de(respuesta), " ")} "
-    para dicho en ["no lo trabajamos", "no la trabajamos", "no los trabajamos",
-                   "no las trabajamos", "no trabajamos"] {
-        si tiene(frase, " {dicho} ") {
+    sea p = palabras_de(respuesta)
+    # Se busca un "no" seguido de uno de esos verbos, con o sin un "lo" en el medio.
+    para i en rango(largo(p)) {
+        si p[i] != "no" {
+            continuar
+        }
+        # "No trabajamos", "no lo tenemos", "no contamos con", "no vendemos"...
+        var j = i + 1
+        si tiene(["lo", "la", "los", "las", "te", "les"], la_palabra(p, j)) {
+            j += 1
+        }
+        si no tiene(["trabajamos", "tenemos", "vendemos", "manejamos", "comercializamos",
+                     "disponemos", "contamos", "ofrecemos"], la_palabra(p, j)) {
+            continuar
+        }
+        # Salvo que hable de otra cosa: "no vendemos por menor", "no trabajamos al
+        # público", "no tenemos esa información".
+        var de_otra_cosa = tiene(["al", "a", "por", "para", "en", "asi"], la_palabra(p, j + 1))
+        para k en rango(1, 4) {
+            si tiene(["informacion", "dato", "datos", "stock", "problema", "problemas",
+                      "inconveniente", "inconvenientes", "novedades", "minimo", "forma",
+                      "manera"], la_palabra(p, j + k)) {
+                de_otra_cosa = verdadero
+            }
+        }
+        si no de_otra_cosa {
             devolver "Eso no lo trabajamos."
         }
     }
@@ -1170,12 +1745,14 @@ funcion atender(tabla, dicho, datos = datos_del_negocio) {
         # (si en la misma frase preguntó por un dato del negocio, también se le contesta)
         devolver con_los_datos(del_programa, datos, dicho)
     }
+    sea stocks = stock_de_los_nombrados(tabla, dicho)
     # ¿Pregunta el horario, la dirección, el teléfono, cómo se paga...? También contesta
     # el programa: el dato cargado, o que eso lo confirma una persona. La IA no se entera,
-    # así que no puede inventarlo.
+    # así que no puede inventarlo. Y si además nombra un producto ("¿cuánto sale la
+    # yerba? ¿aceptan tarjeta?"), va adelante su renglón de la lista.
     sea del_dato = responder_dato(datos, dicho)
     si del_dato != nada {
-        devolver del_dato
+        devolver con_los_productos(del_dato, tabla, dicho, stocks)
     }
     # No era nada de eso: va al agente, que consulta a la IA con sus frenos.
     sea atencion = preguntar Consulta {
@@ -1184,7 +1761,6 @@ funcion atender(tabla, dicho, datos = datos_del_negocio) {
     si atencion.aviso != nada {
         mostrar("   (la IA no contestó y busqué en la lista. El motivo: {atencion.aviso})")
     }
-    sea stocks = stock_de_los_nombrados(tabla, dicho)
     # Preguntó por algo que no está en la lista: si la IA dice que no se trabaja, va
     # eso solo, sin ofrecer pedirlo.
     si largo(stocks) == 0 {
@@ -1496,6 +2072,182 @@ prueba "si la IA igual inventa un horario, un teléfono o una forma de pago, no 
     # Una respuesta común, con productos y precios de la lista, pasa como siempre.
     simular_ia("Tenemos Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 y Harina 000 (bolsa de 25 kg) a $ 14.500,00.")
     asegurar empieza_con(atender(precios, "hola", vacios), "Tenemos Yerba mate")
+}
+
+prueba "una hora inventada no le llega al cliente, la escriba como la escriba" {
+    enviar CargarLista { precios: precios } a Mostrador
+    # Con "las" adelante, como rango (con "de", sin "de", con guion), con punto, con
+    # letras, sin ningún número ("todos los días", "de corrido") y abreviada ("lun a vie").
+    # Ninguna de estas frases le llegó a la IA como pregunta: la pregunta fue "hola".
+    para inventada en ["Abrimos desde las 8 hasta las 18.", "Podés pasar hasta las 18.",
+                       "Atendemos entre las 9 y las 18.", "Abrimos a partir de las 9.",
+                       "Abrimos 8 a 18.", "Horario: 8-18.", "Horario: 08.00 a 18.00.",
+                       "Abrimos a las nueve.", "Estamos de ocho a seis de la tarde.",
+                       "Atendemos de ocho a dieciocho, de lun a vie.",
+                       "Abrimos 8.30 y cerramos 18.00.", "Atendemos todos los días.",
+                       "Estamos de corrido, mañana y tarde.", "Pasá al mediodía.",
+                       "Hoy estamos abiertos hasta tarde.", "Atendemos las 24 horas.",
+                       "Podés pasar hasta las 18, estamos todos los días."] {
+        asegurar dato_inventado({}, inventada, precios) == "horario", inventada
+        simular_ia(inventada)
+        asegurar atender(precios, "hola", {}) == "Sobre el horario: eso te lo confirma una persona.", inventada
+    }
+}
+
+prueba "una dirección, un contacto, un pago, una entrega o una promoción inventados tampoco llegan" {
+    sea inventadas = {
+        direccion: ["Te esperamos en Av. Corrientes 1234.", "Estamos sobre Rivadavia al 5000.",
+                    "Estamos sobre la calle Corrientes al 3000.", "Estamos en Lanús."],
+        telefono: ["Escribinos a ventas@mayorista.com.ar.", "Seguinos en Instagram @mayorista.",
+                   "Llamanos al 4444.5555.", "Llamanos al 444-5555.", "El número es (011) 4555-1234.",
+                   "Mirá los precios en www.mayorista.com"],
+        formas_de_pago: ["Podés pagar con Visa o Mastercard.", "Aceptamos todos los medios de pago.",
+                         "Se paga con MODO o Cuenta DNI.", "Tenemos billeteras virtuales y dólares."],
+        entregas: ["Hacemos envíos a todo el país.", "Te llega mañana mismo.", "Entregamos en el día.",
+                   "Entregamos en una semana.", "Te lo entregamos mañana mismo en CABA.",
+                   "Lo tenés en 48 hs.", "Sale en dos horas."],
+        promociones: ["El envío es gratis.", "Tenemos 2x1 en yerba.", "Llevando 10 te regalamos 1.",
+                      "Hoy la yerba está 2x1.", "Hoy hay 10% menos."]
+    }
+    # Cada frase tiene que caer en su tema: de eso depende qué se le contesta al cliente
+    # ("Sobre el teléfono: ..." y no "Sobre el horario: ...").
+    para clave, frases en inventadas {
+        para inventada en frases {
+            asegurar dato_inventado({}, inventada, precios) == clave, inventada
+        }
+    }
+    # Y al cliente le llega lo que el programa sabe de ese tema: que lo confirma una persona.
+    enviar CargarLista { precios: precios } a Mostrador
+    simular_ia("Escribinos a ventas@mayorista.com.ar.")
+    asegurar atender(precios, "hola", {}) == "Sobre el teléfono: eso te lo confirma una persona."
+}
+
+prueba "una respuesta que no nombra ningún dato del negocio pasa como está" {
+    enviar CargarLista { precios: precios } a Mostrador
+    # Lo que se parece a un dato y no lo es: "estamos en contacto" (no es una dirección),
+    # "de 10 a 25 kg" y "de 10 a 20 unidades" (no son horas), "una amplia oferta" (no es
+    # una promoción), "buenos días", "de ese modo" (no es la billetera MODO), un precio
+    # de la lista y las medidas de una presentación ("1.5 l", "500 g").
+    para buena en ["¡Hola! Tenemos yerba, azúcar y harina.", "Cualquier cosa, estamos en contacto.",
+                   "Viene en bolsas de 10 a 25 kg.", "Vendemos de 1 a 100 unidades.",
+                   "Podés llevar de 10 a 20 unidades.", "Tenemos una amplia oferta de productos.",
+                   "Buenos días, ¿en qué te ayudo?", "Buenas tardes. Decime cuántas unidades querés.",
+                   "Llevá 2 o 3 bolsones.", "Las 2 yerbas que tenemos son buenas.",
+                   "De ese modo te sale mejor.", "El aceite viene en caja de 12 botellas de 1.5 l.",
+                   "Sí, tenemos fideos secos (caja de 20 paquetes de 500 g) a $ 18.900,00."] {
+        asegurar dato_inventado({}, buena, precios) == nada, buena
+    }
+    simular_ia("Viene en bolsas de 10 a 25 kg.")
+    asegurar atender(precios, "hola", {}) == "Viene en bolsas de 10 a 25 kg."
+    # El nombre de un producto de la planilla no es un dato inventado, aunque tenga una
+    # palabra de las que se miran.
+    sea con_promo = [{ producto: "Promo yerba y azúcar", presentacion: "caja", precio: 40000, stock: 5 }]
+    asegurar dato_inventado({}, "Tenemos la Promo yerba y azúcar.", con_promo) == nada
+    asegurar dato_inventado({}, "Tenemos la Promo yerba y azúcar.", precios) == "promociones"
+}
+
+prueba "con los datos cargados, cada cosa se compara con el dato de su tema" {
+    sea cargados = { horario: "Lunes a viernes de 8 a 17 y sábados de 8 a 13", telefono: "11 4555-1234",
+                     formas_de_pago: "Efectivo o transferencia. No aceptamos tarjeta",
+                     direccion: "Av. Mitre 1234, Lanús" }
+    # Lo que dice lo mismo que lo cargado, pasa. (No hace falta que lo diga con las mismas
+    # palabras de alrededor: alcanza con que los días, las horas, los números y las formas
+    # de pago que nombra estén en el dato de su tema.)
+    para buena en ["Atendemos de lunes a viernes de 8 a 17.", "Los sábados, de 8 a 13.",
+                   "Llamanos al 11 4555-1234.", "Aceptamos efectivo.", "Estamos en Av. Mitre 1234, Lanús."] {
+        asegurar dato_inventado(cargados, buena, precios) == nada, buena
+    }
+    # El "11" del teléfono no habilita una hora, ni lo negado en un dato habilita a decirlo.
+    asegurar dato_inventado(cargados, "Abrimos a las 11.", precios) == "horario"
+    asegurar dato_inventado(cargados, "Aceptamos tarjeta.", precios) == "formas_de_pago"
+    # Las mismas palabras, mal combinadas, tampoco pasan.
+    asegurar dato_inventado(cargados, "Atendemos lunes de 17 a 8.", precios) == "horario"
+    asegurar dato_inventado(cargados, "Atendemos de lunes a sábados de 8 a 13.", precios) == "horario"
+    asegurar dato_inventado(cargados, "Estamos en Rivadavia 500.", precios) == "direccion"
+    asegurar dato_inventado(cargados, "Llamanos al 11 4555-9999.", precios) == "telefono"
+    # Y lo que le llega al cliente es el dato, tal cual está escrito.
+    enviar CargarLista { precios: precios } a Mostrador
+    simular_ia("Abrimos a las 11.")
+    asegurar atender(precios, "hola", cargados) == "Horario: Lunes a viernes de 8 a 17 y sábados de 8 a 13."
+}
+
+prueba "lo que la revisión de la respuesta NO ve: va por palabras, no por sentido" {
+    # LÍMITES CONOCIDOS. Estas respuestas inventan y hoy PASAN. Están acá para que nadie
+    # crea que la revisión lo ataja todo: por eso las preguntas por los datos no le llegan
+    # a la IA, y por eso hay que ensayar con el modelo de verdad. Si un día se cierra uno
+    # de estos huecos, esta prueba falla: ahí se saca de la lista.
+    para se_escapa en ["Pasá cuando quieras, siempre hay alguien.", "Te lo alcanzamos enseguida.",
+                       "Quedamos a la vuelta de la plaza.", "Si llevás mucho te hacemos precio."] {
+        asegurar dato_inventado({}, se_escapa, precios) == nada, se_escapa
+    }
+    # Con el dato cargado, se escapa lo que usa sus mismas palabras con otro sentido.
+    sea cargados = { horario: "Lunes a viernes de 8 a 17" }
+    asegurar dato_inventado(cargados, "Los lunes no abrimos; el viernes sí, de 8 a 17.", precios) == nada
+}
+
+prueba "las preguntas corrientes por el horario, la dirección o el pago no le llegan a la IA" {
+    simular_ia("Podés pasar hasta las 18, estamos todos los días.")
+    sea persona = ": eso te lo confirma una persona."
+    # (son preguntas que no dicen "horario", "abren" ni "cierran": se reconocen por las
+    # palabras flojas de temas_del_negocio(): "días", "cuándo", "pasar", "a la tarde")
+    para dicho en ["que dias trabajan?", "mañana trabajan?", "que dias estan?", "estan a la tarde?",
+                   "cuando puedo pasar?"] {
+        asegurar atender(precios, dicho, {}) == "Sobre el horario" + persona, dicho
+    }
+    asegurar atender(precios, "puedo pasar a retirar hoy?", {}) == "Sobre el horario y la dirección" + persona
+    para dicho en ["como llego?", "tienen local?"] {
+        asegurar atender(precios, dicho, {}) == "Sobre la dirección" + persona, dicho
+    }
+    asegurar atender(precios, "tienen pagina web?", {}) == "Sobre el teléfono" + persona
+    para dicho en ["visa?", "te hago una transfe?", "como se paga?"] {
+        asegurar atender(precios, dicho, {}) == "Sobre las formas de pago" + persona, dicho
+    }
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "un saludo o una pregunta por un producto no se toman por una pregunta por un dato" {
+    enviar CargarLista { precios: precios } a Mostrador
+    # "Buen día" tiene "día", "trabajan café" tiene "trabajan" y "pasar la lista" tiene
+    # "pasar": son palabras flojas, y acá no preguntan por el horario (cuenta_la_floja()).
+    simular_ia("¡Hola! ¿Qué necesitás?")
+    para dicho en ["hola buen dia", "buenas tardes", "hola como estan", "trabajan cafe?",
+                   "me podes pasar la lista?", "me llega la lista de precios?", "que marcas trabajan?"] {
+        asegurar atender(precios, dicho, {}) == "¡Hola! ¿Qué necesitás?", dicho
+    }
+    # En un pedido con su cantidad, "pago", "sábado" o "mi teléfono" no agregan nada.
+    sea cuenta = "12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."
+    para dicho en ["cuanto pago por 12 azucar?", "cuanto tengo que pagar por 12 azucar?",
+                   "dame 12 azucar para el sabado", "dame 12 azucar, en una hora paso",
+                   "quiero 12 azucar, te dejo mi telefono"] {
+        asegurar atender(precios, dicho, {}) == cuenta, dicho
+    }
+    # Pero si en el pedido preguntan de verdad por un dato, se contesta.
+    asegurar atender(precios, "quiero 12 azucar, abren el sabado?", {}) == cuenta + " Sobre el horario: eso te lo confirma una persona."
+}
+
+prueba "si preguntan por un producto y por un dato, va el renglón de la lista y el dato, sin IA" {
+    # (en la 0.7.1 primera, estas frases contestaban solo el dato y se perdía el precio)
+    simular_ia("Atendemos de lunes a viernes de 8 a 18 hs.")
+    sea yerba = "Yerba mate (bolsón de 10 paquetes de 1 kg): $ 35.000,00."
+    asegurar atender(precios, "cuanto sale la yerba? aceptan tarjeta?", {}) == yerba + " Sobre las formas de pago: eso te lo confirma una persona."
+    asegurar atender(precios, "donde consigo yerba?", {}) == yerba + " Sobre la dirección: eso te lo confirma una persona."
+    # De fideos no hay: se avisa también acá.
+    asegurar atender(precios, "tenes fideos? abren sabados?", {}) == "Fideos secos (caja de 20 paquetes de 500 g): $ 18.900,00. De Fideos secos ahora no hay stock. Sobre el horario: eso te lo confirma una persona."
+    asegurar atender(precios, "cuanto sale la yerba? aceptan tarjeta?", { formas_de_pago: "Efectivo" }) == yerba + " Formas de pago: Efectivo."
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "si la IA dice que no lo tienen pero ofrece conseguirlo, también va solo que no se trabaja" {
+    enviar CargarLista { precios: precios } a Mostrador
+    para ofrece en ["Lamentablemente no tenemos café, pero te lo puedo conseguir para más adelante.",
+                    "No contamos con ese producto, pero podemos pedirlo.", "Café no vendemos. Puedo encargarlo."] {
+        simular_ia(ofrece)
+        asegurar atender(precios, "tenes cafe?", {}) == "Eso no lo trabajamos.", ofrece
+    }
+    # Un "no" que habla de otra cosa no se cambia.
+    para otra_cosa en ["No vendemos por menor, no trabajamos al público.", "No tenemos esa información."] {
+        asegurar sin_ofrecer(otra_cosa) == otra_cosa, otra_cosa
+    }
 }
 
 prueba "de lo que no está en la lista dice solo que no lo trabaja, sin ofrecer pedirlo" {

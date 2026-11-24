@@ -1459,6 +1459,22 @@ class Parser:
             if not self.acepta("op", ","):
                 break
         self.abiertos -= 1
+        if pares and not self.es("op", "}"):
+            # (0.7.1) Lo más común al cargar un dato con el Bloc de notas: se fue la coma
+            # del final del renglón, o quedaron comillas adentro del texto. El error
+            # sigue empezando igual; atrás dice qué mirar.
+            tk = self.ver()
+            self.pista_de_palabra(tk)
+            visto = "el final del archivo" if tk[0] == "eof" else f"'{tk[1]}'"
+            anterior = self.t[max(self.i - 1, 0)]
+            if anterior[2] < tk[2]:
+                pista = ("Adentro de las llaves, cada dato termina con una coma: ¿falta la "
+                         f"coma al final del renglón de arriba (el {anterior[2]})?")
+            else:
+                pista = ("Adentro de las llaves, cada dato va con su nombre, dos puntos y su "
+                         "valor, y termina con una coma. Si es un texto, va entero entre "
+                         "comillas y sin comillas adentro.")
+            raise ErrorMate(f"esperaba '}}' y encontré {visto}. {pista}", tk[2])
         self.espera("op", "}")
         return pares
 
@@ -10140,8 +10156,13 @@ _ENCABEZADO_DEL_MOSTRADOR = """\
 # promociones): contesta con lo que vos cargaste, tal cual; y si no lo cargaste, NO LO
 # INVENTA: contesta "eso te lo confirma una persona".
 # Todo lo demás (saludar, contar qué hay) lo contesta la IA, con frenos para que no
-# invente precios. Y si la IA nombra igual un día, una hora, un teléfono o una forma de
-# pago que no cargaste, esa respuesta no le llega al cliente.
+# invente precios. A lo que contesta, el programa le mira además que no nombre un día,
+# una hora, una dirección, un teléfono, una forma de pago, una entrega o una promoción
+# que no cargaste: si lo nombra, esa respuesta no le llega al cliente.
+# OJO: esa revisión va por palabras. Ataja lo más común, NO TODO: un modelo puede decir
+# un dato de una manera que no está prevista. Por eso conviene CARGAR TUS DATOS (con el
+# dato cargado, si la IA dice otra cosa, al cliente le llega el tuyo) y ENSAYAR con tu
+# modelo de verdad antes de dejarlo atender.
 #
 # QUÉ PODÉS CAMBIAR SIN SABER PROGRAMAR:
 #   1. Tus productos. Están en la planilla que está al lado de este archivo:
@@ -10161,6 +10182,8 @@ _ENCABEZADO_DEL_MOSTRADOR = """\
 #   5. Lo que la IA no puede decir nunca: las palabras de 'prohibido', dentro de 'frenos'.
 #   6. Las palabras con las que tus clientes preguntan por el horario, la dirección y
 #      los demás datos: están en temas_del_negocio(). Van en minúsculas y sin tildes.
+#      Y las que se le miran a la respuesta de la IA: en palabras_de_dias() y las listas
+#      que le siguen. Si tu modelo inventa algo con otra palabra, se agrega ahí.
 #
 # CÓMO SE USA, en PowerShell, parado en la carpeta donde está este archivo:
 #   Para comprobar que quedó todo bien (hacelo cada vez que cambies algo):
@@ -10174,8 +10197,9 @@ _ENCABEZADO_DEL_MOSTRADOR = """\
 #   de notas) y dice cuáles contestó bien. Sirve para saber si una lección funcionó:
 #          «ORDEN» ensayar «PROGRAMA» «CASOS» --ia-simulada
 #   OJO: los casos que vienen en «CASOS» son de muestra, escritos para la planilla de
-#   muestra (yerba, azúcar, fideos). Cuando pongas tus productos en la planilla, cambiá
-#   también los casos: si no, fallan los que nombran un producto que ya no está.
+#   muestra (yerba, azúcar, fideos) y con los datos del negocio VACÍOS. Cuando pongas
+#   tus productos en la planilla o cargues tus datos, cambiá también los casos: si no,
+#   fallan los que nombran un producto que ya no está o esperan un dato sin cargar.
 #
 # Las pruebas del final usan una lista fija, no tu planilla: siguen pasando aunque cambies
 # los productos, los precios o el número del envío. Una sola mira tu planilla, para
@@ -10304,6 +10328,152 @@ prueba "si la IA igual inventa un horario, un teléfono o una forma de pago, no 
     asegurar atender(lista_de_prueba(), "hola", cargados) == "¡Hola! Atendemos de lunes a viernes de 8 a 17."
     simular_ia("¡Hola! Atendemos de lunes a sábado de 8 a 20.")
     asegurar atender(lista_de_prueba(), "hola", cargados) == "Horario: Lunes a viernes de 8 a 17."
+}
+
+prueba "una hora inventada no le llega al cliente, la escriba como la escriba" {
+    enviar CargarLista { precios: lista_de_prueba() } a Mostrador
+    para inventada en ["Abrimos desde las 8 hasta las 18.", "Podés pasar hasta las 18.",
+                       "Atendemos entre las 9 y las 18.", "Abrimos a partir de las 9.",
+                       "Abrimos 8 a 18.", "Horario: 8-18.", "Horario: 08.00 a 18.00.",
+                       "Abrimos a las nueve.", "Estamos de ocho a seis de la tarde.",
+                       "Atendemos de ocho a dieciocho, de lun a vie.",
+                       "Abrimos 8.30 y cerramos 18.00.", "Atendemos todos los días.",
+                       "Estamos de corrido, mañana y tarde.", "Pasá al mediodía.",
+                       "Hoy estamos abiertos hasta tarde.", "Atendemos las 24 horas.",
+                       "Podés pasar hasta las 18, estamos todos los días."] {
+        asegurar dato_inventado({}, inventada, lista_de_prueba()) == "horario", inventada
+        simular_ia(inventada)
+        asegurar atender(lista_de_prueba(), "hola", {}) == "Sobre el horario: eso te lo confirma una persona.", inventada
+    }
+}
+
+prueba "una dirección, un contacto, un pago, una entrega o una promoción inventados tampoco llegan" {
+    sea inventadas = {
+        direccion: ["Te esperamos en Av. Corrientes 1234.", "Estamos sobre Rivadavia al 5000.",
+                    "Estamos sobre la calle Corrientes al 3000.", "Estamos en Lanús."],
+        telefono: ["Escribinos a ventas@mayorista.com.ar.", "Seguinos en Instagram @mayorista.",
+                   "Llamanos al 4444.5555.", "Llamanos al 444-5555.", "El número es (011) 4555-1234.",
+                   "Mirá los precios en www.mayorista.com"],
+        formas_de_pago: ["Podés pagar con Visa o Mastercard.", "Aceptamos todos los medios de pago.",
+                         "Se paga con MODO o Cuenta DNI.", "Tenemos billeteras virtuales y dólares."],
+        entregas: ["Hacemos envíos a todo el país.", "Te llega mañana mismo.", "Entregamos en el día.",
+                   "Entregamos en una semana.", "Te lo entregamos mañana mismo en CABA.",
+                   "Lo tenés en 48 hs.", "Sale en dos horas."],
+        promociones: ["El envío es gratis.", "Tenemos 2x1 en yerba.", "Llevando 10 te regalamos 1.",
+                      "Hoy la yerba está 2x1.", "Hoy hay 10% menos."]
+    }
+    para clave, frases en inventadas {
+        para inventada en frases {
+            asegurar dato_inventado({}, inventada, lista_de_prueba()) == clave, inventada
+        }
+    }
+    # Y al cliente le llega lo que el programa sabe de ese tema: que lo confirma una persona.
+    enviar CargarLista { precios: lista_de_prueba() } a Mostrador
+    simular_ia("Escribinos a ventas@mayorista.com.ar.")
+    asegurar atender(lista_de_prueba(), "hola", {}) == "Sobre el teléfono: eso te lo confirma una persona."
+}
+
+prueba "una respuesta que no nombra ningún dato del negocio pasa como está" {
+    enviar CargarLista { precios: lista_de_prueba() } a Mostrador
+    para buena en ["¡Hola! Tenemos yerba, azúcar y harina.", "Cualquier cosa, estamos en contacto.",
+                   "Viene en bolsas de 10 a 25 kg.", "Vendemos de 1 a 100 unidades.",
+                   "Podés llevar de 10 a 20 unidades.", "Tenemos una amplia oferta de productos.",
+                   "Buenos días, ¿en qué te ayudo?", "Buenas tardes. Decime cuántas unidades querés.",
+                   "Llevá 2 o 3 bolsones.", "Las 2 yerbas que tenemos son buenas.",
+                   "De ese modo te sale mejor.", "El aceite viene en caja de 12 botellas de 1.5 l.",
+                   "Sí, tenemos fideos secos (caja de 20 paquetes de 500 g) a $ 18.900,00."] {
+        asegurar dato_inventado({}, buena, lista_de_prueba()) == nada, buena
+    }
+    simular_ia("Viene en bolsas de 10 a 25 kg.")
+    asegurar atender(lista_de_prueba(), "hola", {}) == "Viene en bolsas de 10 a 25 kg."
+    # El nombre de un producto de la planilla no es un dato inventado, aunque tenga una
+    # palabra de las que se miran.
+    sea con_promo = [{ producto: "Promo yerba y azúcar", presentacion: "caja", precio: 40000, stock: 5 }]
+    asegurar dato_inventado({}, "Tenemos la Promo yerba y azúcar.", con_promo) == nada
+    asegurar dato_inventado({}, "Tenemos la Promo yerba y azúcar.", lista_de_prueba()) == "promociones"
+}
+
+prueba "con los datos cargados, cada cosa se compara con el dato de su tema" {
+    sea cargados = { horario: "Lunes a viernes de 8 a 17 y sábados de 8 a 13", telefono: "11 4555-1234",
+                     formas_de_pago: "Efectivo o transferencia. No aceptamos tarjeta",
+                     direccion: "Av. Mitre 1234, Lanús" }
+    # Lo que dice lo mismo que lo cargado, pasa.
+    para buena en ["Atendemos de lunes a viernes de 8 a 17.", "Los sábados, de 8 a 13.",
+                   "Llamanos al 11 4555-1234.", "Aceptamos efectivo.", "Estamos en Av. Mitre 1234, Lanús."] {
+        asegurar dato_inventado(cargados, buena, lista_de_prueba()) == nada, buena
+    }
+    # El "11" del teléfono no habilita una hora, ni lo negado en un dato habilita a decirlo.
+    asegurar dato_inventado(cargados, "Abrimos a las 11.", lista_de_prueba()) == "horario"
+    asegurar dato_inventado(cargados, "Aceptamos tarjeta.", lista_de_prueba()) == "formas_de_pago"
+    # Las mismas palabras, mal combinadas, tampoco pasan.
+    asegurar dato_inventado(cargados, "Atendemos lunes de 17 a 8.", lista_de_prueba()) == "horario"
+    asegurar dato_inventado(cargados, "Atendemos de lunes a sábados de 8 a 13.", lista_de_prueba()) == "horario"
+    asegurar dato_inventado(cargados, "Estamos en Rivadavia 500.", lista_de_prueba()) == "direccion"
+    asegurar dato_inventado(cargados, "Llamanos al 11 4555-9999.", lista_de_prueba()) == "telefono"
+    # Y lo que le llega al cliente es el dato, tal cual está escrito.
+    enviar CargarLista { precios: lista_de_prueba() } a Mostrador
+    simular_ia("Abrimos a las 11.")
+    asegurar atender(lista_de_prueba(), "hola", cargados) == "Horario: Lunes a viernes de 8 a 17 y sábados de 8 a 13."
+}
+
+prueba "las preguntas corrientes por el horario, la dirección o el pago no le llegan a la IA" {
+    simular_ia("Podés pasar hasta las 18, estamos todos los días.")
+    sea persona = ": eso te lo confirma una persona."
+    para dicho en ["que dias trabajan?", "mañana trabajan?", "que dias estan?", "estan a la tarde?",
+                   "cuando puedo pasar?"] {
+        asegurar atender(lista_de_prueba(), dicho, {}) == "Sobre el horario" + persona, dicho
+    }
+    asegurar atender(lista_de_prueba(), "puedo pasar a retirar hoy?", {}) == "Sobre el horario y la dirección" + persona
+    para dicho en ["como llego?", "tienen local?"] {
+        asegurar atender(lista_de_prueba(), dicho, {}) == "Sobre la dirección" + persona, dicho
+    }
+    asegurar atender(lista_de_prueba(), "tienen pagina web?", {}) == "Sobre el teléfono" + persona
+    para dicho en ["visa?", "te hago una transfe?", "como se paga?"] {
+        asegurar atender(lista_de_prueba(), dicho, {}) == "Sobre las formas de pago" + persona, dicho
+    }
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "un saludo o una pregunta por un producto no se toman por una pregunta por un dato" {
+    enviar CargarLista { precios: lista_de_prueba() } a Mostrador
+    simular_ia("¡Hola! ¿Qué necesitás?")
+    para dicho en ["hola buen dia", "buenas tardes", "hola como estan", "trabajan cafe?",
+                   "me podes pasar la lista?", "me llega la lista de precios?", "que marcas trabajan?"] {
+        asegurar atender(lista_de_prueba(), dicho, {}) == "¡Hola! ¿Qué necesitás?", dicho
+    }
+    # En un pedido con su cantidad, "pago", "sábado" o "mi teléfono" no agregan nada.
+    sea cuenta = "12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00."
+    para dicho en ["cuanto pago por 12 azucar?", "cuanto tengo que pagar por 12 azucar?",
+                   "dame 12 azucar para el sabado", "dame 12 azucar, en una hora paso",
+                   "quiero 12 azucar, te dejo mi telefono"] {
+        asegurar atender(lista_de_prueba(), dicho, {}) == cuenta, dicho
+    }
+    # Pero si en el pedido preguntan de verdad por un dato, se contesta.
+    asegurar atender(lista_de_prueba(), "quiero 12 azucar, abren el sabado?", {}) == cuenta + " Sobre el horario: eso te lo confirma una persona."
+}
+
+prueba "si preguntan por un producto y por un dato, va el renglón de la lista y el dato, sin IA" {
+    simular_ia("Atendemos de lunes a viernes de 8 a 18 hs.")
+    sea yerba = "Yerba mate (bolsón de 10 paquetes de 1 kg): $ 35.000,00."
+    asegurar atender(lista_de_prueba(), "cuanto sale la yerba? aceptan tarjeta?", {}) == yerba + " Sobre las formas de pago: eso te lo confirma una persona."
+    asegurar atender(lista_de_prueba(), "donde consigo yerba?", {}) == yerba + " Sobre la dirección: eso te lo confirma una persona."
+    # De fideos no hay: se avisa también acá.
+    asegurar atender(lista_de_prueba(), "tenes fideos? abren sabados?", {}) == "Fideos secos (caja de 20 paquetes de 500 g): $ 18.900,00. De Fideos secos ahora no hay stock. Sobre el horario: eso te lo confirma una persona."
+    asegurar atender(lista_de_prueba(), "cuanto sale la yerba? aceptan tarjeta?", { formas_de_pago: "Efectivo" }) == yerba + " Formas de pago: Efectivo."
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "si la IA dice que no lo tienen pero ofrece conseguirlo, también va solo que no se trabaja" {
+    enviar CargarLista { precios: lista_de_prueba() } a Mostrador
+    para ofrece en ["Lamentablemente no tenemos café, pero te lo puedo conseguir para más adelante.",
+                    "No contamos con ese producto, pero podemos pedirlo.", "Café no vendemos. Puedo encargarlo."] {
+        simular_ia(ofrece)
+        asegurar atender(lista_de_prueba(), "tenes cafe?", {}) == "Eso no lo trabajamos.", ofrece
+    }
+    # Un "no" que habla de otra cosa no se cambia.
+    para otra_cosa en ["No vendemos por menor, no trabajamos al público.", "No tenemos esa información."] {
+        asegurar sin_ofrecer(otra_cosa) == otra_cosa, otra_cosa
+    }
 }
 
 prueba "de lo que no está en la lista dice solo que no lo trabaja, y de lo que está en cero avisa" {
@@ -10444,9 +10614,15 @@ _ENCABEZADO_DEL_EQUIPO = """\
 #     con lo que vos cargaste, tal cual; y si no lo cargaste, NO LO INVENTA: contesta
 #     "eso te lo confirma una persona".
 #     Todo lo demás (saludar, contar qué hay) lo contesta la IA, con frenos para que no
-#     invente precios. Si la IA nombra igual un día, una hora, un teléfono o una forma
-#     de pago que no cargaste, esa respuesta no le llega al cliente. Y si preguntan por
-#     un producto que está en cero ("¿tenés aceite?"), Ventas avisa que ahora no hay.
+#     invente precios. A lo que contesta, el programa le mira además que no nombre un
+#     día, una hora, una dirección, un teléfono, una forma de pago, una entrega o una
+#     promoción que no cargaste: si lo nombra, esa respuesta no le llega al cliente.
+#     OJO: esa revisión va por palabras. Ataja lo más común, NO TODO: un modelo puede
+#     decir un dato de una manera que no está prevista. Por eso conviene CARGAR TUS
+#     DATOS (con el dato cargado, si la IA dice otra cosa, al cliente le llega el tuyo)
+#     y ENSAYAR con tu modelo de verdad antes de dejarlo atender.
+#     Y si preguntan por un producto que está en cero ("¿tenés aceite?"), Ventas avisa
+#     que ahora no hay.
 #   - DEPÓSITO es el único que sabe cuánto stock hay. Lo descuenta con cada pedido
 #     confirmado y lo RECUERDA de una vez a la otra. No vende lo que no hay.
 #   - COMPRAS deja anotado lo que hay que reponer. Depósito le avisa UNA vez, cuando un
@@ -10478,6 +10654,8 @@ _ENCABEZADO_DEL_EQUIPO = """\
 #      minúsculas y sin tildes. Las palabras con las que confirman: en palabras_de_si().
 #   8. Las palabras con las que tus clientes preguntan por el horario, la dirección y
 #      los demás datos: están en temas_del_negocio(). También en minúsculas y sin tildes.
+#      Y las que se le miran a la respuesta de la IA: en palabras_de_dias() y las listas
+#      que le siguen. Si tu modelo inventa algo con otra palabra, se agrega ahí.
 #
 # EL STOCK. El de la planilla es el de ARRANQUE: Depósito lo toma la primera vez que ve
 # cada producto y de ahí en más lo lleva él. Lo que recuerda queda en este archivo, que
@@ -10524,8 +10702,9 @@ _ENCABEZADO_DEL_EQUIPO = """\
 #          «ORDEN» ensayar «PROGRAMA» «CASOS» --ia-simulada
 #   (En un caso, el "si" del cliente va debajo de la pregunta, así:   después: si )
 #   OJO: los casos que vienen en «CASOS» son de muestra, escritos para la planilla de
-#   muestra (yerba, azúcar, fideos). Cuando pongas tus productos en la planilla, cambiá
-#   también los casos: si no, fallan los que nombran un producto que ya no está.
+#   muestra (yerba, azúcar, fideos) y con los datos del negocio VACÍOS. Cuando pongas
+#   tus productos en la planilla o cargues tus datos, cambiá también los casos: si no,
+#   fallan los que nombran un producto que ya no está o esperan un dato sin cargar.
 #
 # Las pruebas del final usan una lista fija, no tu planilla ni lo que Depósito recuerda:
 # siguen pasando aunque cambies los productos, los precios, el número del envío o el
@@ -11115,6 +11294,83 @@ prueba "si la IA igual inventa un horario, un teléfono o una forma de pago, no 
     asegurar consultar_a_ventas("y", "hola") == "Horario: Lunes a viernes de 8 a 17."
 }
 
+prueba "una hora, una dirección o un contacto inventados no llegan, se escriban como se escriban" {
+    abrir_el_negocio(lista_de_prueba(), {})
+    sea persona = ": eso te lo confirma una persona."
+    sea inventadas = {
+        "Abrimos desde las 8 hasta las 18.": "Sobre el horario",
+        "Podés pasar hasta las 18, estamos todos los días.": "Sobre el horario",
+        "Horario: 8-18.": "Sobre el horario",
+        "Atendemos de ocho a dieciocho, de lun a vie.": "Sobre el horario",
+        "Te esperamos en Av. Corrientes 1234.": "Sobre la dirección",
+        "Escribinos a ventas@mayorista.com.ar.": "Sobre el teléfono",
+        "Llamanos al 444-5555.": "Sobre el teléfono",
+        "Podés pagar con Visa o Mastercard.": "Sobre las formas de pago",
+        "Te llega mañana mismo.": "Sobre las entregas",
+        "Tenemos 2x1 en yerba.": "Sobre las promociones"
+    }
+    para inventada, tema en inventadas {
+        simular_ia(inventada)
+        asegurar consultar_a_ventas(inventada, "hola") == tema + persona, inventada
+    }
+    # Una respuesta que no nombra ningún dato pasa como está.
+    para buena en ["Cualquier cosa, estamos en contacto.", "Viene en bolsas de 10 a 25 kg.",
+                   "Tenemos una amplia oferta de productos."] {
+        simular_ia(buena)
+        asegurar consultar_a_ventas(buena, "hola") == buena, buena
+    }
+    # Con los datos cargados, cada cosa se compara con el dato de su tema: el "11" del
+    # teléfono no habilita una hora, y lo que el dato niega no se puede afirmar.
+    abrir_el_negocio(lista_de_prueba(), { horario: "Lunes a viernes de 8 a 17", telefono: "11 4555-1234",
+                              formas_de_pago: "Efectivo o transferencia. No aceptamos tarjeta" })
+    simular_ia("Abrimos a las 11.")
+    asegurar consultar_a_ventas("x", "hola") == "Horario: Lunes a viernes de 8 a 17."
+    simular_ia("Aceptamos tarjeta.")
+    asegurar consultar_a_ventas("y", "hola") == "Formas de pago: Efectivo o transferencia. No aceptamos tarjeta."
+    simular_ia("Atendemos lunes de 17 a 8.")
+    asegurar consultar_a_ventas("z", "hola") == "Horario: Lunes a viernes de 8 a 17."
+}
+
+prueba "las preguntas corrientes por el horario, la dirección o el pago no le llegan a la IA" {
+    abrir_el_negocio(lista_de_prueba(), {})
+    simular_ia("Podés pasar hasta las 18, estamos todos los días.")
+    sea persona = ": eso te lo confirma una persona."
+    para dicho en ["que dias trabajan?", "mañana trabajan?", "que dias estan?", "estan a la tarde?",
+                   "cuando puedo pasar?"] {
+        asegurar consultar_a_ventas(dicho, dicho) == "Sobre el horario" + persona, dicho
+    }
+    asegurar consultar_a_ventas("a", "como llego?") == "Sobre la dirección" + persona
+    asegurar consultar_a_ventas("b", "tienen pagina web?") == "Sobre el teléfono" + persona
+    asegurar consultar_a_ventas("c", "te hago una transfe?") == "Sobre las formas de pago" + persona
+    asegurar largo(consultas_ia()) == 0
+    # Un saludo o una pregunta por un producto no son una pregunta por un dato: van a la IA.
+    simular_ia("¡Hola! ¿Qué necesitás?")
+    para dicho en ["hola buen dia", "buenas tardes", "trabajan cafe?", "me podes pasar la lista?"] {
+        asegurar consultar_a_ventas(dicho, dicho) == "¡Hola! ¿Qué necesitás?", dicho
+    }
+}
+
+prueba "si preguntan por un producto y por un dato, Ventas da el renglón de la lista y el dato, sin IA" {
+    abrir_el_negocio(lista_de_prueba(), {})
+    simular_ia("Atendemos de lunes a viernes de 8 a 18 hs.")
+    sea yerba = "Yerba mate (bolsón de 10 paquetes de 1 kg): $ 35.000,00."
+    asegurar consultar_a_ventas("a", "cuanto sale la yerba? aceptan tarjeta?") == yerba + " Sobre las formas de pago: eso te lo confirma una persona."
+    asegurar consultar_a_ventas("b", "donde consigo yerba?") == yerba + " Sobre la dirección: eso te lo confirma una persona."
+    # De fideos no hay: Ventas se lo pregunta a Depósito y lo avisa también acá.
+    asegurar consultar_a_ventas("c", "tenes fideos? abren sabados?") == "Fideos secos (caja de 20 paquetes de 500 g): $ 18.900,00. De Fideos secos ahora no hay stock. Sobre el horario: eso te lo confirma una persona."
+    asegurar largo(consultas_ia()) == 0 y largo(mensajes_enviados("Reservar")) == 0
+    asegurar largo(mensajes_enviados("ConsultarStock")) == 3
+    # En la cuenta de un pedido, "pago" o "sábado" no agregan nada.
+    asegurar no tiene(consultar_a_ventas("d", "cuanto pago por 12 azucar?"), "persona")
+    asegurar no tiene(consultar_a_ventas("e", "quiero 12 azucar para el sabado"), "persona")
+}
+
+prueba "si la IA dice que no lo tienen pero ofrece conseguirlo, Ventas dice solo que no se trabaja" {
+    abrir_el_negocio(lista_de_prueba(), {})
+    simular_ia("Lamentablemente no tenemos café, pero te lo puedo conseguir para más adelante.")
+    asegurar consultar_a_ventas("a", "tenes cafe?") == "Eso no lo trabajamos."
+}
+
 prueba "de lo que no está en la lista dice solo que no lo trabaja, y de lo que está en cero avisa" {
     abrir_el_negocio(lista_de_prueba(), {})
     simular_ia("Lo siento, no trabajamos con café. Podés pedirlo si querés y cuántas unidades.")
@@ -11326,6 +11582,8 @@ def orden_nuevo(args, avisar, mostrar=print):
             "  6. Comprobar de nuevo (paso 1) y atender con la IA de verdad. La primera vez",
             "     va con --olvidar, para que Depósito arranque con el stock de tu planilla:",
             f"       {orden} correr {programa} --olvidar",
+            "     (Si usás un modelo propio, como Ollama: antes hay que decirle a Mate cuál",
+            "     es, con la variable MATE_IA_PROPIA. El manual dice cómo.)",
             f"  7. Ensayarlo: Mate le hace las preguntas de {casos} y dice cuáles",
             "     contestó bien (un ensayo no descuenta stock):",
             f"       {orden} ensayar {programa} {casos} --ia-simulada",
@@ -11367,6 +11625,8 @@ def orden_nuevo(args, avisar, mostrar=print):
             "     mostrador le contesta \"eso te lo confirma una persona\".",
             "  5. Comprobar de nuevo (paso 1) y atender con la IA de verdad:",
             f"       {orden} correr {programa}",
+            "     (Si usás un modelo propio, como Ollama: antes hay que decirle a Mate cuál",
+            "     es, con la variable MATE_IA_PROPIA. El manual dice cómo.)",
             f"  6. Ensayarlo: Mate le hace las preguntas de {casos} y dice cuáles",
             "     contestó bien (sin --ia-simulada contesta la IA de verdad):",
             f"       {orden} ensayar {programa} {casos} --ia-simulada",
