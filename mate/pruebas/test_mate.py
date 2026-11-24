@@ -20216,8 +20216,9 @@ def test_071_vuelta_4_probar_avisa_si_un_renglon_de_la_planilla_se_frenaria(
     capsys.readouterr()
     assert mate.main(["probar", "alm.mate"]) == 0
     assert "✓ tu planilla está bien cargada" in capsys.readouterr().out
-    # Con la planilla leída de un archivo no se conoce ningún renglón que se frene (una
-    # celda "8.30" sola se lee como el número 8,3): se prueba con una lista escrita a mano.
+    # Una celda "8.30" sola, leída de un archivo, es el número 8,3: se prueba con una lista
+    # escrita a mano. (La que sí se frena leída de un archivo, una celda que es solo "3x2",
+    # está en la prueba de la vuelta 6.)
     ruta = tmp_path / "alm.mate"
     texto = ruta.read_text(encoding="utf-8-sig")
     tabla = "precios" if que == "mostrador" else "lista"
@@ -20299,3 +20300,79 @@ def test_071_vuelta_4_la_regla_esta_en_el_ejemplo_y_en_las_mejoras():
                     "renglones_frenados"):
         assert f"\nfuncion {funcion}(" in ejemplo
     assert "Nota de la vuelta 4" in (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+
+
+# ───────── 0.7.1, vuelta 6: un "N x M" con el segundo número más grande es un tamaño ─────────
+
+PLANILLA_DE_TAMAÑOS = ("producto;presentacion;precio;stock\n"
+                       "Vino tinto;6x750;18.000;8\n"
+                       "Aceite de girasol;12x900;31.200;8\n"
+                       "Agua mineral;6 x 2,25;7.000;8\n"
+                       "Mermelada;12 x 454;9.000;8\n")
+RENGLONES_DE_TAMAÑOS = [
+    ("cuanto sale el vino tinto?", "Vino tinto (6x750): $ 18.000,00"),
+    ("tenes aceite?", "Aceite de girasol (12x900): $ 31.200,00"),
+    ("tenes agua?", "Agua mineral (6 x 2,25): $ 7.000,00"),
+    ("tenes mermelada?", "Mermelada (12 x 454): $ 9.000,00"),
+]
+
+
+def charla_de_la_vuelta_6(que, capsys, monkeypatch, *preguntas):
+    """Lo que contesta 'alm.mate' a cada pregunta, con --ia-simulada=ia.txt, sin quien atiende."""
+    import io
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(preguntas) + "\nchau\n"))
+    assert mate.main(["correr", "alm.mate", "--ia-simulada=ia.txt", "--olvidar"]) == 0
+    quien = "Mostrador: " if que == "mostrador" else "Ventas: "
+    return [r.split(quien, 1)[1] for r in capsys.readouterr().out.splitlines()
+            if r.startswith("Cliente: " + quien) and not r.startswith("Cliente: Ventas: cargué ")]
+
+
+@pytest.mark.parametrize("que", ["mostrador", "equipo"])
+def test_071_vuelta_6_una_presentacion_que_es_solo_un_tamaño_no_se_toma_por_promocion(
+        tmp_path, capsys, monkeypatch, que):
+    # P203, lo que quedaba: con la celda "6x750" (sin envase ni medida), a "cuanto sale el
+    # vino tinto?" le llegaba "Sobre las promociones: eso te lo confirma una persona.".
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "alm"]) == 0
+    (tmp_path / "alm_precios.csv").write_text(PLANILLA_DE_TAMAÑOS, encoding="utf-8")
+    (tmp_path / "ia.txt").write_text(
+        "novedad => Hay 2x1 en yerba.\n"
+        "oferta => Hay 3x2.\n"
+        "ahorro => Llevando 3 pagás 2.\n"
+        "viene => El vino viene de a 6x750 y el agua de a 6 x 2,25.\n", encoding="utf-8")
+    dicho = charla_de_la_vuelta_6(
+        que, capsys, monkeypatch, *[pregunta for pregunta, _ in RENGLONES_DE_TAMAÑOS],
+        "alguna novedad?", "que oferta hay?", "hay algun ahorro?", "como viene?")
+    frenada = "Sobre las promociones: eso te lo confirma una persona."
+    assert dicho == [renglon for _, renglon in RENGLONES_DE_TAMAÑOS] + [frenada] * 3 + [
+        "El vino viene de a 6x750 y el agua de a 6 x 2,25."]
+    # y 'probar' da todo bien con esa planilla
+    assert mate.main(["probar", "alm.mate"]) == 0
+    salida = capsys.readouterr().out
+    assert "✓ tu planilla está bien cargada" in salida and "✗" not in salida
+
+
+@pytest.mark.parametrize("que", ["mostrador", "equipo"])
+def test_071_vuelta_6_una_celda_que_es_solo_una_promocion_se_sigue_frenando_y_probar_dice_que_hacer(
+        tmp_path, capsys, monkeypatch, que):
+    # Con el segundo número más chico ("3x2", "10 x 1") sigue como en la vuelta 5: se frena,
+    # y 'probar' avisa de la celda y dice cómo escribirla.
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "alm"]) == 0
+    (tmp_path / "alm_precios.csv").write_text(
+        PLANILLA_DE_TAMAÑOS + "Jabón tocador;3x2;2.000;8\nHarina 000;10 x 1;14.500;8\n",
+        encoding="utf-8")
+    (tmp_path / "ia.txt").write_text("oferta => Hay 3x2.\n", encoding="utf-8")
+    dicho = charla_de_la_vuelta_6(que, capsys, monkeypatch, "que oferta hay?", "tenes jabon?",
+                                  "cuanto sale el vino tinto?")
+    frenada = "Sobre las promociones: eso te lo confirma una persona."
+    assert dicho == [frenada, frenada, "Vino tinto (6x750): $ 18.000,00"]
+    assert mate.main(["probar", "alm.mate"]) == 1
+    salida = capsys.readouterr().out
+    assert "✗ tu planilla está bien cargada" in salida
+    assert ("una promoción): 'Jabón tocador' (3x2); 'Harina 000' (10 x 1). Cuando la IA lo "
+            "nombre") in salida
+    assert ("Escribí esa celda de otra manera (agregale el envase o la medida: por ejemplo, "
+            "'caja 3 x 2 l' en vez de '3x2') y volvé a probar.") in salida
+    assert "con más de una palabra" not in salida

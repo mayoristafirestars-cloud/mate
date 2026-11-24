@@ -1507,8 +1507,10 @@ funcion palabra_nombrada(frase, i, respuesta) {
     si tiene(palabras_de_promo(), palabra) y no tiene(["amplia", "gran", "variada", "nuestra", "toda"], antes) {
         devolver mencion("promociones", palabra)
     }
-    # "2x1", "3 x 2".
-    si palabra == "x" y es_un_numero(antes) y es_un_numero(sigue) {
+    # "2x1", "3 x 2": llevás N y pagás M, dos números enteros y el segundo más chico.
+    # (Si el segundo es igual o más grande, o alguno tiene decimales, es un tamaño y no
+    # una promoción: "12x900", "6x750", "6 x 2,25", "6x1.5".)
+    si palabra == "x" y es_un_numero(antes) y es_un_numero(sigue) y solo_cifras(antes) == antes y solo_cifras(sigue) == sigue y numero(sigue) < numero(antes) {
         devolver mencion("promociones", nada, "{antes} x {sigue}")
     }
     # "Llevando 3 pagás 2". ("Pagás $ 35.000" es un precio: lleva el signo o es un importe.)
@@ -1618,6 +1620,8 @@ funcion palabras_de_medida() {
 # ("viene de a 12 x 900 ml") si está así en una celda Y atrás trae una medida o la misma
 # palabra que en la celda. Con "2x1 litro" en la planilla, "hay 2x1 en yerba" no pasa. Y
 # una celda que es solo un "3 x 2" no se saca: dicha sola es igual a una promoción.
+# (Un "12 x 900" ni llega a mirarse como promoción: el segundo número no es más chico.
+# Ver palabra_nombrada().)
 funcion sin_lo_de_la_planilla(frase, celdas) {
     # (con dos espacios entre palabra y palabra: así se encuentran dos seguidas)
     var corrida = " {unir(con_las_equis_pegadas(frase), "  ")} "
@@ -1687,7 +1691,7 @@ funcion renglones_frenados(tabla) {
     si largo(frenados) == 0 {
         devolver nada
     }
-    devolver "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una promoción): {unir(frenados, "; ")}. Cuando la IA lo nombre, al cliente le va a llegar 'eso te lo confirma una persona' en vez de la respuesta. Escribí esa celda de otra manera (con más de una palabra, por ejemplo) y volvé a probar."
+    devolver "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una promoción): {unir(frenados, "; ")}. Cuando la IA lo nombre, al cliente le va a llegar 'eso te lo confirma una persona' en vez de la respuesta. Escribí esa celda de otra manera (agregale el envase o la medida: por ejemplo, 'caja 3 x 2 l' en vez de '3x2') y volvé a probar."
 }
 
 # Todo lo que la respuesta de la IA dice de los temas del negocio: una lista de menciones.
@@ -2605,8 +2609,28 @@ prueba "lo que está escrito en la planilla no es un dato inventado, se escriba 
     sea sola = [{ producto: "Jabón", presentacion: "3x2", precio: 2000, stock: 8 }]
     asegurar dato_inventado({}, "Hay 3x2.", sola) == "promociones"
     asegurar empieza_con(renglones_frenados(sola), "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una promoción): 'Jabón' (3x2). ")
-    # Con otra planilla, lo mismo es inventado.
-    asegurar dato_inventado({}, "Viene en caja 12 x 900 ml.", precios) == "promociones"
+    # Una promoción es "llevás N, pagás M": dos enteros, y el segundo más chico. Si el
+    # segundo es igual o más grande, o alguno tiene decimales, es un tamaño: no se frena,
+    # esté o no en la planilla, y una celda que es solo eso ("12x900") tampoco se avisa.
+    sea tamaños = [{ producto: "Vino tinto", presentacion: "6x750", precio: 18000, stock: 8 },
+                   { producto: "Aceite", presentacion: "12x900", precio: 31200, stock: 8 },
+                   { producto: "Agua", presentacion: "6 x 2,25", precio: 7000, stock: 8 },
+                   { producto: "Mermelada", presentacion: "12 x 454", precio: 9000, stock: 8 },
+                   { producto: "Galletitas", presentacion: "20 x 500", precio: 9500, stock: 8 }]
+    para fila en tamaños {
+        para dicha en ["{fila.producto} ({fila.presentacion}): {pesos(fila.precio)}",
+                       "Sí, tenemos {fila.producto}, viene en {fila.presentacion}."] {
+            asegurar dato_inventado({}, dicha, tamaños) == nada, dicha
+        }
+    }
+    asegurar renglones_frenados(tamaños) == nada
+    para buena en ["Viene en caja 12 x 900 ml.", "Viene de a 6x1.5.", "Viene de a 6 x 1,5.", "Viene de a 6x6."] {
+        asegurar dato_inventado({}, buena, precios) == nada, buena
+    }
+    # Con esas celdas, la promoción inventada se sigue frenando.
+    para inventada en ["Hay 2x1 en yerba.", "Hay 3x2.", "Llevando 3 pagás 2.", "Hay 12x10.", "Hay 6 x 5 en vino."] {
+        asegurar dato_inventado({}, inventada, tamaños) == "promociones", inventada
+    }
     # "Bulto cerrado" es de la mercadería, no un horario. "Cerrado" solo, sí.
     para buena en ["Los precios son por bulto cerrado.", "Vendemos solo por bulto cerrado.",
                    "Se vende por caja cerrada o por pack cerrado."] {

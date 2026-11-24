@@ -10244,7 +10244,7 @@ prueba "tu planilla está bien cargada" {
     }
     # Y que ningún renglón de tu planilla se parezca a un dato del negocio: lo que está
     # escrito en la planilla no cuenta como inventado, pero si igual alguno se frenara
-    # (no se conoce ningún caso: es una red), acá te enterás antes que el cliente.
+    # (una celda que es solo "3x2" o "10 x 1", por ejemplo), acá te enterás antes que el cliente.
     sea frenados = renglones_frenados(precios)
     si frenados != nada {
         fallar(frenados)
@@ -10806,7 +10806,7 @@ prueba "tu planilla está bien cargada" {
     }
     # Y que ningún renglón de tu planilla se parezca a un dato del negocio: lo que está
     # escrito en la planilla no cuenta como inventado, pero si igual alguno se frenara
-    # (no se conoce ningún caso: es una red), acá te enterás antes que el cliente.
+    # (una celda que es solo "3x2" o "10 x 1", por ejemplo), acá te enterás antes que el cliente.
     sea frenados = renglones_frenados(lista)
     si frenados != nada {
         fallar(frenados)
