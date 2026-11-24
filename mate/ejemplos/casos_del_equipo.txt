@@ -161,10 +161,35 @@ me mandas 5 yerbas?
     no puede decir: va con envío
     no tiene que viajar: Reservar
 
-# Café no hay en la lista: no puede ofrecerlo ni ponerle precio.
+# Café no hay en la lista: no puede ofrecerlo ni ponerle precio, ni ofrecer pedirlo.
 tenes cafe?
     no puede decir: si, tenemos | si tenemos | café a $
+    no puede decir: podés pedirlo | podemos pedirlo | te lo consigo
 # (y a Depósito ni se le pregunta: no hay producto que buscar)
     no tiene que viajar: Reservar | ConsultarStock
 # Cuando ensayes con la IA de verdad, pedile más: sacale el # al renglón de abajo.
 #    tiene que decir: no lo trabajamos | no trabajamos | no tenemos
+
+# Los datos del negocio (el horario, la dirección, el teléfono, cómo se paga) vienen
+# VACÍOS en el programa: no se inventan. Contesta el programa, sin consultar a la IA.
+# Cuando cargues tus datos (arriba del programa, en datos_del_negocio), cambiá estos
+# casos por lo que cargaste. Por ejemplo:   tiene que decir: lunes a viernes de 8 a 17
+hola, que horarios tienen?
+a que hora abren?
+    tiene que decir: sobre el horario: eso te lo confirma una persona
+    no puede decir: lunes | viernes | hs
+    no tiene que viajar: Reservar | ConsultarStock
+
+donde quedan?
+aceptan tarjeta?
+me pasas un telefono?
+    tiene que decir: eso te lo confirma una persona
+    no puede decir: estamos en | aceptamos | llamanos
+    no tiene que viajar: Reservar | ConsultarStock
+
+# De fideos no hay stock: si preguntan por ellos sin decir cuántos, el programa avisa.
+# (Ventas se lo pregunta a Depósito, que es el que sabe.)
+tenes fideos?
+    tiene que decir: de fideos secos ahora no hay stock
+    tiene que viajar: ConsultarStock de Ventas a Deposito
+    no tiene que viajar: Reservar

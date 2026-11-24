@@ -15,6 +15,10 @@
 # pueden hablar: si alguien se saltea a Ventas, o Compras recibe un pedido que no vino de
 # Depósito, Mate lo frena.
 # La IA queda, como en el paso 12, solo para lo que no es un pedido, y con frenos.
+# Tampoco le llegan las preguntas por los DATOS DEL NEGOCIO (el horario, la dirección, el
+# teléfono, cómo se paga, las entregas, las promociones): las contesta Ventas con lo que
+# está cargado en datos_del_negocio (arriba de todo en el ejemplo 12), tal cual; y lo que
+# está vacío no se inventa: "eso te lo confirma una persona".
 #
 # PROBALO ASÍ, en PowerShell (no hace falta clave ni internet, y no gasta nada). Si en tu
 # computadora Python se llama con py, escribí py donde dice python:
@@ -105,7 +109,8 @@ sea ingreso_maximo = 100000
 #     pedido, nunca el de otro. En la charla por teclado hay un solo cliente (el que está
 #     en el teclado). Si un día a Ventas le escriben varios a la vez (un WhatsApp, una
 #     página), cada uno tiene que venir con su nombre: su número, o el de su sesión.
-mensaje ListaDePrecios { filas: lista }
+# (datos: los datos del negocio; si no vienen, es que no hay ninguno cargado)
+mensaje ListaDePrecios { filas: lista, datos: mapa? }
 mensaje ConsultaDeCliente { charla: texto, cliente: texto, dicho: texto } responde RespuestaDeVentas
 # (aviso solo viene si la IA no pudo contestar)
 mensaje RespuestaDeVentas { charla: texto, respuesta: texto, aviso: texto? }
@@ -187,6 +192,8 @@ contrato conversacion {
 agente Ventas {
     # La lista de precios: una fila por producto, como la deja leer_tabla().
     estado filas = []
+    # Los datos del negocio (el horario, la dirección...), como los escribió el dueño.
+    estado datos = {}
     # Los pedidos que Ventas entendió y le repitió a un cliente, y que esperan su "si".
     # Uno por CLIENTE: { nombre del cliente: { fila, cantidad, envio } }. El "si" de un
     # cliente confirma solo el suyo. No es 'recordado': si el programa se cierra, un
@@ -207,6 +214,10 @@ agente Ventas {
     # Un agente no toca archivos: el programa lee la lista y se la manda en un mensaje.
     al recibir ListaDePrecios como l {
         filas = l.filas
+        datos = {}
+        si l.datos != nada {
+            datos = l.datos
+        }
     }
 
     al recibir DejarDeEsperar como d {
@@ -257,7 +268,8 @@ agente Ventas {
         sea pedido = leer_pedido(filas, c.dicho)
         # Falta un dato ("¿cuántos querés?") o preguntan por el envío: se contesta eso.
         si tipo(pedido) == "texto" {
-            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + pedido }
+            # (si en la misma frase preguntó por un dato del negocio, también se le contesta)
+            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + con_los_datos(pedido, datos, c.dicho) }
         }
         si tipo(pedido) == "mapa" {
             sea producto = pedido.fila.producto
@@ -273,7 +285,7 @@ agente Ventas {
             # contesta la cuenta.
             si no es_para_anotar(pedido, c.dicho) {
                 sea hay = preguntar ConsultarStock { charla: c.charla, producto: producto } a Deposito
-                responder RespuestaDeVentas { charla: c.charla, respuesta: antes + respuesta_de_precio(pedido, hay.unidades) }
+                responder RespuestaDeVentas { charla: c.charla, respuesta: antes + con_los_datos(respuesta_de_precio(pedido, hay.unidades), datos, c.dicho) }
             }
             # Es un pedido claro. Igual NO se anota todavía: Ventas lo repite con la cuenta
             # completa y con cuántos bultos son, lo deja esperando y pide el "si". Si
@@ -286,27 +298,66 @@ agente Ventas {
         si entender(filas, c.dicho).otra_cosa {
             responder RespuestaDeVentas { charla: c.charla, respuesta: antes + respuesta_de_anular() }
         }
-        # 3. No era un pedido: contesta la IA, con los frenos de arriba.
+        # 3. ¿Pregunta el horario, la dirección, el teléfono, cómo se paga, las entregas o
+        #    las promociones? También contesta el programa, sin IA: el dato cargado, tal
+        #    cual; o, si no está cargado, que eso lo confirma una persona. Como la IA no
+        #    se entera de la pregunta, no puede inventar la respuesta.
+        sea del_dato = responder_dato(datos, c.dicho)
+        si del_dato != nada {
+            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + del_dato }
+        }
+        # 4. No era nada de eso: contesta la IA, con los frenos de arriba.
         sea instrucciones = """
             Atendés las ventas de un mayorista de almacén. Contestá en castellano
-            rioplatense, con amabilidad y en pocas palabras. Usá SOLO los precios de esta
-            lista; si piden algo que no está, decí que no lo trabajamos.
+            rioplatense, con amabilidad y en pocas palabras.
+            Usá SOLO los precios de esta lista. Si piden un producto que no está en la
+            lista, decí solamente que no lo trabajamos: NO ofrezcas pedirlo, encargarlo
+            ni conseguirlo.
             NO hagas cuentas ni digas totales, NO confirmes ni rechaces envíos, NO digas
             si hay o no hay stock y NO digas que un pedido quedó anotado: de eso se ocupa
             el sistema. Si te lo preguntan, pedí que escriban, con números, cuántas
             unidades de qué producto quieren.
+            Del negocio sabés SOLO lo que dice DATOS DEL NEGOCIO, más abajo. Lo que no
+            esté ahí (horarios, días de atención, dirección, teléfono, formas de pago,
+            plazos o zonas de entrega, promociones) NO lo inventes ni lo supongas: de eso
+            contestá solamente "Eso te lo confirma una persona."
             LISTA DE PRECIOS DE HOY:
             {lista_en_texto(filas)}
+            DATOS DEL NEGOCIO:
+            {datos_en_texto(datos)}
         """
         # (lo que se contesta si la IA no está: el renglón de la lista, sin inventar nada)
         sea sin_ia = buscar_en_lista(filas, c.dicho)
+        # Si la frase nombra UN producto de la lista ("¿tenés aceite?"), Ventas le pregunta
+        # a Depósito cuánto hay: si no hay, lo avisa el programa (la IA no sabe del stock).
+        sea nombrados = entender(filas, c.dicho).nombrados
+        var stocks = {}
+        si largo(nombrados) == 1 {
+            sea producto = texto(nombrados[0].fila.producto)
+            sea hay = preguntar ConsultarStock { charla: c.charla, producto: producto } a Deposito
+            stocks[producto] = hay.unidades
+        }
+        var contestado = sin_ia
+        var motivo_de_la_falla = nada
         intentar {
-            # El tercer valor es lo que "contesta la IA" con --ia-simulada.
-            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + consultar_ia(instrucciones, c.dicho, sin_ia) }
+            # El tercer valor es lo que "contesta la IA" con --ia-simulada. Pasó los
+            # frenos; falta mirar una cosa más, que la mira el programa: que no nombre un
+            # horario, un teléfono o una forma de pago que no está cargada.
+            contestado = sin_inventar(datos, consultar_ia(instrucciones, c.dicho, sin_ia))
+            # De lo que no está en la lista, solo que no se trabaja: sin ofrecer pedirlo.
+            si largo(nombrados) == 0 {
+                contestado = sin_ofrecer(contestado)
+            }
         } si falla motivo {
             # Sin clave, sin internet o sin crédito: se contesta con lo que dice la lista.
-            responder RespuestaDeVentas { charla: c.charla, respuesta: antes + sin_ia, aviso: motivo }
+            contestado = sin_ia
+            motivo_de_la_falla = motivo
         }
+        contestado = antes + con_aviso_de_stock(contestado, stocks)
+        si motivo_de_la_falla != nada {
+            responder RespuestaDeVentas { charla: c.charla, respuesta: contestado, aviso: motivo_de_la_falla }
+        }
+        responder RespuestaDeVentas { charla: c.charla, respuesta: contestado }
     }
 }
 
@@ -1164,14 +1215,15 @@ funcion charlar_con_el_equipo(tabla) {
     devolver consultas
 }
 
-# Reparte la planilla: los precios a Ventas y el stock de arranque a Depósito. Con uno de
-# los números de arriba mal puesto no abre: dice cuál es y cómo va.
-funcion abrir_el_negocio(tabla) {
+# Reparte la planilla: los precios a Ventas (con los datos del negocio) y el stock de
+# arranque a Depósito. Con uno de los números de arriba mal puesto no abre: dice cuál es
+# y cómo va. (datos: los datos del negocio; si no se dicen, los de arriba de todo.)
+funcion abrir_el_negocio(tabla, datos = datos_del_negocio) {
     sea mal_puesto = numeros_mal_puestos()
     si mal_puesto != nada {
         fallar(mal_puesto)
     }
-    enviar ListaDePrecios { filas: tabla } a Ventas
+    enviar ListaDePrecios { filas: tabla, datos: datos_para_el_agente(datos) } a Ventas
     enviar Inventario { filas: tabla, reponer_bajo: stock_minimo } a Deposito
 }
 
@@ -1234,6 +1286,9 @@ si por_arreglar != nada {
 } sino {
     abrir_el_negocio(lista)
     mostrar("Ventas: cargué {largo(lista)} productos. {regla_del_envio}")
+    para renglon en resumen_de_datos(datos_del_negocio) {
+        mostrar(renglon)
+    }
     para corto en nombres_muy_cortos(lista) {
         mostrar("   (Ojo con '{corto}' en precios.csv: empieza con una palabra muy corta y se puede confundir con otra cosa que escriba el cliente. Conviene ponerle otra palabra adelante, por ejemplo 'Saquitos de té'.)")
     }
@@ -1421,6 +1476,83 @@ prueba "lo que no es un pedido va a la IA, con frenos" {
     asegurar consultar_a_ventas("b", "¿y café?") == "Eso te lo confirma una persona. Ya te paso con alguien."
     # Para eso nadie le habló a Depósito.
     asegurar largo(mensajes_enviados("Reservar")) == 0 y largo(mensajes_enviados("ConsultarStock")) == 0
+}
+
+prueba "el horario, la dirección o cómo se paga los contesta Ventas sin IA: sin cargar, no se inventan" {
+    abrir_el_negocio(lista, {})
+    # Aunque la IA "quiera" inventar un horario, nadie le pregunta.
+    simular_ia("Atendemos de lunes a viernes de 8 a 18 hs.")
+    para dicho en ["hola, que horarios tienen?", "¿A qué hora abren?", "hasta que hora estan abiertos?",
+                   "atienden los sábados?"] {
+        asegurar consultar_a_ventas(dicho, dicho) == "Sobre el horario: eso te lo confirma una persona.", dicho
+    }
+    asegurar consultar_a_ventas("a", "¿dónde quedan?") == "Sobre la dirección: eso te lo confirma una persona."
+    asegurar consultar_a_ventas("b", "me pasás un teléfono o un whatsapp?") == "Sobre el teléfono: eso te lo confirma una persona."
+    asegurar consultar_a_ventas("c", "aceptan tarjeta o transferencia?") == "Sobre las formas de pago: eso te lo confirma una persona."
+    asegurar consultar_a_ventas("d", "cuanto demora la entrega?") == "Sobre las entregas: eso te lo confirma una persona."
+    asegurar consultar_a_ventas("e", "tienen alguna promo?") == "Sobre las promociones: eso te lo confirma una persona."
+    asegurar largo(consultas_ia()) == 0
+    # Y para eso nadie le habló a Depósito.
+    asegurar largo(mensajes_enviados("ConsultarStock")) == 0 y largo(mensajes_enviados("Reservar")) == 0
+    # Los datos de arriba de todo vienen vacíos: abriendo sin decir cuáles, pasa lo mismo.
+    abrir_el_negocio(lista)
+    asegurar consultar_a_ventas("f", "que horarios tienen?") == "Sobre el horario: eso te lo confirma una persona."
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "un dato cargado lo dice Ventas tal cual está escrito, sin IA" {
+    abrir_el_negocio(lista, { horario: "Lunes a viernes de 8 a 17", formas_de_pago: "Efectivo o transferencia." })
+    simular_ia("Atendemos todos los días de 9 a 21 hs.")
+    asegurar consultar_a_ventas("a", "hola, que horarios tienen?") == "Horario: Lunes a viernes de 8 a 17."
+    asegurar consultar_a_ventas("b", "ACEPTAN TARJETA?") == "Formas de pago: Efectivo o transferencia."
+    asegurar consultar_a_ventas("c", "horario y direccion?") == "Horario: Lunes a viernes de 8 a 17. Sobre la dirección: eso te lo confirma una persona."
+    # Con una pregunta por el precio en la misma frase: la cuenta, y el dato.
+    asegurar consultar_a_ventas("d", "cuanto salen 2 yerbas? aceptan tarjeta?") == "2 x Yerba mate (bolsón de 10 paquetes de 1 kg) a $ 35.000,00 cada uno: total $ 70.000,00. Todavía no anoté nada: para pedirlo, escribí \"quiero 2 yerba\". Formas de pago: Efectivo o transferencia."
+    asegurar largo(consultas_ia()) == 0
+    # Un pedido claro sigue siendo un pedido: no cambia nada.
+    asegurar empieza_con(pedir_y_confirmar("e", "quiero 2 yerbas"), "Anotado: 2 x Yerba mate")
+}
+
+prueba "si la IA igual inventa un horario, un teléfono o una forma de pago, no le llega al cliente" {
+    abrir_el_negocio(lista, {})
+    # La pregunta no nombra el horario, así que va a la IA; y la IA lo inventa.
+    para inventada en ["¡Hola! Atendemos de lunes a viernes de 8 a 18hs.", "Abrimos a las 9.",
+                       "Estamos de 8 a 18.", "Te esperamos el sábado.", "Abrimos 8:30.",
+                       "Llamanos al 11 4555-1234.", "Podés pagar con tarjeta.",
+                       "Aceptamos Mercado Pago.", "Te lo entregamos en 48 hs.",
+                       "Llega en 2 días.", "Estamos en Av. Mitre 1234.", "Hoy hay una promo."] {
+        simular_ia(inventada)
+        asegurar termina_con(consultar_a_ventas(inventada, "hola"), ": eso te lo confirma una persona."), inventada
+    }
+    # Con el dato cargado, lo que coincide pasa; lo que no, se cambia por el dato.
+    abrir_el_negocio(lista, { horario: "Lunes a viernes de 8 a 17" })
+    simular_ia("¡Hola! Atendemos de lunes a viernes de 8 a 17.")
+    asegurar consultar_a_ventas("x", "hola") == "¡Hola! Atendemos de lunes a viernes de 8 a 17."
+    simular_ia("¡Hola! Atendemos de lunes a sábado de 8 a 20.")
+    asegurar consultar_a_ventas("y", "hola") == "Horario: Lunes a viernes de 8 a 17."
+}
+
+prueba "de lo que no está en la lista Ventas dice solo que no lo trabaja, sin ofrecer pedirlo" {
+    abrir_el_negocio(lista)
+    simular_ia("Lo siento, no trabajamos con café. Podés pedirlo si querés y cuántas unidades.")
+    asegurar consultar_a_ventas("a", "tenes cafe?") == "Eso no lo trabajamos."
+    asegurar largo(mensajes_enviados("ConsultarStock")) == 0
+}
+
+prueba "si preguntan por un producto que está en cero, avisa el programa: se lo pregunta a Depósito" {
+    abrir_el_negocio(lista)
+    # En la planilla, los fideos tienen stock 0. La IA no sabe nada del stock.
+    simular_ia("Sí, tenemos fideos secos.")
+    asegurar consultar_a_ventas("a", "tenes fideos?") == "Sí, tenemos fideos secos. De Fideos secos ahora no hay stock."
+    asegurar largo(mensajes_enviados("ConsultarStock")) == 1
+    # De yerba hay: no se agrega nada.
+    simular_ia("Sí, tenemos yerba.")
+    asegurar consultar_a_ventas("b", "tenes yerba?") == "Sí, tenemos yerba."
+    # Cuando Depósito vende lo último de un producto, también se avisa: lo que vale es
+    # lo que Depósito tiene anotado hoy, no la planilla.
+    pedir_y_confirmar("c", "quiero 8 aceites")
+    simular_ia("Sí, tenemos aceite de girasol.")
+    asegurar consultar_a_ventas("d", "tenes aceite?") == "Sí, tenemos aceite de girasol. De Aceite de girasol ahora no hay stock."
 }
 
 prueba "si falta un dato del pedido, Ventas pregunta y no molesta a Depósito" {
