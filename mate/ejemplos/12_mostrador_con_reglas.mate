@@ -1557,6 +1557,8 @@ funcion palabras_de_la_lista(celdas) {
 # con sus palabras como las deja palabras_y_cortes() ("Caja 12x900 ml" queda "caja 12 x
 # 900 ml"). Van de la más larga a la más corta: "caja 12 x 900 ml" se busca antes que
 # "caja 12". (cuantas: cuántas palabras tiene; orden: lo mismo en negativo, para ordenar.)
+# En "escrita", cada "N x M" va pegado en una sola palabra ("caja 12~x~900 ml"): ver
+# con_las_equis_pegadas().
 funcion celdas_de_la_planilla(tabla) {
     var celdas = []
     para fila en tabla {
@@ -1570,11 +1572,40 @@ funcion celdas_de_la_planilla(tabla) {
                 suyas = porcion(suyas, 0, largo(suyas) - 1)
             }
             si largo(suyas) >= 1 {
-                celdas = agregar(celdas, { orden: 0 - largo(suyas), cuantas: largo(suyas), escrita: unir(suyas, " ") })
+                sea cuantas = largo(suyas)
+                # (solo si tiene una "x": así una planilla larga no tarda de más)
+                si tiene(suyas, "x") {
+                    suyas = con_las_equis_pegadas(suyas)
+                }
+                celdas = agregar(celdas, { orden: 0 - cuantas, cuantas: cuantas, escrita: unir(suyas, " ") })
             }
         }
     }
     devolver ordenar(celdas, "orden")
+}
+
+# Las mismas palabras, con cada "N x M" pegado en una sola ("12 x 900" queda "12~x~900").
+# Así un "4 x 3" de la respuesta va entero o no va: no se le puede sacar una punta. Con
+# una presentación "x 3" en la planilla, "llevando 4x3" sigue siendo una promoción.
+funcion con_las_equis_pegadas(palabras) {
+    var pegadas = []
+    var i = 0
+    mientras i < largo(palabras) {
+        si es_un_numero(palabras[i]) y la_palabra(palabras, i + 1) == "x" y es_un_numero(la_palabra(palabras, i + 2)) {
+            pegadas = agregar(pegadas, "{palabras[i]}~x~{palabras[i + 2]}")
+            i += 3
+        } sino {
+            pegadas = agregar(pegadas, palabras[i])
+            i += 1
+        }
+    }
+    devolver pegadas
+}
+
+# Las medidas: lo que, atrás de un "12 x 900", dice que es un tamaño y no una promoción.
+funcion palabras_de_medida() {
+    devolver ["kg", "kilo", "kilos", "g", "gr", "grs", "gramos", "l", "lt", "lts", "litro",
+              "litros", "ml", "cc", "cm", "mts", "metros"]
 }
 
 # La respuesta (sus palabras, con las marcas "|") sin lo que está TAL CUAL en la planilla:
@@ -1583,15 +1614,46 @@ funcion celdas_de_la_planilla(tabla) {
 # 12 x 900 ml" no hay una promoción, ni un horario en "pack 8.30 cm". (Las celdas de una
 # sola palabra no se sacan acá: si es un número, "12" taparía "abrimos a las 12". Las
 # palabras sueltas de la planilla se exceptúan en menciones_de().)
+# Un "N x M" se saca solo de dos maneras: adentro de una celda dicha entera, o suelto
+# ("viene de a 12 x 900 ml") si está así en una celda Y atrás trae una medida o la misma
+# palabra que en la celda. Con "2x1 litro" en la planilla, "hay 2x1 en yerba" no pasa. Y
+# una celda que es solo un "3 x 2" no se saca: dicha sola es igual a una promoción.
 funcion sin_lo_de_la_planilla(frase, celdas) {
     # (con dos espacios entre palabra y palabra: así se encuentran dos seguidas)
-    var corrida = " {unir(frase, "  ")} "
+    var corrida = " {unir(con_las_equis_pegadas(frase), "  ")} "
+    # (las celdas que tienen un "N x M", en un texto: para buscar uno suelto)
+    var con_equis = " "
     para celda en celdas {
-        si celda.cuantas >= 2 {
+        sea pegada = tiene(celda.escrita, "~")
+        si celda.cuantas >= 2 y no (pegada y no tiene(celda.escrita, " ")) {
             corrida = reemplazar(corrida, " {reemplazar(celda.escrita, " ", "  ")} ", " producto ")
         }
+        si pegada {
+            con_equis += "{celda.escrita} | "
+        }
     }
-    devolver quitar(partir(corrida, " "), "")
+    sea palabras = quitar(partir(corrida, " "), "")
+    var quedan = []
+    para i en rango(largo(palabras)) {
+        sea palabra = palabras[i]
+        si no tiene(palabra, "~") {
+            quedan = agregar(quedan, palabra)
+            continuar
+        }
+        # Un "N x M" que quedó suelto: ¿es el de una presentación?
+        sea sigue = la_palabra(palabras, i + 1)
+        var de_una_celda = falso
+        si tiene(con_equis, " {palabra} ") y sigue != "" y sigue != "|" {
+            # (la misma palabra que en la celda, si no es una cortita como "en" o "con")
+            de_una_celda = tiene(palabras_de_medida(), sigue) o (largo(sigue) >= 4 y tiene(con_equis, " {palabra} {sigue} "))
+        }
+        si de_una_celda {
+            quedan = agregar(quedan, "producto")
+        } sino {
+            quedan = quedan + partir(palabra, "~")
+        }
+    }
+    devolver quedan
 }
 
 # ¿Ese pedazo ("8:30", "70%") está escrito así en un nombre o en una presentación de la
@@ -1843,16 +1905,8 @@ funcion dato_inventado(datos, respuesta, tabla = []) {
     sea celdas = celdas_de_la_planilla(tabla)
     sea frase = sin_lo_de_la_planilla(palabras_y_cortes(respuesta), celdas)
     sea de_la_lista = palabras_de_la_lista(celdas)
-    # (todas las celdas en un texto, para buscar un pedazo de una)
-    var escrito = " "
-    para celda en celdas {
-        escrito += "{celda.escrita} | "
-    }
     para vista en menciones_de(frase, respuesta, de_la_lista) {
-        # Un "12 x 900" que está así en una presentación ("viene en caja de 12 x 900 ml")
-        # no es una promoción.
-        sea de_una_celda = vista.tema == "promociones" y vista.serie != nada y tiene(escrito, " {vista.serie} ")
-        si no mencion_cargada(datos, vista) y no de_una_celda {
+        si no mencion_cargada(datos, vista) {
             devolver vista.tema
         }
     }
@@ -2517,6 +2571,40 @@ prueba "lo que está escrito en la planilla no es un dato inventado, se escriba 
         }
     }
     asegurar dato_inventado(cargados, "Aceite de girasol (caja 12 x 900 ml). Abrimos a las 12.", rara) == "horario"
+    # Un "N x M" de la planilla, suelto, pasa solo con su medida o su palabra atrás: con
+    # números chicos en una presentación, la promoción inventada no pasa.
+    sea chica = [{ producto: "Leche larga vida", presentacion: "2x1 litro", precio: 3000, stock: 8 },
+                 { producto: "Agua", presentacion: "pack 2 x 1 l", precio: 3000, stock: 8 },
+                 { producto: "Gaseosa", presentacion: "pack 3 x 2 l", precio: 3000, stock: 8 },
+                 { producto: "Sopa", presentacion: "caja 12 x 10 sobres", precio: 3000, stock: 8 },
+                 { producto: "Promo 5x4 en fideos", presentacion: "bulto", precio: 3000, stock: 8 },
+                 { producto: "Jabón tocador", presentacion: "x 3", precio: 2000, stock: 8 },
+                 { producto: "Esponja", presentacion: "x 2", precio: 2000, stock: 8 },
+                 { producto: "Trapo", presentacion: "x 5", precio: 2000, stock: 8 },
+                 { producto: "Vela", presentacion: "x 10", precio: 2000, stock: 8 },
+                 { producto: "Pila AA", presentacion: "4 unidades", precio: 2000, stock: 8 },
+                 { producto: "Fósforos", presentacion: "pack 6", precio: 2000, stock: 8 }]
+    para inventada en ["Hay 2x1 en yerba.", "Hay 2x1.", "Hay 3x2 en gaseosas.", "Hay 3x2", "Hay 2 x 1 en leche.",
+                       "Hay 4x3 en jabones.", "Sí, tenemos jabón. Y llevando 4x3 te ahorrás uno.",
+                       "Hay 6x5.", "Hay 12x10.", "Hay 12 x 10 en velas.", "Hay 5x4 en arroz.",
+                       "Llevando 6 x 4 unidades ahorrás.", "Hay pack 6 x 5 en fósforos."] {
+        asegurar dato_inventado({}, inventada, chica) == "promociones", inventada
+    }
+    para fila en chica {
+        para dicha en ["{fila.producto} ({fila.presentacion}): {pesos(fila.precio)}",
+                       "Sí, tenemos {fila.producto}, viene en {fila.presentacion}."] {
+            asegurar dato_inventado({}, dicha, chica) == nada, dicha
+        }
+    }
+    para buena en ["La leche viene de a 2x1 litro.", "El agua viene de a 2 x 1 litros.",
+                   "La sopa viene en cajas de 12 x 10 sobres.", "El jabón viene x 3."] {
+        asegurar dato_inventado({}, buena, chica) == nada, buena
+    }
+    asegurar renglones_frenados(chica) == nada
+    # Una celda que es solo un "3 x 2" es igual a una promoción: se frena, y se avisa.
+    sea sola = [{ producto: "Jabón", presentacion: "3x2", precio: 2000, stock: 8 }]
+    asegurar dato_inventado({}, "Hay 3x2.", sola) == "promociones"
+    asegurar empieza_con(renglones_frenados(sola), "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una promoción): 'Jabón' (3x2). ")
     # Con otra planilla, lo mismo es inventado.
     asegurar dato_inventado({}, "Viene en caja 12 x 900 ml.", precios) == "promociones"
     # "Bulto cerrado" es de la mercadería, no un horario. "Cerrado" solo, sí.

@@ -20249,6 +20249,50 @@ def test_071_vuelta_4_con_una_planilla_larga_probar_sigue_pasando(tmp_path, caps
     assert "18 de 18 pruebas pasaron" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("que", ["mostrador", "equipo"])
+def test_071_vuelta_5_una_promocion_inventada_no_pasa_por_parecerse_a_una_presentacion(
+        tmp_path, capsys, monkeypatch, que):
+    # Con una presentación "2x1 litro" o "x 3" en la planilla, "Hay 2x1 en yerba." y
+    # "llevando 4x3 te ahorrás uno" le llegaban al cliente tal cual.
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "alm"]) == 0
+    (tmp_path / "alm_precios.csv").write_text(
+        "producto;presentacion;precio;stock\n"
+        "Leche larga vida;2x1 litro;3.000;8\n"
+        "Jabón tocador;x 3;2.000;8\n"
+        "Agua mineral;pack 2 x 1 l;2.500;8\n", encoding="utf-8")
+    (tmp_path / "ia.txt").write_text(
+        "novedad => Hay 2x1 en yerba.\n"
+        "ahorro => Sí, tenemos de todo. Y llevando 4x3 te ahorrás uno.\n"
+        "oferta => Hay 2x1.\n"
+        "viene => La leche viene de a 2x1 litro.\n", encoding="utf-8")
+    capsys.readouterr()
+    preguntas = ["alguna novedad?", "hay algun ahorro?", "que oferta hay?", "como viene?",
+                 "tenes jabon?", "tenes agua?"]
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(preguntas) + "\nchau\n"))
+    assert mate.main(["correr", "alm.mate", "--ia-simulada=ia.txt", "--olvidar"]) == 0
+    quien = "Mostrador: " if que == "mostrador" else "Ventas: "
+    dicho = [r.split(quien, 1)[1] for r in capsys.readouterr().out.splitlines()
+             if r.startswith("Cliente: " + quien) and not r.startswith("Cliente: Ventas: cargué ")]
+    frenada = "Sobre las promociones: eso te lo confirma una persona."
+    assert dicho[:3] == [frenada] * 3
+    # lo que es de la planilla sigue pasando
+    assert dicho[3] == "La leche viene de a 2x1 litro."
+    assert dicho[4:] == ["Jabón tocador (x 3): $ 2.000,00", "Agua mineral (pack 2 x 1 l): $ 2.500,00"]
+    assert mate.main(["probar", "alm.mate"]) == 0
+    salida = capsys.readouterr().out
+    assert "✓ tu planilla está bien cargada" in salida and "✗" not in salida
+
+
+def test_071_vuelta_5_la_regla_esta_en_el_ejemplo_y_en_las_mejoras():
+    ejemplo = (RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
+    for funcion in ("con_las_equis_pegadas", "palabras_de_medida"):
+        assert f"\nfuncion {funcion}(" in ejemplo
+    assert "de_una_celda = vista.tema" not in ejemplo
+    assert "Nota de la vuelta 5" in (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+
+
 def test_071_vuelta_4_la_regla_esta_en_el_ejemplo_y_en_las_mejoras():
     ejemplo = (RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
     for funcion in ("celdas_de_la_planilla", "sin_lo_de_la_planilla", "en_la_planilla",

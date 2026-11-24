@@ -10419,6 +10419,14 @@ prueba "una respuesta que no nombra ningún dato del negocio pasa como está" {
     asegurar dato_inventado({}, "El aceite viene en caja de 12 x 900 ml.", con_equis) == nada
     asegurar dato_inventado({}, "Cinta (pack 8.30 cm): $ 5.000,00", con_equis) == nada
     asegurar dato_inventado({}, "Hay 3 x 2 en aceite.", con_equis) == "promociones"
+    # Y con números chicos en la planilla ("2x1 litro", "x 3"), un 2x1 o un 4x3 de la IA
+    # sigue siendo una promoción inventada.
+    sea chica = [{ producto: "Leche", presentacion: "2x1 litro", precio: 3000, stock: 5 },
+                 { producto: "Jabón", presentacion: "x 3", precio: 2000, stock: 5 }]
+    asegurar dato_inventado({}, "Leche (2x1 litro): $ 3.000,00", chica) == nada
+    asegurar dato_inventado({}, "Jabón (x 3): $ 2.000,00", chica) == nada
+    asegurar dato_inventado({}, "Hay 2x1 en yerba.", chica) == "promociones"
+    asegurar dato_inventado({}, "Llevando 4x3 te ahorrás uno.", chica) == "promociones"
     asegurar dato_inventado({}, "Los precios son por bulto cerrado.", con_equis) == nada
     asegurar renglones_frenados(con_equis) == nada y renglones_frenados(lista_de_prueba()) == nada
 }
