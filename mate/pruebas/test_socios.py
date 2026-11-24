@@ -35,7 +35,7 @@ def sin_red_ni_registro(monkeypatch):
 # ── ayudas ──
 CIFRAS = "0123456789" * 4
 CLAVE = CIFRAS + "0469"  # una clave fija, con su control: solo para estas pruebas
-OTRA_CLAVE = "9" * 40 + mate.control_de_clave("9" * 40)
+OTRA_CLAVE = "9876543210" * 4 + mate.control_de_clave("9876543210" * 4)
 
 RECIBE = """\
 mensaje Dato { n: numero desde 1 hasta 100, nota: texto }
@@ -211,6 +211,10 @@ def test_la_clave_tiene_44_cifras_y_el_control_detecta_un_error():
                   "١" * 44):
         assert mate.clave_de_socio_valida(no_es) is None
     assert mate.nueva_clave_de_socio() != clave
+    # Una clave "fácil" armada a mano, aunque traiga bien su control, no es una clave.
+    for floja in ("0" * 40, "12" * 20, "12345" * 8):
+        assert mate.clave_de_socio_valida(floja + mate.control_de_clave(floja)) is None
+    assert mate.clave_de_socio_valida(OTRA_CLAVE) == OTRA_CLAVE
 
 
 def test_ida_y_vuelta_completa_del_ejemplo_14(tmp_path, capsys, monkeypatch):
@@ -269,7 +273,10 @@ def test_ida_y_vuelta_completa_del_ejemplo_14(tmp_path, capsys, monkeypatch):
     for lado in (comprador, proveedor):
         codigo, salida, _ = orden(capsys, monkeypatch, lado, "correr", f"{lado.name}.mate",
                                   respuestas=["si", "si"])
-        assert codigo == 0 and "Socios:" not in salida
+        assert codigo == 0 and "entregué" not in salida and "dejé" not in salida
+        assert "¿Lo entrego?" not in salida and "no se entreg" not in salida
+        # (y lo dice: una corrida sin nada que mandar ni recibir no queda muda)
+        assert salida.count("Socios:") == 1 and "Socios: no llegó nada nuevo de " in salida
     assert sobres(compartida / "de-a") == sobres(compartida / "de-b") == []
     assert memoria(proveedor)["agentes"]["Ventas"]["estado"]["stock"]["yerba"] == 30
 
@@ -324,7 +331,9 @@ def test_un_sobre_alterado_no_se_entrega_ni_se_contesta(lugar, capsys, monkeypat
 def test_otra_clave_mi_propio_sobre_y_claves_repetidas_se_rechazan(lugar, capsys,
                                                                     monkeypatch):
     local, compartida = lugar
-    dejar(compartida / "de-b", sobre_de(1, clave=OTRA_CLAVE))  # otra clave (otra huella)
+    # (otra huella con una forma que no es de sobre del socio: se rechaza como siempre)
+    de_mi_lado = sobre_de(1, clave=OTRA_CLAVE, lado="A")
+    dejar(compartida / "de-b", de_mi_lado)  # otra clave (otra huella), y de MI lado
     con_mi_huella = sobre_de(2, clave=OTRA_CLAVE)
     con_mi_huella["socio"]["huella"] = mate.huella_de_clave(CLAVE)  # huella mía, firma no
     dejar(compartida / "de-b", con_mi_huella)
@@ -512,6 +521,33 @@ def test_el_reloj_del_socio_no_decide_nada(lugar, capsys, monkeypatch, cuando):
     assert suma(local) == 1 and "según el reloj de tu socio" in salida
 
 
+def test_un_sobre_del_socio_firmado_con_otra_clave_se_deja_y_se_avisa(lugar, capsys,
+                                                                      monkeypatch):
+    """Entre el 'socio renovar' de un lado y el 'socio aceptar' del otro: no se entrega,
+    no se contesta, no va a rechazados y NO se borra de la carpeta compartida."""
+    local, compartida = lugar
+    archivo = dejar(compartida / "de-b", sobre_de(1, clave=OTRA_CLAVE))
+    antes = archivo.read_bytes()
+    for _ in range(2):  # en cada corrida, igual: no se acumula nada
+        codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
+                                    respuestas=["si"])
+        assert codigo == 0 and "¿Lo entrego?" not in salida and suma(local) == 0
+        assert "1 mensaje firmado con otra clave" in err
+        assert "socio aceptar local.mate Socio" in err and "no lo borro" in err
+        assert archivo.read_bytes() == antes and rechazados(local) == {}
+        assert sobres(compartida / "de-a") == [] and "Socios:" not in salida
+        assert de_socio(local)["vistos"] == {}
+    codigo, salida, _ = orden(capsys, monkeypatch, local, "buzon", "local.mate")
+    assert "1 archivo de Socio sin traer" in salida
+    # Con una huella que no tiene forma de huella, o sin firma, es basura: a rechazados.
+    raro = sobre_de(2, clave=OTRA_CLAVE)
+    raro["socio"]["huella"] = "../../etc"
+    dejar(compartida / "de-b", raro)
+    dejar(compartida / "de-b", sobre_de(3, clave=OTRA_CLAVE, firmar=False))
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert len(rechazados(local)) == 2 and len(sobres(compartida / "de-b")) == 1
+
+
 def test_memoria_borrada_con_la_clave_ya_usada_pide_renovar(tmp_path, capsys, monkeypatch):
     local = negocio(tmp_path, "local", RECIBE + "enviar Mandar { n: 5 } a Caja\n")
     compartida = tmp_path / "compartida"
@@ -543,7 +579,9 @@ def test_memoria_borrada_con_la_clave_ya_usada_pide_renovar(tmp_path, capsys, mo
     codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
                                 respuestas=["si"] * 3)
     assert "¿Lo entrego?" not in salida and suma(local) == 0
-    assert len(rechazados(local)) == 2 and "otra clave" in err
+    # (no se entregan ni se borran: los saca el programa del socio cuando acepte la nueva)
+    assert rechazados(local) == {} and "2 mensajes firmados con otra clave" in err
+    assert len(sobres(compartida / "de-b")) == 2
     salidos = sobres(compartida / "de-a")  # lo anotado sale, con la clave nueva y desde 1
     assert [s["socio"]["numero"] for s in salidos] == [1, 2]
     assert all(s["firma"] == mate.firma_de_sobre(s, nueva, "A") for s in salidos)
@@ -1170,7 +1208,11 @@ def test_un_pendiente_cambiado_a_mano_no_se_entrega_aunque_digan_si(lugar, capsy
     assert sobres(compartida / "de-a") == []  # no es culpa del socio: no se le avisa
 
 
-def test_lo_que_no_se_ve_o_engana_sale_escapado(lugar, capsys, monkeypatch):
+def test_lo_que_no_se_ve_o_engana_no_cruza_entre_negocios(lugar, capsys, monkeypatch):
+    """Un texto con caracteres de control, de dirección o un salto de renglón no llega a la
+    pregunta ni al agente: después del si, un 'mostrar' lo imprimiría crudo, y con un
+    retorno de carro y un color se dibuja una pregunta falsa. Se rechaza con el código
+    "contrato" (al socio le vuelve el aviso), y nada de eso sale crudo a ningún lado."""
     local, compartida = lugar
     raro = 'a\u202eb\x07c\u2028d"e\\f\ud800g\u200bh'
     dejar(compartida / "de-b", sobre_de(1, {"tipo": "Dato", "campos": {
@@ -1179,23 +1221,68 @@ def test_lo_que_no_se_ve_o_engana_sale_escapado(lugar, capsys, monkeypatch):
     dejar(compartida / "de-b", sobre_de(3, firmar=False),
           "0000\u202e0003 \x07raro.json")
     codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
-                                "--traza", respuestas=["si"])
+                                "--traza", respuestas=["si"] * 3)
     todo = salida + err + "".join(rechazados(local).values())
-    pregunta = next(r for r in salida.splitlines() if "te manda Dato" in r)
-    assert r'nota: "a\u202eb\u0007c\u2028d\"e\\f\ud800g\u200bh"' in pregunta
-    traza = next(r for r in salida.splitlines() if "Socio (otro negocio) →" in r)
-    assert r"a\u202eb" in traza and r"\u2028" in traza and r"\ud800" in traza
+    assert codigo == 0 and "¿Lo entrego?" not in salida and suma(local) == 0
+    assert "no se ve o engaña al ojo" in err and len(rechazados(local)) == 3
     for malo in ("\u202e", "\x07", "\x1b", "\u2028", "\ud800", "\u200b"):
-        assert malo not in todo.replace("anotado 1", ""), repr(malo)
-    assert r"Ot\u202ero\u001b[2J" in err  # el tipo, en el aviso y en el motivo
+        assert malo not in todo, repr(malo)
     assert r"0000\u202e0003 \u0007raro.json" in "".join(rechazados(local).values())
-    # Un valor no puede cerrar su comilla y dibujar otro campo, u otra pregunta.
-    dejar(compartida / "de-b", sobre_de(4, {"tipo": "Dato", "campos": {
-        "n": 4, "nota": 'x", total: 0 }\n¿Lo entrego? (si / no / despues) si'}}))
+    # Al socio (que sí se autenticó) le vuelve la falla, con el código y SIN su texto.
+    fallas = sobres(compartida / "de-a")
+    assert [(f["clase"], f["motivo"], f["mensaje"]) for f in fallas] == [
+        ("falla", "contrato", {"tipo": "?", "campos": {}})] * 2
+    # Uno por uno: cada cosa que texto_ajeno escribiría con número frena el mensaje, en un
+    # valor, en un nombre de campo, adentro de una lista o en el tipo.
+    for malo in ("\r", "\n", "\t", "\x1b[2K", "\u009b", "\u202e", "\u2066", "\u200b",
+                 "\ufeff", "\x00", "\x7f", "\U000e0001"):
+        assert mate.no_se_ve_o_engana(f"a{malo}b")
+        for mensaje in ({"tipo": "Dato", "campos": {"n": 1, "nota": f"a{malo}b"}},
+                        {"tipo": "Dato", "campos": {"n": 1, "nota": "x", f"k{malo}": 1}},
+                        {"tipo": "Dato", "campos": {"n": 1, "nota": "x", "l": [[f"{malo}"]]}},
+                        {"tipo": f"Da{malo}to", "campos": {}}):
+            assert mate.no_entra_de_socio(mensaje) is mate.TEXTO_QUE_NO_SE_VE
+    for bueno in ("hola ñandú $ 3.500,50 «x» \U0001f9c9", "", " "):
+        assert not mate.no_se_ve_o_engana(bueno)
+    # El ataque entero: una Confirmacion cuyo texto dibuja otra pregunta y apaga el color.
+    falsa = ('A-1\r\x1b[2KSocio (control 1) te manda Dato { n: 99, nota: "x" }\r\n'
+             "¿Lo entrego? (si / no / despues) \x1b[30;40m")
+    dejar(compartida / "de-b", sobre_de(5, {"tipo": "Dato", "campos": {"n": 5, "nota": falsa}}))
+    dejar(compartida / "de-b", sobre_de(6))
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
+                                respuestas=["si"])
+    assert salida.count("¿Lo entrego?") == 1 and "\x1b" not in salida + err
+    assert "\r" not in salida + err and suma(local) == 6  # entró solo el 6, que se vio
+    # Lo que sí cruza y podría engañar (una comilla que cierra el valor) sale escapado.
+    dejar(compartida / "de-b", sobre_de(7, {"tipo": "Dato", "campos": {
+        "n": 7, "nota": 'x", total: 0 } ¿Lo entrego? (si / no / despues) si'}}))
     codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
     pregunta = next(r for r in salida.splitlines() if "te manda Dato" in r)
-    assert r'nota: "x\", total: 0 }\u000a¿Lo entrego? (si / no / despues) si"' in pregunta
+    assert r'nota: "x\", total: 0 } ¿Lo entrego? (si / no / despues) si"' in pregunta
     assert salida.count("\n¿Lo entrego? (si / no / despues)") == 1
+    # Y la pantalla de la pregunta sigue escapando por su cuenta (segunda barrera).
+    assert mate.valor_ajeno('a\u202eb\x07"c\\') == r'"a\u202eb\u0007\"c\\"'
+
+
+def test_lo_que_no_se_ve_tampoco_sale_hacia_un_socio(lugar, capsys, monkeypatch):
+    local, compartida = lugar
+    (local / "local.mate").write_text(RECIBE.replace(
+        'nota: "va"', 'nota: "uno\\ndos"') + "enviar Mandar { n: 5 } a Caja\n",
+        encoding="utf-8")
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert codigo == 1 and "no puede ir a Socio (otro negocio)" in err
+    assert "no se ve o engaña al ojo" in err and "Sacalos antes de mandarlo" in err
+    assert sobres(compartida / "de-a") == []
+    # En la traza, el renglón de lo que SALE a un socio va escapado igual que lo que llega
+    # (segunda barrera: acá se apaga la primera para ver que la traza no depende de ella).
+    (local / "local.mate").write_text(RECIBE.replace(
+        'nota: "va"', 'nota: "a\u202eb\u009bc"') + "enviar Mandar { n: 5 } a Caja\n",
+        encoding="utf-8")
+    monkeypatch.setattr(mate, "no_se_ve_o_engana", lambda texto: False)
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate", "--traza")
+    traza = next(r for r in salida.splitlines() if "Caja → Socio" in r)
+    assert r"a\u202eb\u009bc" in traza
+    assert "\u202e" not in salida + err and "\u009b" not in salida + err
 
 
 def test_texto_ajeno():
@@ -1694,8 +1781,14 @@ def test_renovar_de_un_lado_y_aceptar_del_otro_y_siguen_hablando(tmp_path, capsy
                                 f"--invitacion={pendrive}", respuestas=["si"])
     assert codigo == 0, err
     nueva = mate.leer_socios(str(a / "a.mate"))[0]["Socio"]["clave"]
+    # (de la clave vieja queda anotada solo la huella, que no es secreta, y el lado)
+    antes = [{"huella": mate.huella_de_clave(CLAVE), "lado": "B"}]
     assert nueva != CLAVE and mate.leer_socios(str(b / "b.mate"))[0]["Socio"] == {
-        "clave": nueva, "lado": "B", "carpeta": str(compartida), "estrenado": False}
+        "clave": nueva, "lado": "B", "carpeta": str(compartida), "estrenado": False,
+        "antes": antes}
+    assert mate.leer_socios(str(a / "a.mate"))[0]["Socio"]["antes"] == [
+        {"huella": mate.huella_de_clave(CLAVE), "lado": "A"}]
+    assert CLAVE not in (a / "a.socios.json").read_text(encoding="utf-8")
     # Lo que esperaba el si con la clave vieja se descarta, con aviso; lo nuevo entra.
     orden(capsys, monkeypatch, a, "correr", "a.mate")
     codigo, salida, err = orden(capsys, monkeypatch, b, "correr", "b.mate",
@@ -1718,3 +1811,372 @@ def test_corregir_a_un_socio_y_la_consola_lo_dicen_claro(lugar, capsys, monkeypa
         respuestas=["usar socio X", "mensaje M { n: numero }", "enviar M { n: 1 } a X"])
     assert "desde la consola no sale nada para otro programa" in salida + err
     assert "X (otro negocio)" in salida + err and "no sabe recibir" not in salida + err
+
+
+# ── vuelta de correcciones sobre 17e883c ──
+def _ensayo(tmp_path, capsys, monkeypatch):
+    assert orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")[0] == 0
+    base = tmp_path / "ensayo_de_socios"
+    return tuple(base / n for n in ("comprador", "proveedor", "compartida"))
+
+
+def _correr(capsys, monkeypatch, donde, *respuestas):
+    codigo, salida, err = orden(capsys, monkeypatch, donde, "correr", f"{donde.name}.mate",
+                                respuestas=list(respuestas))
+    assert codigo == 0, err
+    return salida, err
+
+
+def _stock(proveedor):
+    return memoria(proveedor)["agentes"]["Ventas"]["estado"]["stock"]["yerba"]
+
+
+def test_entre_renovar_y_aceptar_lo_que_manda_el_que_renovo_espera_y_llega(
+        tmp_path, capsys, monkeypatch):
+    """El comprador renueva la clave y sigue corriendo antes de que el proveedor la acepte:
+    la Confirmacion (firmada con la clave nueva) no se rechaza ni se borra de la carpeta
+    compartida. Espera ahí, con aviso, y se entrega cuando el proveedor carga la clave."""
+    comprador, proveedor, compartida = _ensayo(tmp_path, capsys, monkeypatch)
+    _correr(capsys, monkeypatch, comprador)
+    _correr(capsys, monkeypatch, proveedor, "si")
+    _correr(capsys, monkeypatch, comprador, "si")  # llegó la cotización
+    pen = tmp_path / "pen"
+    pen.mkdir()
+    codigo, salida, err = orden(capsys, monkeypatch, comprador, "socio", "renovar",
+                                "comprador.mate", "Proveedor", f"--invitacion={pen}",
+                                respuestas=["si"])
+    assert codigo == 0, err
+    assert "HASTA QUE TU SOCIO CARGUE LA CLAVE NUEVA" in salida
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")  # ¿Confirmás...? si
+    (viaja,) = (compartida / "de-a").glob("*.json")
+    antes = viaja.read_bytes()
+    for _ in range(2):  # el proveedor corre ANTES de aceptar: no pierde nada
+        salida, err = _correr(capsys, monkeypatch, proveedor, "si")
+        assert "¿Lo entrego?" not in salida and _stock(proveedor) == 40
+        assert "1 mensaje firmado con otra clave" in err
+        assert "socio aceptar proveedor.mate Cliente" in err
+        assert viaja.read_bytes() == antes and rechazados(proveedor) == {}
+        assert sobres(compartida / "de-b") == []  # y no contesta nada
+    codigo, salida, err = orden(capsys, monkeypatch, proveedor, "socio", "aceptar",
+                                "proveedor.mate", "Cliente", f"--invitacion={pen}",
+                                respuestas=["si"])
+    assert codigo == 0, err
+    salida, err = _correr(capsys, monkeypatch, proveedor, "si")
+    assert "Quedan 30" in salida and _stock(proveedor) == 30 and "otra clave" not in err
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")
+    assert "confirmado por el proveedor" in salida
+    assert sobres(compartida / "de-a") == sobres(compartida / "de-b") == []
+    assert rechazados(comprador) == rechazados(proveedor) == {}
+
+
+def test_entre_renovar_y_aceptar_lo_que_manda_el_de_la_clave_vieja_no_se_pierde_callado(
+        tmp_path, capsys, monkeypatch):
+    """El otro sentido: el que todavía tiene la clave vieja manda algo. El que renovó no lo
+    entrega ni lo borra (avisa), y al que lo mandó Mate le avisa fuerte cuando acepta la
+    clave nueva: "tu socio NO lo recibió". No queda esperando para siempre sin saberlo."""
+    a = negocio(tmp_path, "a", RECIBE)
+    b = negocio(tmp_path, "b", RECIBE + "enviar Mandar { n: 5 } a Caja\n", lado="B")
+    compartida = tmp_path / "compartida"
+    pen = tmp_path / "pen"
+    pen.mkdir()
+    codigo, salida, err = orden(capsys, monkeypatch, a, "socio", "renovar", "a.mate", "Socio",
+                                f"--invitacion={pen}", respuestas=["si"])
+    assert codigo == 0, err
+    _correr(capsys, monkeypatch, b)  # b manda con la clave vieja
+    (viaja,) = (compartida / "de-b").glob("*.json")
+    salida, err = _correr(capsys, monkeypatch, a, "si")
+    assert "¿Lo entrego?" not in salida and suma(a) == 0
+    assert "1 mensaje firmado con otra clave" in err and "Si la renovaste VOS" in err
+    assert viaja.exists() and rechazados(a) == {}
+    (b / "b.mate").write_text(RECIBE, encoding="utf-8")  # (que no mande otro)
+    codigo, salida, err = orden(capsys, monkeypatch, b, "socio", "aceptar", "b.mate", "Socio",
+                                f"--invitacion={pen}", respuestas=["si"])
+    assert codigo == 0 and "deja de valer" in salida, err
+    salida, err = _correr(capsys, monkeypatch, b)
+    assert "OJO: 1 mensaje que le habías mandado a Socio seguía en la carpeta" in err
+    assert "tu socio NO lo recibió" in err and "mandarlo de nuevo" in err
+    assert not viaja.exists()
+    salida, err = _correr(capsys, monkeypatch, b)  # una sola vez
+    assert "OJO" not in err and "Socios: no llegó nada nuevo de Socio." in salida
+    salida, err = _correr(capsys, monkeypatch, a)
+    assert "otra clave" not in err and rechazados(a) == {}
+
+
+def test_renovar_el_que_habia_aceptado_cambia_de_lado_y_no_borra_lo_del_socio(
+        tmp_path, capsys, monkeypatch):
+    """Renueva el que era lado B: pasa a ser A y escribe en de-a, donde todavía está lo que
+    su socio (el A de antes) dejó con la clave vieja. Eso NO es suyo: no lo saca. Lo saca,
+    con aviso, el programa del que lo mandó cuando acepta la clave nueva."""
+    a = negocio(tmp_path, "a", RECIBE + "enviar Mandar { n: 5 } a Caja\n")
+    b = negocio(tmp_path, "b", RECIBE + "enviar Mandar { n: 7 } a Caja\n", lado="B")
+    compartida = tmp_path / "compartida"
+    pen = tmp_path / "pen"
+    pen.mkdir()
+    _correr(capsys, monkeypatch, a)  # el 5 de a, con la clave vieja, en de-a
+    _correr(capsys, monkeypatch, b)  # b lo trae (espera el si) y deja su 7 en de-b
+    (de_b,) = (compartida / "de-b").glob("*.json")
+    assert sobres(compartida / "de-a") == []
+    de_a = dejar(compartida / "de-a", sobre_de(2, lado="A"))  # otro de a, con la vieja
+    codigo, salida, err = orden(capsys, monkeypatch, b, "socio", "renovar", "b.mate", "Socio",
+                                f"--invitacion={pen}", respuestas=["si"])
+    assert codigo == 0 and "1 mensaje tuyo que tu socio todavía no trajo" in salida, err
+    assert mate.leer_socios(str(b / "b.mate"))[0]["Socio"]["lado"] == "A"
+    (b / "b.mate").write_text(RECIBE, encoding="utf-8")
+    salida, err = _correr(capsys, monkeypatch, b)
+    assert "OJO: 1 mensaje que le habías mandado a Socio" in err and not de_b.exists()
+    assert de_a.exists()  # lo de su socio sigue ahí
+    (a / "a.mate").write_text(RECIBE, encoding="utf-8")
+    codigo, salida, err = orden(capsys, monkeypatch, a, "socio", "aceptar", "a.mate", "Socio",
+                                f"--invitacion={pen}", respuestas=["si"])
+    assert codigo == 0, err
+    salida, err = _correr(capsys, monkeypatch, a, "si")
+    assert "OJO: 1 mensaje que le habías mandado a Socio" in err and not de_a.exists()
+    assert "otra clave" not in err and rechazados(a) == {}
+    # (en b, lo único descartado es lo que esperaba su si con la clave vieja)
+    (motivo,) = rechazados(b).values()
+    assert "una clave que ya no se usa" in motivo
+
+
+def test_una_invitacion_en_la_carpeta_compartida_frena_todo(tmp_path, capsys, monkeypatch):
+    comprador, proveedor, compartida = _ensayo(tmp_path, capsys, monkeypatch)
+    pen = tmp_path / "pen"
+    pen.mkdir()
+    codigo, salida, err = orden(capsys, monkeypatch, comprador, "socio", "renovar",
+                                "comprador.mate", "Proveedor", f"--invitacion={pen}",
+                                respuestas=["si"])
+    assert codigo == 0, err
+    clave = mate.leer_socios(str(comprador / "comprador.mate"))[0]["Proveedor"]["clave"]
+    invitacion = (pen / "invitacion-mate.txt").read_bytes()
+    for donde, nombre in ((compartida, "invitacion-mate.txt"),
+                          (compartida / "de-a", "Invitacion-Mate (1).TXT"),
+                          (compartida / "de-b", "invitacion-mate-copia.txt.bak")):
+        copia = donde / nombre
+        copia.write_bytes(invitacion)
+        # 'correr' se niega de los dos lados, y dice qué hacer.
+        for negocio_ in (comprador, proveedor):
+            salida, err = _correr(capsys, monkeypatch, negocio_, "si")
+            assert "no mando ni recibo nada" in err and "hay una invitación" in err
+            assert "lleva la clave ENTERA" in err and "socio renovar" in err
+            assert clave not in salida + err
+        assert sobres(compartida / "de-a") == []
+        # 'aceptar' no la carga desde ahí (ni la borra), aunque el control coincida.
+        codigo, salida, err = orden(
+            capsys, monkeypatch, proveedor, "socio", "aceptar", "proveedor.mate", "Cliente",
+            f"--invitacion={copia}", respuestas=["si"])
+        assert codigo == 2 and "no cargo esa invitación" in err and "socio renovar" in err
+        assert "Listo" not in salida and copia.exists() and clave not in salida + err
+        assert mate.leer_socios(str(proveedor / "proveedor.mate"))[0]["Cliente"][
+            "clave"] != clave
+        copia.unlink()
+    codigo, salida, err = orden(
+        capsys, monkeypatch, proveedor, "socio", "aceptar", "proveedor.mate", "Cliente",
+        f"--invitacion={compartida}", respuestas=["si"])  # (la carpeta, sin el archivo)
+    assert codigo == 2 and "no cargo esa invitación" in err
+
+
+def test_la_invitacion_tampoco_va_ni_viene_de_la_compartida_de_otro_socio(
+        tmp_path, capsys, monkeypatch):
+    fuente = RECIBE.replace("usar socio Socio acepta Dato",
+                            "usar socio Socio acepta Dato\nusar socio Tercero acepta Dato")
+    local = negocio(tmp_path, "local", fuente)
+    de_otro = tmp_path / "con_otro"
+    de_otro.mkdir()
+    fichas = mate.leer_socios(str(local / "local.mate"))[0]
+    fichas["Tercero"] = {"clave": OTRA_CLAVE, "lado": "A", "carpeta": str(de_otro),
+                      "estrenado": False}
+    mate.guardar_socios(str(local / "local.mate"), fichas)
+    for destino in (de_otro, tmp_path / "compartida"):
+        codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "renovar",
+                                    "local.mate", "Socio", f"--invitacion={destino}",
+                                    respuestas=["si"])
+        assert codigo == 2 and "no va en la carpeta compartida" in err
+        assert not (destino / "invitacion-mate.txt").exists()
+    assert mate.leer_socios(str(local / "local.mate"))[0]["Socio"]["clave"] == CLAVE
+    # Y una invitación que alguien dejó en la carpeta que se comparte con OTRO no se carga.
+    pen = tmp_path / "pen"
+    pen.mkdir()
+    mate.escribir_invitacion(str(pen / "invitacion-mate.txt"),
+                             mate.nueva_clave_de_socio())
+    (de_otro / "invitacion-mate.txt").write_bytes((pen / "invitacion-mate.txt").read_bytes())
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "aceptar", "local.mate",
+                                "Socio", f"--invitacion={de_otro}", respuestas=["si"])
+    assert codigo == 2 and "no cargo esa invitación" in err
+    assert (de_otro / "invitacion-mate.txt").exists()
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "aceptar", "local.mate",
+                                "Socio", f"--invitacion={pen}", respuestas=["si"])
+    assert codigo == 0, err  # (desde el pendrive, sí)
+
+
+def test_buzon_no_aconseja_reintentar_a_mano_lo_de_un_socio(lugar, capsys, monkeypatch):
+    local, compartida = lugar
+    dejar(compartida / "de-b", sobre_de(1))
+    orden(capsys, monkeypatch, local, "correr", "local.mate", respuestas=["no"])
+    assert len(rechazados(local)) == 1
+    codigo, salida, _ = orden(capsys, monkeypatch, local, "buzon", "local.mate")
+    renglon = next(r for r in salida.splitlines() if "Rechazados:" in r)
+    assert "movelo a la carpeta de arriba" not in renglon
+    assert "no se reintentan a mano" in renglon and "pedile a tu socio" in renglon
+    # Con uno del buzón común al lado, cada consejo va con lo suyo.
+    (local / "local.buzon" / "rechazados" / "0-roto.json").write_text("{", encoding="utf-8")
+    codigo, salida, _ = orden(capsys, monkeypatch, local, "buzon", "local.mate")
+    renglon = next(r for r in salida.splitlines() if "Rechazados:" in r)
+    assert "movelo a la carpeta de arriba" in renglon and "los que empiezan con socio-" in renglon
+
+
+def test_un_sobre_que_ahora_no_se_puede_abrir_no_se_da_por_basura(lugar, capsys, monkeypatch):
+    """En Windows el sincronizador o el antivirus pueden tener tomado un archivo un rato:
+    no es "una cosa que no es un sobre... sacalo a mano"."""
+    local, compartida = lugar
+    tomado = dejar(compartida / "de-b", sobre_de(1))
+    de_verdad = mate.abrir_sin_seguir
+
+    def abrir(ruta, *a, **k):
+        if os.path.basename(str(ruta)) == tomado.name:
+            raise PermissionError(13, "lo tiene otro proceso")
+        return de_verdad(ruta, *a, **k)
+
+    monkeypatch.setattr(mate, "abrir_sin_seguir", abrir)
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
+                                respuestas=["si"])
+    assert codigo == 0 and "1 archivo que ahora no se puede abrir" in err
+    assert "No lo borres" in err and "Sacalo a mano" not in err
+    assert "no es un sobre" not in err and tomado.exists() and rechazados(local) == {}
+    monkeypatch.setattr(mate, "abrir_sin_seguir", de_verdad)
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
+                                respuestas=["si"])
+    assert suma(local) == 1  # en la corrida siguiente entra
+
+
+def test_dejar_en_la_compartida_insiste_y_limpia_provisorios_viejos(lugar, capsys,
+                                                                    monkeypatch):
+    local, compartida = lugar
+    (local / "local.mate").write_text(RECIBE + "enviar Mandar { n: 5 } a Caja\n",
+                                      encoding="utf-8")
+    huerfano = compartida / "de-a" / "00000009-aaaaaaaa.123-abcd.json.tmp"
+    huerfano.write_text("{", encoding="utf-8")
+    reciente = compartida / "de-a" / "00000008-aaaaaaaa.123-abcd.json.tmp"
+    reciente.write_text("{", encoding="utf-8")
+    viejo = os.path.getmtime(huerfano) - 2 * mate.ESPERA_DE_UN_ROTO
+    os.utime(huerfano, (viejo, viejo))
+    de_verdad, fallas = os.replace, []
+
+    def reemplazar(origen, destino, *a, **k):
+        if str(destino).startswith(str(compartida)) and len(fallas) < 2:
+            fallas.append(destino)
+            raise PermissionError(13, "lo tiene el sincronizador")
+        return de_verdad(origen, destino, *a, **k)
+
+    monkeypatch.setattr(mate.os, "replace", reemplazar)
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert codigo == 0 and len(fallas) == 2 and "no pude dejar" not in err
+    assert "dejé 1 mensaje para Socio" in salida and len(sobres(compartida / "de-a")) == 1
+    assert not huerfano.exists() and reciente.exists()
+
+
+def test_invitar_muestra_la_orden_completa_y_el_aviso_de_ensayo_es_corto(
+        tmp_path, capsys, monkeypatch):
+    local = negocio(tmp_path, "local", RECIBE, clave=None)
+    pen = tmp_path / "pen"
+    pen.mkdir()
+    codigo, salida, err = orden(
+        capsys, monkeypatch, local, "socio", "invitar", "local.mate", "Socio",
+        f"--carpeta={tmp_path / 'compartida'}", f"--invitacion={pen}")
+    assert codigo == 0, err
+    completa = f"{mate.orden_para_esta_carpeta()} socio aceptar su_programa.mate Cliente"
+    assert str(RAIZ / "mate.py") in completa and completa in salida
+    assert "HASTA QUE TU SOCIO" not in salida  # (eso es de 'renovar')
+    comprador, proveedor, compartida = _ensayo(tmp_path, capsys, monkeypatch)
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    (aviso,) = [r for r in err.splitlines() if "ENSAYO" in r]
+    assert len(aviso) < 200 and "socio renovar" in aviso and "mate.py" not in aviso
+
+
+def test_una_corrida_sin_nada_de_socios_lo_dice(tmp_path, capsys, monkeypatch):
+    comprador, proveedor, compartida = _ensayo(tmp_path, capsys, monkeypatch)
+    salida, err = _correr(capsys, monkeypatch, proveedor)  # antes que el comprador
+    assert "Socios: no llegó nada nuevo de Cliente." in salida
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "dejé 1 mensaje para Proveedor" in salida and "no llegó nada nuevo" not in salida
+    salida, err = _correr(capsys, monkeypatch, comprador)  # dos veces seguidas
+    assert "Socios: no llegó nada nuevo de Proveedor." in salida
+    salida, err = _correr(capsys, monkeypatch, proveedor)  # llega, y queda esperando el si
+    assert "no llegó nada nuevo" not in salida and "espera tu si" in err
+    salida, err = _correr(capsys, monkeypatch, proveedor)
+    assert "no llegó nada nuevo" not in salida and "espera tu si" in err
+    # Sin clave, o con la carpeta que no se ve, no se dice "nada nuevo": se avisa lo otro.
+    compartida.rename(tmp_path / "afuera")
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "no llegó nada nuevo" not in salida and "no veo la carpeta compartida" in err
+
+
+def test_del_ensayo_a_un_socio_de_verdad_los_pasos_avisan_de_la_memoria(
+        tmp_path, capsys, monkeypatch):
+    codigo, impreso, err = orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")
+    base = tmp_path / "ensayo_de_socios"
+    comprador, proveedor, compartida = (base / n for n in
+                                        ("comprador", "proveedor", "compartida"))
+    final = impreso.split("PARA TRABAJAR CON UN SOCIO DE VERDAD")[1]
+    assert "se acuerdan del ensayo" in final and "A-17" in final
+    assert "ninguno corra su programa" in final
+    paso = next(r.strip() for r in final.splitlines() if r.strip().endswith("--olvidar"))
+    assert re.fullmatch(r"(?:python3?|py) '.+' correr comprador\.mate --olvidar", paso)
+    _correr(capsys, monkeypatch, comprador)
+    _correr(capsys, monkeypatch, proveedor, "si")
+    de_verdad, pen = tmp_path / "de_verdad", tmp_path / "pen"
+    de_verdad.mkdir()
+    pen.mkdir()
+    assert orden(capsys, monkeypatch, comprador, "socio", "renovar", "comprador.mate",
+                 "Proveedor", f"--carpeta={de_verdad}", f"--invitacion={pen}",
+                 respuestas=["si"])[0] == 0
+    assert orden(capsys, monkeypatch, proveedor, "socio", "aceptar", "proveedor.mate",
+                 "Cliente", f"--carpeta={de_verdad}", f"--invitacion={pen}",
+                 respuestas=["si"])[0] == 0
+    salida, err = _correr(capsys, monkeypatch, comprador)  # sin --olvidar no manda nada
+    assert sobres(de_verdad / "de-a") == []
+    codigo, salida, err = orden(capsys, monkeypatch, comprador, "correr", "comprador.mate",
+                                "--olvidar")
+    assert codigo == 0 and "dejé 1 mensaje para Proveedor" in salida
+    (pedido,) = sobres(de_verdad / "de-a")
+    assert pedido["socio"]["numero"] == 1 and "ENSAYO" not in err
+
+
+def test_verificar_sigue_el_texto_del_socio_hasta_otro_agente_que_usa_la_ia(
+        tmp_path, capsys, monkeypatch):
+    (tmp_path / "p.mate").write_text("""\
+mensaje Pedido { producto: texto }
+mensaje Pasar { texto: texto }
+mensaje Nada { n: numero }
+usar socio Socio acepta Pedido
+agente Otro {
+    al recibir Pasar como s { mostrar(consultar_ia("Sos vendedor", s.texto)) }
+}
+agente Aparte {
+    al recibir Nada como n { mostrar(consultar_ia("Sos vendedor", "hola")) }
+}
+agente Medio {
+    al recibir Pasar como s { enviar Pasar { texto: s.texto } a Otro }
+}
+agente Ventas {
+    al recibir Pedido como p { enviar Pasar { texto: p.producto } a Medio }
+}
+""", encoding="utf-8")
+    codigo, salida, err = orden(capsys, monkeypatch, tmp_path, "verificar", "p.mate")
+    assert codigo == 0 and "sin errores" in salida
+    assert "Ventas recibe Pedido del socio Socio y nombra a Otro, que consulta a la IA" in err
+    assert "Aparte" not in err and err.count("aviso:") == 1
+
+
+def test_el_resumen_no_dice_que_estan_en_rechazados_los_que_no_se_guardaron(
+        lugar, capsys, monkeypatch):
+    local, compartida = lugar
+    monkeypatch.setattr(mate, "MAX_RECHAZADOS_DE_SOCIO", 3)
+    for n in range(1, 8):
+        dejar(compartida / "de-b", sobre_de(n, firmar=False), f"basura-{n}.json")
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert len(rechazados(local)) == 3
+    assert "Socios: 7 no se entregaron: 3 quedaron en " in salida
+    assert "de los otros 4 no se guardó copia" in salida
+    dejar(compartida / "de-b", sobre_de(9, firmar=False), "basura-9.json")
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert "Socios: 1 no se entregó: 0 quedaron en " in salida
+    assert "de el otro no se guardó copia" in salida

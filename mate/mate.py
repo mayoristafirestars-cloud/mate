@@ -5245,6 +5245,8 @@ MAX_MIRADOS_POR_CORRIDA = 5000  # archivos de la carpeta compartida que se miran
 ESPERA_DE_UN_ROTO = 86400  # segundos (de ESTA máquina) antes de dar por roto un archivo
 MAX_NUMERO_DE_SOBRE = 2 ** 53
 LARGO_DE_CLAVE = 44  # 40 cifras al azar y 4 de control
+MAX_CLAVES_DE_ANTES = 5  # huellas de claves anteriores que se recuerdan por socio
+CIFRAS_DISTINTAS_DE_CLAVE = 6  # menos cifras distintas que estas, no es una clave al azar
 # Los motivos de una falla entre negocios: viaja el código, y cada lado lo dice con su texto.
 MOTIVOS_DE_SOCIO = {
     "contrato": "no cumple el contrato de tu socio",
@@ -5253,6 +5255,7 @@ MOTIVOS_DE_SOCIO = {
     "fallo": "el programa de tu socio falló al atenderlo",
 }
 _FIRMA = re.compile(r"[0-9a-f]{64}")
+_HUELLA = re.compile(r"[0-9a-f]{8}")
 _SOBRE_EN_COMPARTIDA = re.compile(r"([0-9]{8,16})-[0-9a-f]{8}\.json")
 _PENDIENTE_DE_SOCIO = re.compile(r"s([0-9a-f]{8})-([0-9]{8,16})\.json")
 _NOMBRE_DE_CAMPO = re.compile(r"[^\W\d]\w{0,40}")
@@ -5322,17 +5325,23 @@ def control_de_clave(cifras):
 def nueva_clave_de_socio():
     """40 cifras al azar (unos 133 bits), de a una, más las 4 de control. Van cifras y no
     letras porque se dictan por teléfono sin confundir B con V."""
-    cifras = "".join(str(secrets.randbelow(10)) for _ in range(LARGO_DE_CLAVE - 4))
-    return cifras + control_de_clave(cifras)
+    while True:
+        cifras = "".join(str(secrets.randbelow(10)) for _ in range(LARGO_DE_CLAVE - 4))
+        if len(set(cifras)) >= CIFRAS_DISTINTAS_DE_CLAVE:  # (al azar pasa siempre)
+            return cifras + control_de_clave(cifras)
 
 
 def clave_de_socio_valida(texto):
     """La clave limpia (44 cifras) si eso es una clave bien escrita; si no, None. Se acepta
-    con espacios o guiones entre los grupos. Nada de frases elegidas a mano."""
+    con espacios o guiones entre los grupos. Nada de frases elegidas a mano, ni una clave
+    "fácil" armada a mano (todos ceros con su control): una clave al azar nunca trae tan
+    pocas cifras distintas."""
     if not isinstance(texto, str):
         return None
     cifras = re.sub(r"[\s\-]", "", texto)
     if len(cifras) != LARGO_DE_CLAVE or not (cifras.isascii() and cifras.isdigit()):
+        return None
+    if len(set(cifras[:-4])) < CIFRAS_DISTINTAS_DE_CLAVE:
         return None
     return cifras if hmac.compare_digest(control_de_clave(cifras[:-4]), cifras[-4:]) else None
 
@@ -5424,11 +5433,25 @@ def json_de_sobre(crudo):
     return datos, bool(repetidas)
 
 
+TEXTO_QUE_NO_SE_VE = (
+    "trae un texto con algo que en pantalla no se ve o engaña al ojo (un salto de renglón, "
+    "un tabulador, un carácter de control o de dirección de texto): entre negocios los "
+    "textos van en un solo renglón y sin esos caracteres")
+
+
+def no_se_ve_o_engana(texto):
+    """¿Ese texto trae algo que texto_ajeno escribiría con su número? (sin mirar la consola:
+    lo mismo en las dos máquinas). Eso no viaja entre negocios, ni de ida ni de vuelta: un
+    texto así, una vez entregado, lo imprime un 'mostrar' del agente tal cual, y con un
+    retorno de carro y un color se dibuja una pregunta falsa en la pantalla del dueño."""
+    return any(not (c == " " or c.isprintable()) for c in texto)
+
+
 def no_entra_de_socio(mensaje):
     """Por qué ese mensaje ({"tipo", "campos"}) no puede viajar entre negocios, o None. Los
     topes son mucho más chicos que los del buzón local: lo que llega de otro negocio se le
     muestra ENTERO al dueño antes del si, y lo que no entra en pantalla no se recorta: se
-    rechaza."""
+    rechaza. Tampoco viajan los textos con caracteres que no se ven o engañan al ojo."""
     try:
         pesa = len(json.dumps(mensaje, ensure_ascii=False, allow_nan=False)
                    .encode("utf-8", "replace"))
@@ -5437,6 +5460,8 @@ def no_entra_de_socio(mensaje):
     if pesa > MAX_MENSAJE_DE_SOCIO:
         return (f"pesa más de {MAX_MENSAJE_DE_SOCIO // 1000} KB, que es el tope de un "
                 "mensaje entre negocios")
+    if isinstance(mensaje.get("tipo"), str) and no_se_ve_o_engana(mensaje["tipo"]):
+        return TEXTO_QUE_NO_SE_VE
     pila = [(mensaje.get("campos"), 1)]
     while pila:
         x, nivel = pila.pop()
@@ -5446,9 +5471,13 @@ def no_entra_de_socio(mensaje):
         if isinstance(x, str) and len(x) > MAX_TEXTO_DE_SOCIO:
             return (f"trae un texto de más de {MAX_TEXTO_DE_SOCIO} letras, que es el tope "
                     "entre negocios")
+        if isinstance(x, str) and no_se_ve_o_engana(x):
+            return TEXTO_QUE_NO_SE_VE
         if isinstance(x, dict):
-            if any(len(k) > 60 for k in x):
+            if any(not isinstance(k, str) or len(k) > 60 for k in x):
                 return "trae un nombre de campo demasiado largo"
+            if any(no_se_ve_o_engana(k) for k in x):
+                return TEXTO_QUE_NO_SE_VE
             pila.extend((y, nivel + 1) for y in x.values())
         elif isinstance(x, list):
             pila.extend((y, nivel + 1) for y in x)
@@ -5479,7 +5508,10 @@ NO_SE_LEE_LA_CLAVE = ("'{n}' guarda la clave de un socio y Mate no lo abre, no l
 
 def leer_socios(ruta_programa):
     """Las claves cargadas de ese programa: ({socio: {"clave", "lado", "carpeta",
-    "estrenado", "ensayo"}}, problema o None). Sin archivo, ninguna."""
+    "estrenado", "ensayo", "antes"}}, problema o None). Sin archivo, ninguna. "antes" son
+    las HUELLAS (no las claves) de las últimas claves que hubo con ese socio, y el lado que
+    este programa tenía con cada una: con eso reconoce lo suyo que quedó viajando firmado
+    con una clave que ya no vale (ver Socios.sacar_lo_mio_que_no_vale)."""
     archivo = archivo_de(ruta_programa, "socios.json")
     nombre = os.path.basename(archivo)
     try:
@@ -5511,6 +5543,12 @@ def leer_socios(ruta_programa):
                          "estrenado": ficha.get("estrenado") is True}
         if ficha.get("ensayo") is True:
             fichas[socio]["ensayo"] = True
+        antes = [{"huella": a["huella"], "lado": a["lado"]}
+                 for a in (ficha.get("antes") if isinstance(ficha.get("antes"), list) else ())
+                 if isinstance(a, dict) and isinstance(a.get("huella"), str)
+                 and _HUELLA.fullmatch(a["huella"]) and a.get("lado") in ("A", "B")]
+        if antes:
+            fichas[socio]["antes"] = antes[:MAX_CLAVES_DE_ANTES]
     return fichas, roto if mal else None
 
 
@@ -5577,6 +5615,19 @@ def una_adentro_de_otra(a, b):
     return comun in (a, b)
 
 
+def esta_adentro(ruta, carpeta):
+    """¿Esa ruta es esa carpeta, o está adentro? (por la ruta de verdad, sin distinguir
+    mayúsculas)"""
+    ruta, carpeta = _ruta_real(ruta), _ruta_real(carpeta)
+    try:
+        return os.path.commonpath([ruta, carpeta]) == carpeta
+    except ValueError:
+        return False
+
+
+_INVITACION_SUELTA = re.compile(r"invitacion-mate.*\.txt.*")  # (como es_archivo_de_clave)
+
+
 def problema_de_compartida(raiz, carpeta):
     """Por qué Mate no trabaja con esa carpeta compartida, o None. La clave del socio vive
     al lado del programa: la carpeta que se sincroniza con el otro negocio no puede ser la
@@ -5586,19 +5637,30 @@ def problema_de_compartida(raiz, carpeta):
         return (f"la carpeta compartida ({carpeta}) es la del programa, la contiene o está "
                 "adentro, y ahí al lado vive la clave del socio: lo que se comparte con otro "
                 "negocio tiene que ser una carpeta aparte")
-    try:
-        with os.scandir(carpeta) as hay:
-            for n, entrada in enumerate(hay):
-                if n >= MAX_MIRADOS_POR_CORRIDA:
-                    break
-                bajo = entrada.name.rstrip(". ").casefold()
-                if ".socios.json" in bajo or bajo.endswith((".mate", ".mate.txt")):
-                    return (f"en la carpeta compartida ({carpeta}) hay un archivo que no "
-                            f"tiene que estar ahí ({texto_ajeno(entrada.name, 80)}): ni los "
-                            "programas ni las claves se comparten con el otro negocio. "
-                            "Sacalo de ahí")
-    except OSError:
-        pass  # (no se ve ahora: eso se avisa aparte)
+    for sub in ("", "de-a", "de-b"):  # (también donde viajan los sobres)
+        donde = os.path.join(carpeta, sub) if sub else carpeta
+        try:
+            if sub and not es_carpeta_real(donde):
+                continue
+            with os.scandir(donde) as hay:
+                for n, entrada in enumerate(hay):
+                    if n >= MAX_MIRADOS_POR_CORRIDA:
+                        break
+                    bajo = entrada.name.split(":", 1)[0].rstrip(". ").casefold()
+                    if _INVITACION_SUELTA.fullmatch(bajo):
+                        return (f"en la carpeta compartida ({donde}) hay una invitación "
+                                f"({texto_ajeno(entrada.name, 80)}), y la invitación lleva la "
+                                "clave ENTERA: quien ve esa carpeta ya la pudo copiar, y "
+                                "queda en la papelera y en el historial de la nube. Borrala "
+                                "de ahí y cambiá la clave con 'socio renovar' (la invitación "
+                                "nueva va en un pendrive, nunca en la carpeta compartida)")
+                    if ".socios.json" in bajo or bajo.endswith((".mate", ".mate.txt")):
+                        return (f"en la carpeta compartida ({donde}) hay un archivo que no "
+                                f"tiene que estar ahí ({texto_ajeno(entrada.name, 80)}): ni "
+                                "los programas ni las claves se comparten con el otro "
+                                "negocio. Sacalo de ahí")
+        except OSError:
+            pass  # (no se ve ahora: eso se avisa aparte)
     return None
 
 
@@ -5690,6 +5752,10 @@ class Socios:
         self.locales_por_borrar = []  # pendientes ya entregados
         self.rechazos = []  # (socio, bytes o None, archivo local o None, motivo)
         self.atendi, self.deje, self.no_entregados = {}, {}, 0
+        self.sin_copia = 0  # rechazados que no se guardaron (el cupo estaba lleno)
+        self.miro = False  # ¿esta corrida llegó a mirar lo de los socios?
+        self.con_novedad = set()  # los socios de los que hubo algo para contar
+        self.limpios = set()  # los socios a los que ya les saqué lo mío de otra clave
         self.avisados = set()
         self._carpetas = {}
         self._rechazos_avisados = {}
@@ -5721,14 +5787,14 @@ class Socios:
             problema = problema_de_compartida(self.raiz, ficha["carpeta"])
             if problema:
                 self.avisar(f"con el socio {socio} no mando ni recibo nada: {problema}. "
-                            f"Para elegir otra carpeta:  {self.orden_de('renovar', socio)}")
+                            "Para cambiar la clave o elegir otra carpeta:  "
+                            f"{self.orden_de('renovar', socio)}")
                 continue
             if ficha.get("ensayo"):
-                self.avisar(
-                    f"la clave con {socio} es de ENSAYO (la puso 'nuevo socio' para probar "
-                    "en una sola PC): no sirve para un socio de verdad, y esta carpeta no "
-                    "se le manda a nadie. Para trabajar con un socio real, generá una clave "
-                    f"nueva:  {self.orden_de('renovar', socio)}")
+                # (corto: sale en cada corrida del ensayo, y no tiene que tapar lo demás)
+                self.avisar(f"la clave con {socio} es de ENSAYO: sirve para probar en esta "
+                            "PC, no para un socio de verdad (para eso, 'socio renovar': lo "
+                            "cuentan 'nuevo socio' y el manual)")
             self.fichas[socio] = ficha
         try:
             de_onedrive = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer")
@@ -5940,14 +6006,104 @@ class Socios:
                                allow_nan=False).encode("ascii")
             with abrir_provisorio(provisorio, "xb") as f:
                 f.write(crudo)
-            os.replace(provisorio, final)
+            # (en una carpeta sincronizada, el sincronizador o el antivirus pueden tener
+            # tomado el provisorio un instante: se insiste, como al guardar las claves)
+            insistir(lambda: os.replace(provisorio, final))
         except (OSError, ValueError, RecursionError):
             try:
-                os.remove(provisorio)
+                insistir(lambda: os.remove(provisorio))
             except OSError:
-                pass
+                pass  # (si quedó, lo saca sacar_lo_mio_que_no_vale cuando tenga un día)
             return False
         return True
+
+    def es_de_otra_clave(self, socio, datos, lado, repetidas=False, huella=None):
+        """¿Eso tiene toda la forma de un sobre entre negocios de ese lado ("A" o "B"),
+        pero firmado con OTRA clave que la cargada (con esa huella, si se dice cuál)? Pasa
+        entre un 'socio renovar' de un lado y el 'socio aceptar' del otro. No dice nada de
+        quién lo escribió."""
+        if repetidas or not isinstance(datos, dict):
+            return False
+        version, firma, de_quien = datos.get("mate_buzon"), datos.get("firma"), \
+            datos.get("socio")
+        if type(version) is not int or version != VERSION_DE_SOBRE_DE_SOCIO \
+                or not (isinstance(firma, str) and _FIRMA.fullmatch(firma)) \
+                or not isinstance(de_quien, dict) \
+                or set(de_quien) != {"huella", "lado", "numero"}:
+            return False
+        suya, numero = de_quien["huella"], de_quien["numero"]
+        return (isinstance(suya, str) and bool(_HUELLA.fullmatch(suya))
+                and suya != self.huella(socio) and huella in (None, suya)
+                and de_quien["lado"] == lado
+                and type(numero) is int and 1 <= numero <= MAX_NUMERO_DE_SOBRE)
+
+    def sacar_lo_mio_que_no_vale(self, socio):
+        """Una vez por corrida: saca de la carpeta compartida los sobres que ESTE programa
+        dejó firmados con una clave anterior (las de 'antes' en su ficha: la huella de esa
+        clave y el lado que este programa tenía con ella, que dice en qué carpeta
+        escribía). Son los que quedaron viajando cuando se cambió la clave: el socio no los
+        llegó a traer, y con la clave nueva no los va a poder comprobar nunca. Se avisa
+        fuerte, porque para el que los mandó "ya habían salido". De paso, saca de la
+        carpeta donde escribe ahora los provisorios (.json.tmp) huérfanos de más de un día."""
+        if socio in self.limpios:
+            return
+        self.limpios.add(socio)
+        ficha = self.fichas[socio]
+        base, ahora, viejos = ficha["carpeta"], self.ahora(), []
+        if not es_carpeta_real(base):
+            return
+        lugares = [(f"de-{ficha['lado'].lower()}", None, None)] + [
+            (f"de-{a['lado'].lower()}", a["huella"], a["lado"]) for a in ficha.get("antes", ())]
+        for sub, huella, lado in lugares:
+            carpeta = os.path.join(base, sub)
+            if not es_carpeta_real(carpeta):
+                continue
+            try:
+                with os.scandir(carpeta) as hay:
+                    for n, entrada in enumerate(hay):
+                        if n >= MAX_MIRADOS_POR_CORRIDA:
+                            break
+                        bajo = entrada.name.lower()
+                        try:
+                            if huella is None:  # (mi carpeta de ahora: solo provisorios)
+                                if bajo.endswith(".json.tmp") \
+                                        and entrada.is_file(follow_symlinks=False) and ahora \
+                                        - entrada.stat(follow_symlinks=False).st_mtime \
+                                        >= ESPERA_DE_UN_ROTO:
+                                    os.remove(entrada.path)
+                                continue
+                            if not _SOBRE_EN_COMPARTIDA.fullmatch(bajo):
+                                continue
+                            with abrir_sin_seguir(entrada.path) as f:
+                                crudo = f.read(MAX_SOBRE + 1)
+                            if len(crudo) > MAX_SOBRE:
+                                continue
+                            datos, repetidas = json_de_sobre(crudo)
+                        except (OSError, ValueError, RecursionError):
+                            continue
+                        if self.es_de_otra_clave(socio, datos, lado, repetidas, huella):
+                            viejos.append(entrada.path)
+            except OSError:
+                continue
+        sacados = 0
+        for ruta in viejos:
+            try:
+                if es_carpeta_real(os.path.dirname(ruta)):
+                    os.remove(ruta)
+                    sacados += 1
+            except OSError:
+                pass
+        if sacados:
+            self.con_novedad.add(socio)
+            uno = sacados == 1
+            self.avisar(
+                f"OJO: {cuantos_mensajes(sacados)} que le habías mandado a {socio} "
+                f"{'seguía' if uno else 'seguían'} en la carpeta compartida "
+                f"{'firmado' if uno else 'firmados'} con la clave anterior: tu socio NO "
+                f"{'lo' if uno else 'los'} recibió, y con la clave nueva ya no "
+                f"{'vale' if uno else 'valen'}. {'Lo' if uno else 'Los'} saqué de ahí. Si "
+                f"{'hacía' if uno else 'hacían'} falta, hay que "
+                f"{'mandarlo' if uno else 'mandarlos'} de nuevo")
 
     def repartir(self, correo):
         """Deja en la carpeta compartida lo que está "por salir" de cada socio listo. Lo
@@ -5956,6 +6112,7 @@ class Socios:
         for socio in sorted(self.listos):
             est = correo["socios"].get(socio) or {}
             pendientes = est.get("por_salir") or []
+            self.sacar_lo_mio_que_no_vale(socio)
             if not pendientes:
                 continue
             carpetas = self.carpetas(socio)
@@ -5964,12 +6121,14 @@ class Socios:
             quedan = []
             for sobre in pendientes:
                 if self.dejar(carpetas[0], sobre):
+                    self.con_novedad.add(socio)
                     salio = True
                     self.deje[socio] = self.deje.get(socio, 0) + 1
                 else:
                     quedan.append(sobre)
             est["por_salir"] = quedan
             if quedan:
+                self.con_novedad.add(socio)
                 self.avisar_una_vez(("no pude", socio), (
                     f"no pude dejar {cuantos_mensajes(len(quedan))} para {socio} en la "
                     f"carpeta compartida ({self.fichas[socio]['carpeta']}): ¿hay permiso "
@@ -6057,6 +6216,7 @@ class Socios:
         if cuantos >= MAX_RECHAZADOS_DE_SOCIO:
             crudo = None  # (no se guarda en la mano más de lo que se va a poder copiar)
         self.rechazos.append((socio, crudo, local, motivo))
+        self.con_novedad.add(socio)
         self.no_entregados += 1
         self.tocado = True
         n = self._rechazos_avisados[socio] = self._rechazos_avisados.get(socio, 0) + 1
@@ -6072,6 +6232,11 @@ class Socios:
         - lo que no se entiende como JSON puede estar a medio llegar: se deja, y recién si
           sigue así un día entero (del reloj de esta máquina) va a rechazados;
         - un JSON sin firma válida de ESTE socio: a rechazados, sin contestarle a nadie;
+        - salvo el que tiene toda la forma de un sobre del socio pero firmado con OTRA
+          clave: uno de los dos renovó la clave y el otro todavía no la aceptó. Ese no se
+          entrega, no se rechaza y NO se borra de la compartida: se avisa. Si el que renovó
+          es el socio, se entrega cuando acá se cargue la clave nueva; si fue este lado, lo
+          saca el programa del socio cuando la acepte (y le avisa que no llegó);
         - un número ya visto con el mismo contenido (una copia en conflicto, un archivo
           que la sincronización revivió): se borra sin ruido; con otro contenido, o por
           debajo de lo que ya se dejó de recordar: a rechazados, con aviso."""
@@ -6079,7 +6244,8 @@ class Socios:
         carpetas = self.carpetas(socio)
         if carpetas is None:
             return
-        candidatos, otros = [], 0
+        candidatos, otros, ocupados, de_otra_clave = [], 0, 0, 0
+        su_lado = "B" if self.fichas[socio]["lado"] == "A" else "A"
         try:
             with os.scandir(carpetas[1]) as hay:
                 for n, entrada in enumerate(hay):
@@ -6096,8 +6262,12 @@ class Socios:
                         otros += 1
                         continue
                     forma = _SOBRE_EN_COMPARTIDA.fullmatch(bajo)
+                    try:
+                        comun = entrada.is_file(follow_symlinks=False)
+                    except OSError:
+                        comun = False
                     candidatos.append(((0, int(forma.group(1)), bajo) if forma
-                                       else (1, 0, bajo), entrada.path))
+                                       else (1, 0, bajo), entrada.path, comun))
         except OSError:
             self.avisar(f"no pude mirar la carpeta compartida con {socio}: lo que haya "
                         "llegado queda para la próxima corrida")
@@ -6105,13 +6275,16 @@ class Socios:
         candidatos.sort()  # primero los que tienen la forma esperada, por número
         ahora, rotos, siguen = int(self.ahora()), est.setdefault("rotos", {}), set()
         esperando = 0
-        for _, ruta in candidatos:
+        for _, ruta, comun in candidatos:
             base = os.path.basename(ruta)
             try:
                 with abrir_sin_seguir(ruta) as f:
                     crudo = f.read(MAX_SOBRE + 1)
             except OSError:
-                otros += 1  # una carpeta, un acceso directo, o no se puede abrir ahora
+                if comun:
+                    ocupados += 1  # un archivo común que AHORA no se puede abrir
+                else:
+                    otros += 1  # una carpeta, un acceso directo u otra cosa
                 continue
             if len(crudo) > MAX_SOBRE:
                 otros += 1
@@ -6145,6 +6318,9 @@ class Socios:
                 otros += 1
                 continue
             motivo = self.autenticar(socio, datos, repetidas)
+            if motivo and self.es_de_otra_clave(socio, datos, su_lado, repetidas):
+                de_otra_clave += 1  # (se deja donde está: ver arriba)
+                continue
             if motivo:
                 # (no cuenta como visto, y a quien no se autenticó no se le contesta)
                 self.rechazar(socio, crudo, f"el archivo {base}: {motivo}")
@@ -6174,6 +6350,27 @@ class Socios:
             if clave not in siguen:
                 del rotos[clave]
                 self.tocado = True
+        if esperando or otros or ocupados or de_otra_clave:
+            self.con_novedad.add(socio)
+        if de_otra_clave:
+            uno = de_otra_clave == 1
+            self.avisar_una_vez(("otra clave", socio), (
+                f"OJO: en la carpeta compartida con {socio} hay "
+                f"{cuantos_mensajes(de_otra_clave)} {'firmado' if uno else 'firmados'} con "
+                f"otra clave que la que tenés cargada (control {self.control(socio)}): no "
+                f"{'lo' if uno else 'los'} entrego, no {'lo' if uno else 'los'} borro y no "
+                "contesto. Si tu socio RENOVÓ la clave, cargá la nueva y "
+                f"{'se entrega' if uno else 'se entregan'} en la corrida siguiente:  "
+                f"{self.orden_de('aceptar', socio)}   Si la renovaste VOS, tu socio "
+                f"todavía no la aceptó: lo que mandó con la clave vieja no vale (lo saca su "
+                "programa cuando la acepte, y le avisa)"))
+        if ocupados:
+            self.avisar_una_vez(("ocupados", socio), (
+                f"en la carpeta compartida con {socio} hay "
+                f"{'1 archivo que ahora no se puede abrir' if ocupados == 1 else f'{ocupados} archivos que ahora no se pueden abrir'}"
+                " (lo puede tener tomado el programa que sincroniza la carpeta, o el "
+                "antivirus): no lo toco, y lo miro de nuevo en la próxima corrida. No lo "
+                "borres"))
         if esperando:
             self.avisar(
                 f"en la carpeta compartida con {socio} hay "
@@ -6192,6 +6389,7 @@ class Socios:
         repetido de un número usado dos veces). pendiente: además queda esperando el si."""
         est = self.estado[socio]
         numero = sobre["socio"]["numero"]
+        self.con_novedad.add(socio)
         est["vistos"][str(numero)] = sobre["firma"][:16]
         if pendiente and numero not in est["traidos"]:
             est["traidos"].append(numero)
@@ -6239,6 +6437,7 @@ class Socios:
                 "en la carpeta compartida para la próxima corrida"))
             return False
         self.visto(socio, sobre, pendiente=True)
+        self.con_novedad.add(socio)
         self.por_borrar.append(ruta)
         return True
 
@@ -6345,6 +6544,7 @@ class Socios:
         for socio, crudo, local, motivo in self.rechazos:
             if not self.guardar_rechazo(socio, crudo, local, motivo):
                 sin_lugar[socio] = sin_lugar.get(socio, 0) + 1
+        self.sin_copia += sum(sin_lugar.values())
         for socio, cuantos in sin_lugar.items():
             self.avisar(
                 f"en {self.buzon.donde_van_los_rechazados()} ya hay "
@@ -6412,15 +6612,29 @@ class Socios:
         for socio, n in self.atendi.items():
             renglones.append(f"Socios: entregué {cuantos_mensajes(n)} de {socio}.")
         if self.no_entregados:
+            guardados = max(0, self.no_entregados - self.sin_copia)
+            donde = self.buzon.donde_van_los_rechazados()
             renglones.append(
                 f"Socios: {self.no_entregados} no se "
                 f"{'entregó' if self.no_entregados == 1 else 'entregaron'}: "
-                f"{'está' if self.no_entregados == 1 else 'están'} en "
-                f"{self.buzon.donde_van_los_rechazados()}.")
+                + (f"{'está' if self.no_entregados == 1 else 'están'} en {donde}."
+                   if not self.sin_copia else
+                   f"{guardados} {'quedó' if guardados == 1 else 'quedaron'} en {donde} y "
+                   f"de {'el otro' if self.sin_copia == 1 else f'los otros {self.sin_copia}'}"
+                   " no se guardó copia (el cupo de rechazados estaba lleno)."))
         for socio, n in self.deje.items():
             renglones.append(f"Socios: dejé {cuantos_mensajes(n)} para {socio} en la carpeta "
                              f"compartida; {'le llega' if n == 1 else 'le llegan'} cuando "
                              "corra su programa (y diga que si).")
+        if self.miro:
+            # Una corrida sin nada que mandar ni recibir también lo dice: el dueño que
+            # corre los pasos en otro orden tiene que saber que anduvo.
+            for socio in sorted(self.listos):
+                if socio in self.con_novedad or socio in self.atendi or socio in self.deje \
+                        or (self.estado.get(socio) or {}).get("traidos") \
+                        or not self._carpetas.get(socio):
+                    continue
+                renglones.append(f"Socios: no llegó nada nuevo de {socio}.")
         return renglones
 
 
@@ -6430,15 +6644,38 @@ def avisos_de_socios(programa):
     texto ajeno. Los frenos siguen valiendo, pero ese texto no es de confianza."""
     avisos = []
     agentes = {s[2]: s for s in programa if s[0] == "agente"}
+    con_ia = {nombre for nombre, s in agentes.items() if _nombra(s, {"consultar_ia"})}
+
+    def les_puede_pasar(nombre):
+        """Los agentes que consultan a la IA y a los que ese agente nombra (les manda o
+        les pregunta), directo o a través de otros: a esos les puede pasar el texto."""
+        vistos, por_ver = {nombre}, [nombre]
+        while por_ver:
+            actual = agentes[por_ver.pop()]
+            for otro in agentes:
+                if otro not in vistos and _nombra(actual, {otro}):
+                    vistos.add(otro)
+                    por_ver.append(otro)
+        return sorted((vistos - {nombre}) & con_ia)
+
     for socio, tipos in socios_declarados(programa).items():
         for tipo in tipos:
             for nombre, s in agentes.items():
-                if any(m[1] == tipo for m in s[4]) and _nombra(s, {"consultar_ia"}):
+                if not any(m[1] == tipo for m in s[4]):
+                    continue
+                if nombre in con_ia:
                     avisos.append(
                         f"{nombre} recibe {tipo} del socio {socio} y además consulta a la "
                         "IA: lo que escribe otro negocio es texto ajeno aunque le hayas "
                         "dicho que si. No se lo pases a consultar_ia() tal cual (los "
                         "'frenos' lo limitan, no lo vuelven confiable)")
+                for otro in les_puede_pasar(nombre):
+                    avisos.append(
+                        f"{nombre} recibe {tipo} del socio {socio} y nombra a {otro}, que "
+                        "consulta a la IA: lo que escribe otro negocio es texto ajeno "
+                        "aunque le hayas dicho que si. Que no le llegue a consultar_ia() "
+                        "tal cual, tampoco pasando por otro agente (los 'frenos' lo "
+                        "limitan, no lo vuelven confiable)")
     return list(dict.fromkeys(avisos))
 
 
@@ -9147,8 +9384,10 @@ class Interprete:
                     f", en respuesta al {self.vistos.get(respuesta_a, respuesta_a - numero0)})"
                     if respuesta_a else ")")
             escrito = formato(msg)
-            if numero in self.id_de_buzon or (rem is not None and rem.ajeno is not None):
-                # (vino de otro programa o de otro negocio: lo que no se ve, escapado)
+            if numero in self.id_de_buzon or (rem is not None and rem.ajeno is not None) \
+                    or dest.socio is not None:
+                # (vino de otro programa o de otro negocio, o va a otro negocio y puede
+                # repetir lo que vino: lo que no se ve, escapado)
                 escrito = texto_ajeno(escrito, MAX_LARGO)
             self.trazar(f"{self.con_programa(rem)} {flecha} {self.con_programa(dest)}: "
                         f"{escrito}{anotado}", visto, hondo)
@@ -9237,7 +9476,9 @@ class Interprete:
             problema = no_entra_de_socio(datos)
             if problema:
                 raise ErrorMate(f"{msg.tipo} no puede ir a {dest.nombre} (otro negocio): "
-                                f"{problema}. Mandá menos datos por vez", linea,
+                                f"{problema}. " + (
+                                    "Sacalos antes de mandarlo" if problema is TEXTO_QUE_NO_SE_VE
+                                    else "Mandá menos datos por vez"), linea,
                                 clase="falla", familia="contrato")
         return datos
 
@@ -9350,7 +9591,10 @@ class Interprete:
         entrega. Nada de otro negocio llega a un agente sin ese si."""
         buzon = self.buzon
         socios = buzon.socios
-        if socios is None or not socios.listos or not socios.hay_algo():
+        if socios is None or not socios.listos:
+            return
+        if not socios.hay_algo():
+            socios.miro = True  # (se miró, y no había nada)
             return
         puede = buzon.se_puede_guardar(1)
         if puede is not True:
@@ -9371,6 +9615,7 @@ class Interprete:
         quedan = 0
         for socio, numero, ruta in socios.pendientes():
             quedan += not self.resolver_pendiente(socio, numero, ruta)
+        socios.miro = True
         if quedan:
             self.avisar(
                 f"{cuantos_mensajes(quedan)} de socios "
@@ -15395,6 +15640,24 @@ def escribir_invitacion(destino, clave):
         f.write(texto.replace("\n", os.linesep).encode("utf-8"))
 
 
+def sobres_en_viaje(ficha):
+    """Cuántos sobres de ESTE lado siguen en la carpeta compartida con ese socio (los dejó
+    este programa y el otro todavía no los trajo). Solo cuenta: no abre ni toca nada."""
+    mia = os.path.join(ficha["carpeta"], "de-a" if ficha["lado"] == "A" else "de-b")
+    cuantos = 0
+    try:
+        if not es_carpeta_real(mia):
+            return 0
+        with os.scandir(mia) as hay:
+            for n, entrada in enumerate(hay):
+                if n >= MAX_MIRADOS_POR_CORRIDA:
+                    break
+                cuantos += bool(_SOBRE_EN_COMPARTIDA.fullmatch(entrada.name.lower()))
+    except OSError:
+        return 0
+    return cuantos
+
+
 def preparar_compartida(carpeta):
     """Deja armada la carpeta compartida: de-a, de-b y el LEEME (sin pisar nada)."""
     for sub in ("de-a", "de-b"):
@@ -15509,6 +15772,11 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
                 return None
         return carpeta
 
+    def en_una_compartida(donde, carpeta):
+        """¿Ese lugar está adentro de la carpeta compartida con este socio o con otro?"""
+        return any(esta_adentro(donde, c) for c in
+                   [carpeta] + [f["carpeta"] for f in fichas.values()])
+
     def terminal():
         if es_terminal is not None:
             return es_terminal()
@@ -15556,11 +15824,10 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
             avisar(f"no encuentro la carpeta {os.path.dirname(destino)} para dejar la "
                    "invitación: ¿está puesto el pendrive?")
             return None
-        if una_adentro_de_otra(carpeta, os.path.dirname(destino)) and _ruta_real(
-                os.path.dirname(destino)).startswith(_ruta_real(carpeta)):
-            avisar("la invitación lleva la clave: no va en la carpeta compartida (ahí la "
-                   "lee quien vea la carpeta). Dejala en un pendrive y llevásela a tu "
-                   "socio. No hice nada")
+        if en_una_compartida(os.path.dirname(destino), carpeta):
+            avisar("la invitación lleva la clave: no va en la carpeta compartida, ni en la "
+                   "que compartís con otro socio (ahí la lee quien vea la carpeta). Dejala "
+                   "en un pendrive y llevásela a tu socio. No hice nada")
             return None
         if os.path.lexists(destino):
             avisar(f"ya hay un {os.path.basename(destino)} en {os.path.dirname(destino)} y "
@@ -15568,6 +15835,15 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
                    "elegí otra carpeta")
             return None
         return destino
+
+    def claves_de_antes(ficha, clave):
+        """Anota en la ficha nueva la huella (no la clave) de la que se va, y el lado."""
+        antes = list(existente.get("antes", ())) if existente else []
+        if existente and existente["clave"] != clave:
+            antes.insert(0, {"huella": huella_de_clave(existente["clave"]),
+                             "lado": existente["lado"]})
+        if antes:
+            ficha["antes"] = antes[:MAX_CLAVES_DE_ANTES]
 
     def guardar(nuevas):
         try:
@@ -15621,11 +15897,17 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
             est = leer_correo_de_memoria(archivo_de(ruta, "memoria.json"))["socios"].get(
                 socio) or {}
             pierde = len(est.get("por_salir") or []) + len(est.get("traidos") or [])
+            viajando = sobres_en_viaje(existente)
             if not dijo_si(
                     f"Vas a cambiar la clave con {socio} por una nueva. Con la clave vieja "
                     "ya no va a valer nada"
                     + (f": {cuantos_mensajes(pierde)} que estaban por salir o esperando tu "
                        "si se descartan" if pierde else "")
+                    + (f"; y {cuantos_mensajes(viajando)} "
+                       f"{'tuyo' if viajando == 1 else 'tuyos'} que tu socio todavía no "
+                       "trajo de la carpeta compartida "
+                       f"{'deja' if viajando == 1 else 'dejan'} de valer (si hacía falta, "
+                       "hay que mandarlo de nuevo)" if viajando else "")
                     + f". Tu socio la tiene que cargar de nuevo con 'socio aceptar'. "
                     "Escribí si para seguir: "):
                 avisar("no cambié nada (hacía falta contestar si)")
@@ -15642,6 +15924,7 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
             clave = nueva_clave_de_socio()  # (dos socios nunca comparten la huella)
         nuevas = dict(fichas)
         nuevas[socio] = {"clave": clave, "lado": "A", "carpeta": carpeta, "estrenado": False}
+        claves_de_antes(nuevas[socio], clave)
         if not guardar(nuevas):
             return 1
         try:
@@ -15659,8 +15942,9 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
             mostrar(f"La invitación para tu socio quedó en {destino}")
             mostrar("  Llevásela en el pendrive o en mano: NO por mail ni por WhatsApp.")
             mostrar("  Tu socio, parado en la carpeta de su programa, la carga así (el "
-                    "nombre del final es cómo te llama él en su 'usar socio'):")
-            mostrar(f"       {como_se_llama()} socio aceptar su_programa.mate Cliente")
+                    "nombre del final es cómo te llama él en su 'usar socio'; si en su PC "
+                    "Mate está en otro lugar, la primera parte es la suya):")
+            mostrar(f"       {orden} socio aceptar su_programa.mate Cliente")
             mostrar("  Mate le pregunta por la carpeta compartida y por la invitación, y "
                     "la borra al terminar.")
         else:
@@ -15671,9 +15955,15 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
             mostrar("")
             mostrar("  Son 11 grupos de 4 cifras. Tu socio la tipea (no se ve mientras "
                     "escribe) con:")
-            mostrar(f"       {como_se_llama()} socio aceptar su_programa.mate Cliente")
+            mostrar(f"       {orden} socio aceptar su_programa.mate Cliente")
             mostrar("  Si se equivoca en una cifra, Mate se da cuenta y no la carga.")
         comparar_control(clave)
+        if que == "renovar":
+            mostrar("HASTA QUE TU SOCIO CARGUE LA CLAVE NUEVA conviene que ninguno de los dos "
+                    "corra su programa. Lo que mandes vos lo espera en la carpeta compartida "
+                    "y le llega cuando la acepte; lo que mande él, firmado con la clave "
+                    "vieja, ya no vale: Mate lo deja en la carpeta, te avisa, y a él le "
+                    "avisa cuando acepte (lo tiene que mandar de nuevo).")
         limites()
         return 0
 
@@ -15682,7 +15972,9 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
             f"Ya hay una clave cargada con {socio} (control "
             f"{control_de_socio(existente['clave'])}). ¿La cambio por la que te pasó tu "
             "socio? Lo que estaba por salir o esperando tu si con la clave vieja se "
-            "descarta. Escribí si para cambiarla: "):
+            "descarta, y lo tuyo que tu socio no llegó a traer de la carpeta compartida "
+            "deja de valer (Mate te lo avisa en la corrida siguiente). Escribí si para "
+            "cambiarla: "):
         avisar("no cambié nada (hacía falta contestar si)")
         return 1
     carpeta = elegir_carpeta(existente["carpeta"] if existente else None)
@@ -15704,6 +15996,14 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
         invitacion = os.path.abspath(os.path.expanduser(invitacion))
         if os.path.isdir(invitacion):
             invitacion = os.path.join(invitacion, ARCHIVO_DE_INVITACION)
+        if en_una_compartida(os.path.dirname(invitacion), carpeta):
+            avisar(f"no cargo esa invitación: está adentro de una carpeta compartida "
+                   f"({os.path.dirname(invitacion)}), y la invitación lleva la clave ENTERA. "
+                   "Quien ve esa carpeta ya la pudo copiar (y queda en la papelera y en el "
+                   "historial de la nube): esa clave no sirve más. Borrá el archivo de ahí "
+                   "y pedile a tu socio que haga 'socio renovar' y te lleve la invitación "
+                   "nueva en un pendrive, o te dicte la clave. No cargué nada")
+            return 2
         try:
             clave = leer_invitacion(invitacion)
         except OSError:
@@ -15740,6 +16040,7 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
     nuevas[socio] = {"clave": clave, "lado": "B", "carpeta": carpeta,
                      "estrenado": bool(existente and existente["clave"] == clave
                                        and existente["estrenado"])}
+    claves_de_antes(nuevas[socio], clave)
     if not guardar(nuevas):
         return 1
     try:
@@ -15903,6 +16204,13 @@ def nuevo_socio(args, avisar, mostrar=print):
         f"       {lanzador} socio renovar comprador.mate Proveedor --carpeta='C:\\ruta\\de\\la\\compartida'",
         "y el otro, en la suya, con la invitación que le llevaron en un pendrive:",
         f"       {lanzador} socio aceptar proveedor.mate Cliente --carpeta='C:\\ruta\\de\\la\\compartida'",
+        "Entre una orden y la otra conviene que ninguno corra su programa.",
+        "OJO: las carpetas se acuerdan del ensayo (el pedido A-17 ya figura hecho y el stock",
+        "ya está descontado), así que la primera corrida de verdad no mandaría nada. Antes,",
+        "cada uno cambia en su programa los datos de muestra por los suyos (el pedido A-17",
+        "está en el último renglón de comprador.mate) y corre UNA vez con --olvidar, que",
+        "arranca con la memoria limpia:",
+        f"       {lanzador} correr comprador.mate --olvidar",
         "(el manual lo cuenta paso a paso, en \"Dos negocios que se hablan (los socios)\")")
     for renglon in renglones:
         mostrar(renglon)
@@ -16071,8 +16379,16 @@ def orden_buzon(args, avisar, mostrar=print):
     if not nombres:
         mostrar("  Rechazados: ninguno.")
         return 0
+    de_socios = sum(1 for n in nombres if n.lower().startswith("socio-"))
+    consejo = "para intentar uno de nuevo, movelo a la carpeta de arriba"
+    if de_socios == len(nombres):
+        consejo = ("son de otro negocio y no se reintentan a mano: si alguno hacía falta, "
+                   "pedile a tu socio que lo mande de nuevo")
+    elif de_socios:
+        consejo += ("; los que empiezan con socio- son de otro negocio y no se reintentan a "
+                    "mano: pedile a tu socio que los mande de nuevo")
     mostrar(f"  Rechazados: {len(nombres)} (están en {buzon.donde_van_los_rechazados()}; "
-            "para intentar uno de nuevo, movelo a la carpeta de arriba)")
+            f"{consejo})")
     for nombre in nombres[:20]:
         motivo = "(sin motivo anotado)"
         try:
@@ -17236,6 +17552,9 @@ def _main(argv, donde):
             nueva = aprendido["leida"]  # (la memoria ya quedó guardada, o avisada)
         elif buzon is not None:
             buzon.soltar()
+            if buzon.socios is not None:  # (nada que guardar: "no llegó nada nuevo de...")
+                for renglon in buzon.socios.resumen():
+                    print(renglon)
         if buzon is not None and not buzon.atendio:
             # El programa se cortó antes de terminar sus renglones (un error, o Ctrl+C):
             # lo que le dejaron en el buzón no se atendió. Que no quede esperando callado.
