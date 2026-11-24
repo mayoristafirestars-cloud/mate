@@ -3269,6 +3269,793 @@ no participa de la corrida no se puede detectar; nombres 8.3 y letras Unicode en
 sin verificar.
 
 
+### 0.7.1: la IA no inventa datos del negocio
+
+**Registro del integrador** (rama `equipo/mate-0.7.1`, que sale de `main` = Mate 0.7 publicado;
+sobre `3ddd365` más el commit que trae este registro; todo en commits locales, sin subir nada y
+sin tocar `main` ni `.github`). Los registros anteriores llegaban hasta la vuelta 3 (`553cabe`),
+hasta la vuelta 5 (`dc307a2`) y hasta la vuelta 6 (`cb62d9a`); este suma la vuelta 7. Lo que se
+escribió en las vueltas anteriores queda como estaba, con una aclaración donde la vuelta 7 lo
+cambió.
+
+**Estado: la 0.7.1 está APROBADA por el revisor (vuelta 7, sobre `3ddd365`) y NO está
+publicada.** Hubo siete vueltas. No queda ningún problema alto ni medio: **P232 quedó
+corregido**. Con una presentación que es solo "6x2.25", "6 x 2.25", "12x1.50", "3x2" o "10 x 1",
+preguntar por el producto ya contesta su renglón con el precio, en el mostrador y en el equipo,
+y lo inventado que se pidió frenar sigue frenado ("Hay 3x2 en jabón.", "Jabón tocador: 3x2.").
+Quedan bajos, y una **decisión pendiente del coordinador** sobre uno de ellos (P239: con una
+celda "24 hs" o "efectivo" en la planilla pasan "Atendemos las 24 hs." y "Pagás en efectivo.";
+viene de la vuelta 4, no de esta). **Aprobada quiere decir revisada y probada en Linux, con
+Python 3.13 y con IA simulada. Falta el ensayo con un modelo de verdad** (P220): el problema
+que dio origen al cambio apareció justamente con un modelo real, y la decisión de la vuelta 7
+exige la forma exacta del renglón, que un modelo real puede no respetar (P241). De la vuelta 7
+llegó un solo informe de verificación, el del revisor. `VERSION` dice `"0.7.1"` en la rama,
+pero eso no es una publicación.
+
+**Origen.** El dueño probó `nuevo equipo negocio` con un modelo real (Ollama, `qwen2.5:7b`):
+
+| El cliente escribió | La IA contestó | Por qué está mal |
+|---|---|---|
+| `hola, que horarios tienen?` | "lunes a viernes de 8 a 18hs" | **grave**: el programa no tenía ningún horario; lo inventó |
+| `tenes cafe?` | "no trabajamos con café. Podés pedirlo si querés" | ofrece algo que el negocio no trabaja |
+
+Las instrucciones a la IA solo llevaban la lista de precios, y los frenos de la 0.7 no miraban
+datos inventados.
+
+**Qué se implementó** (los siete commits de código son del implementador; el revisor y el
+probador encontraron lo que se corrigió en las vueltas 2 a 7; el integrador escribió este
+registro y no tocó el código)
+
+| Commit | Vuelta | Qué trae |
+|---|---|---|
+| `ac04a45` | 1 | `datos_del_negocio` arriba del programa (horario, direccion, telefono, formas_de_pago, entregas, promociones, otros; entre comillas, vacíos por defecto). El programa contesta las preguntas por esos datos **antes** de consultar a la IA: el dato tal cual, o "Sobre el horario: eso te lo confirma una persona.". Las instrucciones a la IA llevan los datos y la orden de no inventar. A la respuesta de la IA el programa le mira que no nombre un día, hora, plazo, teléfono, forma de pago o promoción que no esté cargado. De lo que no está en la lista, solo "Eso no lo trabajamos.". Aviso de stock en cero (en el equipo, por Depósito). Ejemplos 12 y 13, `nuevo mostrador` y `nuevo equipo`; README, MEJORAS 127, casos de muestra |
+| `1f5c236` | 2 | `dato_inventado()` rehecha (ejemplo 12; de ahí la toman el 13 y los programas creados): más formatos de hora, dirección, contacto, pago, entregas y promociones; cada mención se compara solo con el dato de su tema; menos frenadas de más; `temas_del_negocio()` contesta más preguntas corrientes sin IA; producto más dato en la misma pregunta contesta las dos cosas; `sin_ofrecer()` más amplia; los textos dejan de prometer de más ("ataja lo más común, no todo"); una prueba que dependía de la ruta del repositorio, corregida; en el intérprete, un solo cambio de texto (la pista de la coma que falta adentro de unas llaves) |
+| `97f9963` | 3 | Un teléfono sin comillas ya no se le dice cambiado al cliente (`el_dato()` solo acepta texto; `datos_mal_puestos()` avisa); aviso si se cambió el nombre de un dato; la revisión ve más con los datos vacíos y frena menos de más; más preguntas contestadas sin IA; función `revisada()`: "Eso no lo trabajamos." se mira antes que los datos; en el intérprete, dos textos de error más claros (llaves adentro de un texto; "los miles no llevan punto" avisa que un teléfono va entre comillas) |
+| `07f9f0f` | 4 | **P203**: antes de revisar la respuesta de la IA se saca de ella cada nombre y cada presentación que esté tal cual en la planilla (`celdas_de_la_planilla()`, `sin_lo_de_la_planilla()`; compara por palabras: no importan mayúsculas, tildes ni "12x900" contra "12 x 900"). Un "N x M" que está así en una presentación no cuenta como promoción aunque la IA no la diga entera. Una hora con dos puntos, un "24/7", un porcentaje o un número largo escritos en una celda pasan (`en_la_planilla()`); una celda de una sola palabra vale aunque sea corta ("QR"). Valen las celdas enteras, no sus números sueltos: con "12" en la planilla, "Abrimos a las 12" sigue siendo horario. **P210**: prueba nueva en el ejemplo 12 con 12 renglones como los escribe un mayorista, cada uno dicho de cuatro maneras, con datos vacíos y cargados y pasando por `atender()`; y "tu planilla está bien cargada" de los programas creados pasa los renglones del dueño por la revisión (`renglones_frenados()`, los primeros 300) y falla diciendo cuál se frenaría. **P207, en parte**: "bulto cerrado", "caja cerrada", "pack cerrado" y "paquete cerrado" ya no son horario (una excepción en `palabra_nombrada()`). 6 pruebas nuevas en pytest. MEJORAS 127, nota de la vuelta 4 |
+| `df65fdc` | 5 | Lo que la vuelta 4 dejaba pasar: con una presentación "2x1 litro", "pack 3 x 2 l" o "x 3" en la planilla pasaban "Hay 2x1 en yerba.", "Hay 3x2 en gaseosas.", "Hay 4x3 en jabones.". Se quitó `de_una_celda` de `dato_inventado()`. Un "N x M" suelto pasa solo si está así en una celda **y** atrás trae una medida (`palabras_de_medida()`, 17 medidas) o la misma palabra que en la celda, de 4 letras o más ("12 x 10 sobres"). Cada "N x M" de la respuesta y de las celdas se pega en una sola palabra antes de sacar las celdas (`con_las_equis_pegadas()`), así una celda "x 3" no le saca una punta a un "4 x 3". Una celda que es **solo** "N x M" ya no se exceptúa, y `probar` la avisa (de acá sale lo que queda de P203). Más casos en las pruebas del ejemplo 12 y de los programas creados, y pruebas nuevas en pytest con mostrador y equipo. MEJORAS 127: nota de la vuelta 5 y corregida la frase que decía de más |
+| `5ca704e` | 6 | **Lo que quedaba de P203**, con la decisión del coordinador (abajo): un "N x M" cuenta como promoción **solo** si N y M son enteros sin decimales y M es menor que N. Si M es igual o mayor que N, o alguno tiene decimales ("12x900", "6x750", "6 x 2,25", "6x1.5"), es un tamaño y no es promoción, esté o no en la planilla. Un solo cambio de lógica, en `palabra_nombrada()` del ejemplo 12 (la usa `dato_inventado()`; de ahí lo toman el 13, `nuevo mostrador` y `nuevo equipo`). No se agrandó ninguna lista de palabras ni se tocó `sin_lo_de_la_planilla()`: los casos con M menor que N siguen como en la vuelta 5. El aviso de `renglones_frenados()` cambió el consejo: "agregale el envase o la medida: por ejemplo, 'caja 3 x 2 l' en vez de '3x2'". Corregidas las frases que decían que no se conoce ningún renglón de un archivo que se frene (MEJORAS, dos comentarios de `mate.py`, uno de `test_mate.py`). **P210**: dos pruebas nuevas en pytest, con mostrador y equipo, la planilla leída de un `.csv` y `--ia-simulada`; y más casos en la prueba del ejemplo 12. MEJORAS 127: nota de la vuelta 6 |
+| `3ddd365` | 7 | **P232**, con la decisión del coordinador (abajo): el renglón de la lista dicho como lo arma el programa nunca es un dato inventado. Función nueva `sin_los_renglones(respuesta, tabla)` en el ejemplo 12, llamada desde `dato_inventado()` antes de partir la respuesta en palabras (de ahí lo toman el 13, `nuevo mostrador` y `nuevo equipo`): saca cada "Nombre (presentación)" del **mismo** producto, tal como lo escribe el programa, sin importar mayúsculas ni tildes, y solo si el nombre arranca una palabra ("Champán (8.30)" no es "Pan (8.30)"). Un solo punto de lógica más un ayudante, `en_minusculas_y_sin_tildes()`. No se tocaron `sin_lo_de_la_planilla()`, `palabra_nombrada()` ni las listas de palabras. La comparación es por texto exacto y no por palabras, a propósito: por palabras, "Jabón: 3x2." quedaba igual que "Jabón (3x2)." y pasaba. Tres pruebas que afirmaban lo contrario cambiaron por la decisión (abajo, en Decisiones). Pruebas nuevas: en el ejemplo 12, una planilla con siete presentaciones ("6x2.25", "6 x 2.25", "12x1.50", "3x2", "10 x 1", "8.30", "24 hs"), cada renglón dicho de cinco maneras, con datos vacíos y cargados y pasando por `atender()`, más lo que se sigue frenando; tres afirmaciones en la prueba de los programas que crea `nuevo mostrador`; y dos en pytest (`test_071_vuelta_7_el_renglon_como_lo_arma_el_programa_no_es_un_dato_inventado`, con mostrador y equipo y la planilla leída de un `.csv`, y `test_071_vuelta_7_la_regla_esta_en_el_ejemplo_y_en_las_mejoras`). Textos: MEJORAS 127 con la nota de la vuelta 7, tres frases que quedaban falsas (que `probar` avisa de la celda "3x2" o "10 x 1") y el "Quedó afuera"; dos comentarios de `mate.py`; los comentarios de `dato_inventado()`, `sin_lo_de_la_planilla()` y `renglones_frenados()`. El texto del aviso de `renglones_frenados()` quedó igual |
+
+En total, contra `main`, hasta la vuelta 5 y sin contar este registro: 9 archivos, 3816
+renglones agregados y 132 quitados (hasta la vuelta 3 eran 3398). La vuelta 6 suma 113 renglones
+y quita 11, en 4 archivos (el ejemplo 12, `mate.py`, `test_mate.py` y MEJORAS). No suma palabras
+clave ni funciones incorporadas. En `mate.py` cambian los programas que crea `nuevo` y tres
+textos de error; el comportamiento del intérprete no cambia. Las vueltas 4, 5 y 6 tocan solo el
+ejemplo 12, los programas creados dentro de `mate.py`, `test_mate.py` y MEJORAS (en la 6, en
+`mate.py` cambian solo dos comentarios). La vuelta 7 suma 206 renglones y quita 39, en los
+mismos 4 archivos; en `mate.py` cambian comentarios y la prueba de los programas creados, y el
+intérprete sigue sin cambios.
+
+**Decisiones**
+
+- Los datos van arriba del programa y vacíos: un dato sin cargar se contesta con "eso te lo
+  confirma una persona", nunca con un valor de muestra que el dueño pudiera olvidarse de cambiar.
+- Lo que el programa sabe lo contesta el programa, sin IA. La IA queda para lo demás.
+- La revisión de la respuesta de la IA es **por palabras**: ataja lo más común y no todo, y a
+  veces frena de más. Se decidió decirlo así en el encabezado, el README y MEJORAS 127, en vez
+  de prometer que la IA "no puede" inventar. Cuando frena, al cliente le llega "Sobre ...: eso
+  te lo confirma una persona.": puede no venir al caso, pero nunca es un dato falso.
+- Si la respuesta de la IA trae un dato inventado, se reemplaza **entera**. No se corta por
+  frases, porque el punto también está en "Av." y en "8.30" y podría pasar medio dato (P208).
+- En un pedido con su cantidad, las palabras "flojas" (pago, sábado, hora, llega) no agregan
+  un dato: "cuanto pago por 12 azucar?" da la cuenta sola (vuelta 2).
+- No se sumó "domicilio" como palabra de dirección: rompía "5 galletitas a domicilio".
+- No se tocaron los casos de muestra en las vueltas 2 y 3 ni el texto de reserva de
+  `--ia-simulada` sin archivo, para no mover pruebas de la 0.7 (P219).
+- Ninguna prueba se salteó ni se aflojó. Se ajustaron conteos y el texto del aviso OJO, y la
+  prueba que usaba `telefono: 1145551234` sin comillas ahora lleva las comillas. En la vuelta 4
+  se ajustó un conteo más (el ejemplo 12 pasa de 38 a 39 pruebas).
+- Vuelta 4: una regla general en vez de más palabras. Lo que está escrito en la planilla del
+  dueño no es un dato inventado, y vale la celda entera, no sus números sueltos. No se aplicó la
+  otra sugerencia de P203 (no contar un "N x M" seguido de una medida) para no abrir un hueco a
+  promociones inventadas.
+- Vuelta 5: esa regla abría el hueco igual, por otro lado, y se cerró a costa de dos cosas. Se
+  sumó una lista de palabras nueva (`palabras_de_medida()`), que la vuelta 4 había evitado. Y una
+  celda que es solo "N x M" dejó de exceptuarse, porque "3x2" dicho solo es igual a una
+  promoción: se eligió frenar de más antes que dejar pasar una promoción falsa, y avisarle al
+  dueño por `probar`. Esa decisión es la que deja P203 abierto (agarra igual a "12x900").
+- `renglones_frenados()` mira cada renglón contra él solo, y solo los primeros 300: mirarlo
+  contra toda la planilla pasaba el tope de 10.000.000 de pasos con 600 productos (P229).
+- El renglón de estado de la mejora 127 en MEJORAS sigue diciendo "hecha (vuelta 3)" porque una
+  prueba existente exige ese texto y no se tocó; las notas de las vueltas 4 y 5 están al lado.
+- **Vuelta 6, decisión del coordinador.** Una promoción "lleve N pague M" siempre tiene M menor
+  que N, y los dos son enteros chicos. Entonces un "N x M" cuenta como promoción **solo** si N y
+  M son enteros sin decimales y M es menor que N. Si M es igual o mayor que N, o alguno tiene
+  decimales ("12x900", "6x750", "6 x 2,25", "6x1.5", "6 x 1,5"), es un tamaño y no es promoción,
+  **esté o no en la planilla**. Los casos con M menor que N ("10 x 1", "3x2", "pack 3 x 2 l")
+  siguen como en la vuelta 5: pasan solo con medida o con la palabra de la celda, y `probar`
+  avisa de la celda que es solo eso.
+- Lo que esa decisión deja afuera, a sabiendas: una promoción inventada con M igual o mayor que
+  N, o con decimales, no se frena por la "x" ("Hay 6x6.", "Hay 2x2.", "Hay 3x2.0."); no son
+  promociones corrientes, y "Llevando 3 pagás 2", "gratis", "promo" y los porcentajes se siguen
+  frenando por sus otras reglas (P234). Y el tamaño escrito al revés, contenido por unidades
+  ("900x12"), como celda sola se sigue frenando, porque son dos enteros con M menor que N (P233).
+- Vuelta 6: cambió una afirmación de una prueba existente del ejemplo 12, por la decisión y no
+  para aflojarla. `dato_inventado({}, "Viene en caja 12 x 900 ml.", precios)` esperaba
+  "promociones" ("con otra planilla, lo mismo es inventado") y ahora espera nada, porque la
+  decisión dice "esté o no en la planilla". Ninguna prueba se salteó.
+- El renglón de estado de la mejora 127 sigue diciendo "hecha (vuelta 3)" también después de la
+  vuelta 6, por la misma prueba (P231).
+- **Vuelta 7, decisión del coordinador.** El renglón de la lista dicho **en la forma en que lo
+  arma el programa** nunca es un dato inventado. Antes de revisar la respuesta se le saca cada
+  aparición de la presentación de un producto cuando va entre paréntesis inmediatamente después
+  del nombre de **ese** producto, tal como lo escribe el programa: "Agua mineral (6x2.25)",
+  "Jabón (3x2)", "Harina 000 (10 x 1)". Se compara como ya compara el código, sin importar
+  mayúsculas ni tildes. Vale para cualquier celda, también la que es solo "3x2". **Fuera de esa
+  forma exacta, todo sigue como en la vuelta 6**: "Hay 3x2 en jabón." se sigue frenando aunque la
+  celda diga "3x2". Con esto cambia la decisión de la vuelta 5 sobre la celda sola (P228) y
+  `renglones_frenados()` queda como red de `probar`, que ya no encuentra renglones frenados por
+  su propia presentación.
+- Lo que esa decisión deja afuera, a sabiendas. Si la celda del dueño es una promoción ("2x1",
+  "3x2"), la IA puede adornar el renglón exacto y pasa ("Shampoo (2x1) también en yerba.", P238).
+  Y la presentación dicha de otra manera se sigue frenando aunque sea la del producto ("Sí,
+  tenemos agua mineral, viene en 6x2.25.", "Agua mineral (6 x 2.25)" con la celda "6x2.25",
+  P241): nunca llega un dato falso, pero con un modelo real puede aparecer.
+- Vuelta 7: cambiaron tres afirmaciones de pruebas existentes, por la decisión y no para
+  aflojarlas. (1) En el ejemplo 12, `renglones_frenados()` con la celda "3x2" y con 'Pan' (8.30)
+  esperaba el aviso y ahora espera nada. (2) En pytest,
+  `test_071_vuelta_4_probar_avisa_si_un_renglon_de_la_planilla_se_frenaria` esperaba el aviso por
+  'Pan' (8.30) y ahora lo espera por un renglón sin nombre de producto, lo único que la red
+  todavía avisa. (3) En pytest, la prueba de la vuelta 6 de la celda sola "3x2" o "10 x 1"
+  esperaba "tenes jabon?" frenado y `probar` fallando; ahora espera el renglón "Jabón tocador
+  (3x2): $ 2.000,00" y `probar` pasando, y pasó a llamarse
+  `test_071_vuelta_6_una_celda_que_es_solo_una_promocion_dicha_suelta_se_frena_y_su_renglon_pasa`
+  porque el nombre viejo quedaba falso. Ninguna prueba se salteó.
+- Vuelta 7: "Atendemos 24 hs" con una celda "24 hs" en la planilla no se tocó, porque la
+  decisión dice que fuera del renglón exacto todo sigue como en la vuelta 6. El implementador lo
+  dejó anotado en el "Quedó afuera" de MEJORAS y pide decisión del coordinador (P239).
+
+**Veredictos**
+
+| Vuelta | Sobre | Resultado | Qué quedó |
+|---|---|---|---|
+| 1 | `ac04a45` | **no aprobada** | un hallazgo alto/medio (una prueba dependía de la ruta donde está `mate.py`), varios medios (formatos de hora, dirección, contacto y pago que pasaban; preguntas corrientes que iban a la IA; producto más dato perdía el producto; textos que prometían de más) y bajos |
+| 2 | `1f5c236` | **no aprobada** | un medio (un teléfono sin comillas se leía como una cuenta: `4555-1234` daba 3321) y bajos |
+| 3 | `97f9963` | **no aprobada** | **un medio nuevo: P203**. Sin altos. 15 bajos (P204 a P218), 3 de ellos ya estaban en la 0.7 |
+| 4 | `07f9f0f` | **no aprobada** | un medio: el arreglo de P203 dejaba pasar promociones inventadas con ciertas planillas ("Hay 2x1 en yerba." con una presentación "2x1 litro"; "Hay 4x3 en jabones." con "x 3"). Se corrigió en la vuelta 5 |
+| 5 | `df65fdc` | **no aprobada** | **un medio: P203 corregido solo en parte** (la celda que es solo "N x M"). Sin altos. 8 bajos: 5 nuevos (P210 en lo que le queda, P223, P224, P225, P228) y 2 que ya estaban (P226, P227); el octavo es el mismo caso de P225 visto por el otro verificador |
+| 6 | `5ca704e` | **no aprobada** (revisor) | **un medio: P232**, resto de P203 ("6x2.25" con punto y dos decimales se toma por una hora). Ya estaba; no lo introdujo este commit. Sin altos. 3 bajos que ya estaban (P233, P234, P235). Todo lo pedido para la vuelta anda. Si el coordinador decide que P232 es bajo porque `probar` lo avisa, el revisor no tiene nada más que frene |
+| 7 | `3ddd365` | **APROBADA** (revisor) | Sin altos ni medios. **P232 corregido.** 5 bajos: uno nuevo, costo aceptado de la decisión (P238), y cuatro que ya estaban (P239, P240, más casos de P235, P243). Falta el ensayo con un modelo real |
+
+A este registro el resultado de la verificación le llegó junto (revisor y probador), no un
+veredicto por cada uno: no anoto quién encontró qué. De la vuelta 4 me llegó solo lo que el
+implementador corrigió después ("el problema medio" y "el caso del revisor"), no el informe
+entero. De la vuelta 5 me llegó "aprobado: no", ningún problema grave abierto, y la lista de un
+medio y ocho bajos que está abajo.
+
+Lo que los verificadores sí dieron por bueno en la vuelta 5: las formas pedidas en P203 andan,
+en el mostrador y en el equipo ("caja 12 x 900 ml", "pack 6x1.5 l", "pack 6 x 2,25 l", "bolsa
+10 x 1 kg", "2x1 litro"); lo inventado que se pidió frenar sigue frenado, con promociones sin
+cargar y con esas planillas ("Hay 2x1 en yerba.", "Llevando 3 pagás 2.", "Tenés 10% de
+descuento.", "Hay 3x2 en gaseosas.", "Leche 2x1."); `probar` ahora falla en "tu planilla está
+bien cargada" y nombra los renglones; y el arreglo no cambió los tiempos (cuatro consultas con
+300 renglones: 5,3 s contra 5,1 s en `97f9963`; con 800: 13,7 s contra 13,3 s).
+
+**Veredicto de la vuelta 6** (del revisor, sobre `5ca704e`; esta vez llegó un solo informe, el
+suyo). **No aprueba, por un solo punto**: P232. Trabajó en una copia propia, con `nuevo
+mostrador` y `nuevo equipo` en carpetas limpias, una planilla de 40 renglones y
+`MATE_SIN_REGISTRO=1`; el repositorio original le quedó sin tocar (`git status` limpio, HEAD en
+`5ca704e`). Lo que dio por bueno:
+
+- **Tamaños.** "6x750", "12x900", "6 x 2,25", "12 x 454", "20 x 500", "12x400", "24 x 350",
+  "48x170", "6x1000", "18x20", "20 x 40", "caja 12 x 900 ml", "pack 6x1.5 l", "x 12", "10 x 1
+  kg", "12 x 1 l", "8 x 2 l", "6x3 kg" y "bolsón 10 x 4" contestan su renglón con el precio, en
+  los dos programas.
+- **Celdas solas con M menor que N.** "6 x 2", "12x1", "24x12", "900x12" y "350 x 24" se frenan
+  y `probar` las nombra una por una con el texto nuevo. El consejo funciona: "lata 900x12",
+  "350 g x 24" y "90x48 u" pasan.
+- **Promociones inventadas** (`--ia-simulada=archivo`, sin promociones cargadas): "Hay 2x1 en
+  yerba.", "Hay 3x2.", "4x3 en jabones", "Llevando 3 pagás 2.", "10% de descuento", "Hay 12x10
+  en vino.", "Hay 6 x 5 en vino tinto.", "El vino viene de a 6x750 y hay 2x1.", "Tenemos 2 x 1
+  en fideos y 12x900 en aceite." y "Hay 3x2.Llevate uno." siguen frenadas, en mostrador y
+  equipo. "El vino viene de a 6x750 y el agua de a 6 x 2,25." pasa.
+- **La decisión, medida.** Comparó `dato_inventado()` de `df65fdc` contra la de `5ca704e` con
+  937 frases (N y M variados, "x", " x ", "X", signos pegados, decimales, con y sin planilla).
+  Las 336 que cambian son todas con M igual o mayor que N, o con decimales. Ninguna con dos
+  enteros y M menor que N dejó de frenarse, y no hubo ningún error en ejecución, tampoco con
+  cifras raras o números enormes.
+- **Venta con "si"**, en el equipo: "quiero 12 yerba mate" y "si" da "Anotado: 12 x Yerba mate
+  (10 x 1 kg)... total $ 420.000,00". El mostrador cotiza igual que antes.
+- `--version` dice "Mate 0.7.1".
+- Las tres baterías, una corrida cada una (Python 3.13): pytest 1370 pasan y 0 fallan en 614 s
+  (con un tope de 900 s; corría junto con sus otras pruebas); `probar mate/ejemplos` 142 de 142
+  en 22 archivos; `probar mate/curso` 37 de 37 en 26 archivos.
+
+**Evidencia**
+
+Informadas por el implementador sobre `97f9963` (Linux, Python 3.13, `MATE_SIN_REGISTRO=1`):
+
+| Comando | 0.7.1 (`97f9963`) | Vuelta 2 (`1f5c236`) | 0.7 (`main`) |
+|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1357 pasan, 0 fallan (547 s) | 1344 pasan | 1319 pasan |
+| `python3 mate/mate.py probar mate/ejemplos` | 141 de 141, en 22 archivos | 137 de 137 | 114 de 114 |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37 | 37 de 37 |
+
+Pruebas por archivo: 38 en el ejemplo 12, 51 en el 13, 18 en el mostrador creado y 32 en el
+equipo creado.
+
+Lo que corrió el integrador para este registro (Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`,
+sobre `97f9963`): `probar mate/ejemplos` dio 141 de 141 en 22 archivos y `probar mate/curso`
+37 de 37 en 26 archivos; después `git status --short` no mostró nada. **No corrí pytest**: el
+1357 es el número del implementador. Y reproduje P203 en una carpeta vacía:
+
+| Paso | Qué pasó |
+|---|---|
+| `nuevo mostrador alm`, `correr alm.mate --ia-simulada`, `tenes aceite?` | "Aceite de girasol (caja de 12 botellas de 900 ml): $ 31.200,00" (bien) |
+| Cambiar en `alm_precios.csv` la presentación a `caja 12 x 900 ml` y repetir | "Sobre las promociones: eso te lo confirma una persona." (**P203**) |
+| `probar alm.mate` con esa planilla | 18 de 18: el dueño no se entera |
+
+**Evidencia de las vueltas 4 y 5**
+
+Informadas por el implementador (Linux, Python 3.13, `MATE_SIN_REGISTRO=1`):
+
+| Comando | Vuelta 5 (`df65fdc`) | Vuelta 4 (`07f9f0f`) | Vuelta 3 (`97f9963`) |
+|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1366 pasan, 0 fallan (565 s) | 1363 pasan, 0 fallan (585 s) | 1357 pasan |
+| `python3 mate/mate.py probar mate/ejemplos` | 142 de 142, en 22 archivos | 142 de 142 | 141 de 141 |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37 | 37 de 37 |
+
+Pruebas por archivo: 39 en el ejemplo 12 (una más, la de la planilla), y siguen 18 en el
+mostrador creado y 32 en el equipo creado. El implementador comprobó que las pruebas nuevas de
+P203 fallan sin el arreglo de la vuelta 4, y que la de la vuelta 5 falla con el ejemplo 12 de
+`07f9f0f`. También reprodujo el caso del revisor de la vuelta 4 en una carpeta vacía: "alguna
+novedad?" y "tenes jabon?" contestan "Sobre las promociones: eso te lo confirma una persona.",
+"tenes leche?" contesta "Leche larga vida (2x1 litro): $ 3.000,00", y `probar` da 18 de 18.
+
+Lo que corrió el integrador para este registro (Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`,
+sobre `df65fdc`): `probar mate/ejemplos` dio 142 de 142 en 22 archivos y `probar mate/curso`
+37 de 37 en 26 archivos; después `git status --short` no mostró nada. **No corrí pytest**: el
+1366 es el número del implementador. Y probé en una carpeta vacía lo que anda y lo que queda
+de P203 (`nuevo mostrador alm`, renglones agregados a `alm_precios.csv`, `correr alm.mate
+--ia-simulada --olvidar`):
+
+| Renglón agregado a la planilla | Pregunta | Qué contestó |
+|---|---|---|
+| `Vinagre;caja 12 x 900 ml;31.000;4` | `tenes vinagre?` | "Vinagre (caja 12 x 900 ml): $ 31.000,00" (bien: era el caso de P203) |
+| `Sidra;12x900 ml;9.000;4` | `cuanto sale la sidra?` | "Sidra (12x900 ml): $ 9.000,00" (bien) |
+| `Vino tinto;6x750;5.000;5` | `cuanto sale el vino tinto?` | "Sobre las promociones: eso te lo confirma una persona." (**lo que queda de P203**) |
+| `Lavandina;10 x 1;4.500;8` | `tenes lavandina?` | "Sobre las promociones: eso te lo confirma una persona." (ídem) |
+| `Jabon;3x2;2.000;10` | `tenes jabon?` | "Sobre las promociones: eso te lo confirma una persona." (P228, decidido así) |
+
+Con esa planilla, `probar alm.mate` da 17 de 18. Falla "tu planilla está bien cargada" con este
+aviso: "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una
+promoción): 'Vino tinto' (6x750); [...] 'Jabon' (3x2); 'Lavandina' (10 x 1). Cuando la IA lo
+nombre, al cliente le va a llegar 'eso te lo confirma una persona' en vez de la respuesta.
+Escribí esa celda de otra manera (con más de una palabra, por ejemplo) y volvé a probar.". Al
+arrancar con `correr` no sale ningún aviso. (Eso es de la vuelta 5: en la vuelta 6 "6x750" dejó
+de frenarse y el final del aviso cambió; está abajo.)
+
+**Evidencia de la vuelta 6**
+
+Informadas por el implementador (Linux, Python 3.13, `MATE_SIN_REGISTRO=1`) y repetidas por el
+revisor en su copia:
+
+| Comando | Vuelta 6 (`5ca704e`), implementador | Vuelta 6, revisor | Vuelta 5 (`df65fdc`) |
+|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1370 pasan (10 min 17 s) | 1370 pasan, 0 fallan (614 s) | 1366 pasan (565 s) |
+| `python3 mate/mate.py probar mate/ejemplos` | 142 de 142, en 22 archivos | 142 de 142 | 142 de 142 |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37 | 37 de 37 |
+
+Las dos corridas de pytest pasaron de los 10 minutos: el tope de 10 minutos ya no alcanza, hay
+que darle 15 (P215).
+
+Las dos pruebas nuevas de pytest, las dos con mostrador y equipo, la planilla leída de un `.csv`
+y `--ia-simulada`:
+`test_071_vuelta_6_una_presentacion_que_es_solo_un_tamaño_no_se_toma_por_promocion` (las
+presentaciones pedidas contestan el renglón con su precio, `probar` da todo bien y las
+promociones inventadas siguen frenadas) y
+`test_071_vuelta_6_una_celda_que_es_solo_una_promocion_se_sigue_frenando_y_probar_dice_que_hacer`
+(con celdas "3x2" y "10 x 1" se frena, y `probar` falla nombrándolas con el texto nuevo). El
+implementador comprobó a mano, con `nuevo mostrador` y `nuevo equipo` y una planilla `.csv` con
+"6x750", "12x900", "6 x 2,25", "12 x 454" y "20 x 500": "cuanto sale el vino tinto?" contesta
+"Vino tinto (6x750): $ 18.000,00" y los otros cuatro su renglón; `probar` da 18 de 18
+(mostrador) y 32 de 32 (equipo); "Hay 2x1 en yerba.", "Hay 3x2.", "Llevando 3 pagás 2." y "Hay
+12x10." siguen frenadas. No me llegó que haya visto fallar las pruebas nuevas contra `df65fdc`
+antes del arreglo, como se había pedido.
+
+Lo que corrió el integrador para este registro (Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`,
+sobre `5ca704e`): `probar mate/ejemplos` dio 142 de 142 en 22 archivos y `probar mate/curso`
+37 de 37 en 26 archivos; después `git status --short` no mostró nada. **No corrí pytest**: el
+1370 es el número del implementador y del revisor. Y repetí en una carpeta vacía la tabla de la
+vuelta 5 con renglones nuevos (`nuevo mostrador alm`, renglones agregados a `alm_precios.csv`,
+`correr alm.mate --ia-simulada --olvidar`):
+
+| Renglón agregado a la planilla | Pregunta | Qué contestó |
+|---|---|---|
+| `Vino tinto;6x750;5.000;5` | `cuanto sale el vino tinto?` | "Vino tinto (6x750): $ 5.000,00" (**bien: era lo que quedaba de P203**) |
+| `Agua;6 x 2,25;900;5` | `tenes agua?` | "Agua (6 x 2,25): $ 900,00" (bien) |
+| `Cola;6x2.25;1.000;5` | `tenes cola?` | "Sobre el horario: eso te lo confirma una persona." (**P232**) |
+| `Lavandina;10 x 1;4.500;8` | `tenes lavandina?` | "Sobre las promociones: eso te lo confirma una persona." (por la decisión; P228) |
+| `Jabon;3x2;2.000;10` | `tenes jabon?` | "Sobre las promociones: eso te lo confirma una persona." (por la decisión; P228) |
+| `Tomate;900x12;100;5` | `tenes tomate?` | "Sobre las promociones: eso te lo confirma una persona." (P233) |
+
+Con esa planilla, `probar alm.mate` da 17 de 18. Falla "tu planilla está bien cargada" con este
+aviso: "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una
+promoción): 'Lavandina' (10 x 1); 'Jabon' (3x2); 'Cola' (6x2.25); 'Tomate' (900x12). Cuando la
+IA lo nombre, al cliente le va a llegar 'eso te lo confirma una persona' en vez de la respuesta.
+Escribí esa celda de otra manera (agregale el envase o la medida: por ejemplo, 'caja 3 x 2 l'
+en vez de '3x2') y volvé a probar.". "Vino tinto" y "Agua" ya no están en la lista.
+
+**Veredicto de la vuelta 7** (del revisor, sobre `3ddd365` comparado con `5ca704e`; llegó un
+solo informe, el suyo). **Aprueba**: no encontró problemas altos ni medios nuevos, y da P232 por
+corregido. Trabajó en una copia propia (`/tmp/tmp.s45nnaJpr3/mate`, y `5ca704e` extraído al lado
+para comparar), con `MATE_SIN_REGISTRO=1`; el repositorio original le quedó sin tocar (`git
+status` limpio, HEAD en `3ddd365`) y sus carpetas temporales quedaron sin borrar. Lo que dio por
+bueno:
+
+- El cambio cumple la decisión: solo la forma exacta, sin importar mayúsculas ni tildes, y el
+  nombre tiene que arrancar una palabra. En `mate.py` cambian solo comentarios y la prueba de
+  los programas creados. Ninguna prueba se salteó; la de la vuelta 6 cambió de afirmación por la
+  decisión.
+- Como usuario, con `nuevo mostrador` y `nuevo equipo` en carpetas limpias y una planilla de 40
+  renglones (las presentaciones pedidas y otras: "2x1", "3x1", "6x1", "70%", "12:30", "lata
+  900x12"): "cuanto sale X?" y "tenes X?" contestan el renglón con su precio para los 40
+  productos, en los dos programas (80 de 80 cada uno), con cuatro nombres cambiados para que no
+  compartan palabras (P235). Ejemplos: "Agua mineral (6x2.25): $ 7.000,00", "Agua saborizada (6
+  x 2.25)", "Gaseosa cola (12x1.50)", "Jabón tocador (3x2)", "Harina 000 (10 x 1)", "Cerveza
+  rubia (24x12)", "Hielo (24 hs)", "Diario (lunes)", "Turno mañana (de 8 a 12)", "Bolsa
+  camiseta (efectivo)".
+- En el equipo, "quiero 2 X" y "si" dio "Anotado: 2 x ..." para los 40; "quiero 12 agua
+  mineral" y "si" dio "Anotado: 12 x Agua mineral (6x2.25) a $ 7.000,00 cada uno: total $
+  84.000,00.".
+- `probar` pasa: 18 de 18 en el mostrador y 32 de 32 en el equipo. `--version` dice "Mate 0.7.1
+  (Python 3.13)". `ensayar` con los casos de muestra no lo miró: son para la planilla de muestra.
+- Con datos sin cargar y `--ia-simulada=archivo`, en mostrador y equipo, **siguen frenadas** con
+  la planilla completa: "Hay 3x2 en jabón.", "Hay 2x1 en yerba.", "Abrimos a las 8.30.",
+  "Abrimos de 8 a 12.", "Llamanos al 11 4444-5555.". Y fuera de la forma exacta: "Jabón tocador:
+  3x2.", "Jabón tocador 3x2.", "Jabón tocador (3 x 2)", "( 3x2 )", "Shampoo (3x2).", "Cerveza
+  rubia (3x2).", "Hay 24x12 en cerveza.", "Hay 6x2.25 en agua.", "Pan rallado (8.30)".
+- Comparó 1400 respuestas de IA entre `3ddd365` y `5ca704e` en el mostrador: cambian 19, todas
+  el renglón exacto de un producto, y ninguna pasó a frenarse.
+- Tiempos sin cambio: cuatro consultas con 800 renglones, 7,6 s contra 7,8 s en el mostrador y
+  9,4 s contra 9,3 s en el equipo.
+- Baterías (una corrida cada una, Python 3.13.18): pytest 1373 pasan, 0 fallan, 665,6 s (con
+  tope de 900 s, corriendo junto con sus otras pruebas); ejemplos 142 de 142 en 22 archivos;
+  curso 37 de 37 en 26 archivos.
+
+Lo que encontró, todo bajo, está en P238 a P240, P243 y en lo que se suma a P235. Y lo de
+siempre: nada de esto se probó con un modelo de verdad.
+
+**Números de la vuelta 7** (del implementador; el revisor dio los mismos en su copia)
+
+| Comando | Vuelta 7 (`3ddd365`) |
+|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo` | 1373 pasan, 0 fallan (11 min 36 s el implementador; 665,6 s el revisor) |
+| `python3 mate/mate.py probar mate/ejemplos` | 142 de 142, en 22 archivos |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos |
+
+La primera corrida completa de pytest del implementador se cortó por el tope de espera que le
+había puesto él (10 minutos), no por una falla; la repitió entera con tope de 15 y es la que
+informa (P215). El integrador no volvió a correr las baterías: este registro toca solo
+`EQUIPO.md`.
+
+**Lo que repitió el integrador** (vuelta 7, sobre `3ddd365`; carpeta temporal propia,
+`nuevo mostrador alm`, `MATE_SIN_REGISTRO=1`, datos sin cargar). Planilla: `Agua
+mineral;6x2.25;7.000;30`, `Gaseosa cola;12x1.50;9.000;30`, `Jabón tocador;3x2;2.000;30`,
+`Harina 000;10 x 1;14.500;8`, `Shampoo;2x1;4.800;30`, `Hielo;24 hs;900;30`.
+
+| Con | El cliente escribió | Llegó |
+|---|---|---|
+| `--ia-simulada` | `cuanto sale el agua mineral?` | "Agua mineral (6x2.25): $ 7.000,00" (**P232 corregido**) |
+| `--ia-simulada` | `tenes gaseosa cola?` | "Gaseosa cola (12x1.50): $ 9.000,00" |
+| `--ia-simulada` | `tenes jabon tocador?` | "Jabón tocador (3x2): $ 2.000,00" (antes: "Sobre las promociones...", P228) |
+| `--ia-simulada` | `cuanto sale la harina 000?` | "Harina 000 (10 x 1): $ 14.500,00" |
+| IA: "Hay 3x2 en jabón." | `che zq1` | "Sobre las promociones: eso te lo confirma una persona." |
+| IA: "Jabón tocador: 3x2." | `che zq2` | "Sobre las promociones: eso te lo confirma una persona." |
+| IA: "Shampoo (2x1) también en yerba." | `che zq3` | llega tal cual (**P238**) |
+| IA: "Atendemos las 24 hs." | `che zq4` | llega tal cual (**P239**) |
+| IA: "Agua mineral (6 x 2.25)" | `che zq5` | "Sobre el horario: eso te lo confirma una persona." (**P241**) |
+
+Con esa planilla, `probar alm.mate` da 18 de 18. La carpeta quedó sin borrar, fuera del
+repositorio (`/tmp/tmp.Sb2DtjNib2`); no tiene nada del dueño.
+
+**Problemas abiertos** (siguen la numeración; el último anterior era P202)
+
+Altos: ninguno. Medios: ninguno (después de la vuelta 7).
+
+Medio de la vuelta 6, **corregido en la vuelta 7**:
+
+- **P232** (medio; resto de P203; ya estaba, no lo introdujo `5ca704e`; lo encontró el
+  revisor. **CORREGIDO en la vuelta 7** (`3ddd365`), con la decisión del coordinador: el renglón
+  como lo arma el programa nunca es un dato inventado. Verificado por el revisor con 40
+  productos en mostrador y equipo, y repetido por el integrador. Lo que le queda, bajo, está en
+  P241. Lo que sigue en este punto es el texto de la vuelta 6, como historia.) Una celda de presentación que es solo un tamaño escrito con punto y dos decimales
+  ("6x2.25", "6 x 2.25", "6x1.25", "12x1.50") sigue sin dar el precio. Ya no se toma por
+  promoción, pero ahora la agarra el detector de horas ("2.25" parece una hora) y al cliente le
+  llega "Sobre el horario: eso te lo confirma una persona.". Pasa en el mostrador y en el
+  equipo. Es la forma corriente del pack de gaseosa o de agua de 2,25 l. Con coma ("6 x 2,25",
+  "12x1,50"), con un solo decimal ("6x1.5", "6x2.5") o con medida o envase ("6x2.25 l", "caja
+  6x2.25") pasa bien. `probar` sí lo avisa, con el texto claro, y el consejo de agregar el
+  envase o la medida lo arregla. En `df65fdc` también se frenaba (como promoción). La nota de la
+  vuelta 6 en MEJORAS dice que si alguno tiene decimales "es un tamaño y pasa", y para este
+  caso no es cierto.
+  Cómo se reproduce: en una carpeta vacía, `mate nuevo mostrador alm`; dejar `alm_precios.csv`
+  con el encabezado y el renglón `Cola;6x2.25;1;1`; `mate correr alm.mate --ia-simulada
+  --olvidar` y escribir `tenes cola?`. Contesta "Sobre el horario: eso te lo confirma una
+  persona.". `mate probar alm.mate` falla en "tu planilla está bien cargada" nombrando 'Cola'
+  (6x2.25). Lo repetí (tabla de arriba).
+  Arreglo probable, del revisor: que el número que sigue a un "N x" no cuente como hora.
+  **Pendiente de decisión**: el revisor acepta que el coordinador lo baje a bajo porque `probar`
+  lo avisa; mientras tanto queda medio y frena.
+
+Medio de las vueltas 3 a 5, corregido en la vuelta 6 en lo que se pidió:
+
+- **P203** (medio, nuevo en la 0.7.1; corregido en parte en las vueltas 4 y 5; **en la vuelta 6
+  quedó corregido lo que se pedía**: la celda que es solo un tamaño ("6x750", "12x900", "6 x
+  2,25", "12 x 454", "20 x 500") contesta el precio, verificado por el revisor y repetido por
+  el integrador; el consejo del aviso y las frases de MEJORAS y de `mate.py` que no eran ciertas
+  se corrigieron. **Lo que le queda está en P232** (el tamaño con punto y dos decimales), en
+  P228 y P233 (las celdas solas con M menor que N, por decisión) y en que `correr` sigue sin
+  avisar nada al arrancar. Lo que sigue en este punto es el texto de la vuelta 5, como
+  historia.) Lo de la vuelta 3: si la presentación de un producto está escrita como "N x M"
+  ("caja 12 x 900 ml", "pack 6 x 2,25 l", "pack 6x1.5 l", "bolsa 10 x 1 kg"), toda respuesta
+  que la nombre se tomaba por una promoción inventada y se cambiaba entera por "Sobre las
+  promociones: eso te lo confirma una persona."; con "pack 8.30 cm", por "Sobre el horario".
+  **Eso ya anda**, en el mostrador y en el equipo, también con "2x1 litro".
+  **Lo que queda**: si la celda de presentación es **solo** el "N x M", sin envase ni medida
+  ("12x900", "6x750", "10x500", "12x500", "6 x 2,25", "10 x 1", "12 x 454", "20 x 500"), sigue
+  pasando lo mismo: a "cuanto sale el vino tinto?" le llega "Sobre las promociones: eso te lo
+  confirma una persona." en vez del precio, también con `--ia-simulada`. En una planilla
+  realista de 40 renglones se frenaron 8. Es la regla de la vuelta 5 (en
+  `sin_lo_de_la_planilla()`, una celda que es solo un "N x M" no se exceptúa), pensada para
+  "3x2" pero que agarra igual a "12x900".
+  Mejoró respecto de la vuelta 3: `probar` falla en "tu planilla está bien cargada" y nombra
+  los renglones. Falta: `correr` no avisa nada al arrancar; el consejo del aviso ("con más de
+  una palabra") confunde, porque "12 x 900" con espacios sigue frenado (hay que agregar envase
+  o medida: "12x900 ml" sí pasa); y MEJORAS y el comentario de la prueba en `mate.py` dicen que
+  "con una planilla leída de un archivo no se conoce ningún renglón que se frene", y no es
+  cierto.
+  Cómo se reproduce: `nuevo mostrador alm`; en `alm_precios.csv`, "Vino tinto;6x750;5.000;5" y
+  "Harina 000;10 x 1;14.500;8"; `correr alm.mate --ia-simulada --olvidar` y preguntar por
+  cualquiera de los dos. Directo: `dato_inventado({}, "Vino tinto (6x750): $ 9.000,00",
+  planilla)` devuelve "promociones".
+  Arreglo sugerido por los verificadores: exceptuar la celda sola cuando no tiene forma de
+  promoción (M mayor que N, o con decimales: "12x900", "6x750", "6 x 2,25") o cuando va pegada
+  al nombre de su producto como la dice el programa ("Vino tinto (6x750)"), y dejar el aviso
+  para las que sí parecen promoción ("3x2", "10 x 1").
+
+Bajos, nuevos en la 0.7.1:
+
+- P204: horarios inventados que pasan con los datos vacíos, cuando no hay "abrimos",
+  "atendemos", "las" ni "de N a N": "Estamos de 9 hasta 18.", "Estamos entre 9 y 18.", "de 8 hrs
+  a 18 hrs", "de 9 a.m. a 6 p.m.", "Estamos L-V.", "Lu a Vi.", "Sólo días de semana.", "Estamos
+  toda la semana.". No están en la prueba de "lo que se escapa".
+- P205: direcciones inventadas que pasan: "Podés retirar el pedido en Mitre 1234.", "Pasá por
+  Mitre 1234.", "El depósito está en Mitre 1234.", "Estamos por Avellaneda.", "Estamos cerca de
+  la estación."; y con la dirección cargada, la misma calle con otra localidad.
+- P206: otros datos inventados que pasan. Pago: "Pagás por MP.", "PayPal o cripto.", "Rapipago
+  o Pago Fácil.", "Echeq.", "Ualá.", "Pago contra entrega.", "Facturamos A y B.". Promociones:
+  "El envío es sin costo.", "sin cargo", "te bonificamos el envío", "precio especial", "más
+  barato", "liquidación". Entregas: "Lo recibís mañana.", "Repartimos en zona sur y CABA.".
+  Contacto: "Llamá al 444555." (6 cifras), "0800 MAYORISTA", "mayorista.ar", un usuario de
+  Instagram. Otros: "como mínimo 5 bultos".
+- P207: respuestas legítimas frenadas con los datos vacíos: "Los precios son por bulto
+  cerrado." y "Vendemos solo por bulto cerrado." ("cerrado" se toma por horario, y es palabra
+  de todos los días en un mayorista), "Desde las 10 hacemos envíos.", "De las 3 que nombraste
+  tengo dos.", "Te aviso a la tarde.", "Es precio de contado.", "No hacemos descuentos.",
+  "a partir de mañana", la palabra "dirección" en cualquier respuesta. Llega "Sobre ...: eso
+  te lo confirma una persona.", nunca un dato falso.
+  **Vuelta 4, corregido en parte**: "bulto cerrado", "caja cerrada", "pack cerrado" y "paquete
+  cerrado" ya no se toman por horario ("Hoy está cerrado" y "Cerrado los domingos" se siguen
+  frenando). **Sigue abierto** todo lo demás de la lista, de "Desde las 10 hacemos envíos." en
+  adelante.
+- P208: si la IA mezcla un dato inventado con algo útil, el cliente pierde lo útil. A "hola"
+  le llega "Sobre el horario: eso te lo confirma una persona."; a "tenes yerba?" (IA: "Sí,
+  tenemos yerba mate a $ 35.000,00. Aceptamos Mercado Pago.") le llega "Sobre las formas de
+  pago...", sin el precio. Con un producto nombrado se podría anteponer el renglón de la lista,
+  como ya hace `con_los_productos()`.
+- P209: preguntas que el programa contesta con un tema que no es, o con un agregado de más
+  (nunca con un dato falso): "el pedido de ayer no llego" recibe "Sobre la dirección..."; "a
+  donde les escribo?" recibe la dirección y no el teléfono; "te pago cuando llega" recibe tres
+  temas; "cuando entra harina?" recibe el precio y "Sobre el horario..."; "cuanto me cobras por
+  5 yerbas?", "quiero 5 azucar al contado" y "dame 3 harina con factura" suman "Sobre las
+  formas de pago..."; "de donde es la yerba?" suma "Sobre la dirección..."; "...al contado no
+  cambian" se toma por forma de pago. El mostrador agrega la dirección a "quiero 10 yerbas para
+  retirar en el local" y el equipo no.
+- P210: las pruebas de la revisión usan solo la planilla de muestra, con presentaciones con
+  "de" ("caja de 12 botellas de 900 ml"). No hay ninguna con "N x M" ni con "bulto cerrado", y
+  por eso P203 no saltó. La prueba "tu planilla está bien cargada" del programa creado no pasa
+  los renglones de la planilla del dueño por `dato_inventado()`, que sería la forma barata de
+  avisarle.
+  **Vuelta 4, corregido en parte**: están las dos cosas que se pedían (la prueba del ejemplo 12
+  con una planilla de mayorista, y `renglones_frenados()` en "tu planilla está bien cargada").
+  **Sigue abierto** (bajo, vuelta 5): ninguna prueba carga desde un CSV una presentación que
+  sea solo "N x M" con forma de tamaño ("12x900"). El aviso de `probar` se prueba reemplazando
+  la llamada por una lista escrita a mano ("8.30"), y "3x2" solo dentro del ejemplo 12; en
+  `PLANILLA_CON_EQUIS` de `test_mate.py` todas las presentaciones con equis llevan envase y
+  medida. Por eso lo que queda de P203 tampoco saltó, igual que la primera vez.
+- P211: frases vagas que pasan con los datos sin cargar: "Repartimos en toda la zona oeste.",
+  "Te esperamos mañana a primera hora.", "Pasá cuando quieras, siempre hay alguien.", "Tenemos
+  estacionamiento propio para clientes.", "Podés retirar por el local.", "Te lo alcanzamos
+  enseguida", "Quedamos a la vuelta de la plaza". Con horario cargado pasan "Lunes a viernes de
+  8 a 17" y "Los lunes no abrimos; el viernes sí, de 8 a 17". Parte está fijada como LÍMITES
+  CONOCIDOS en una prueba del ejemplo 12.
+- P212: el aviso de stock en cero. Con dos productos en cero, "tenes aceite y fideos?" contesta
+  solo el precio del aceite, sin aviso. Si la IA afirma que hay, llegan las dos frases que se
+  contradicen ("Sí, tenemos... De ... ahora no hay stock."). "tenes cafe y yerba?" deja pasar
+  el "podés pedirlo" de la IA.
+- P213: una pregunta pegada a un pedido se pierde sin decir nada: "quiero 3 yerba, como se
+  paga?" y "que dia llega si pido 10 yerbas?" dan solo la cuenta. Es la regla de las palabras
+  flojas (decisión de la vuelta 2). "hacen envios a cordoba?" con entregas vacío contesta solo
+  la regla de unidades, sin decir que la zona la confirma una persona.
+- P214: después de cargar los datos (paso 5), ensayar con los casos de muestra da 23 de 28:
+  fallan los 5 casos que esperan "eso te lo confirma una persona". Está avisado en el paso 7 y
+  en el encabezado, pero el dueño ve cruces por hacer lo que se le pidió.
+- P215: la batería de pytest tardó 550 s contra 294 s en `main`, con 38 pruebas más, y `probar`
+  del equipo creado pasó de 2,8 s a 4,6 s (una sola corrida de cada una: no es concluyente).
+  **Hay que correr pytest con un tope de al menos 10 minutos** (va con P148). El programa
+  creado pasó de 128 KB a 201 KB (3889 renglones) y `datos_del_negocio` queda en el renglón
+  153, debajo de 150 renglones de comentarios.
+- P219: cosas chicas que dejó anotadas el implementador. Con `--ia-simulada` sin archivo,
+  "tenes cafe?" contesta "Decime el nombre del producto..." y el dueño no ve "Eso no lo
+  trabajamos." en un ensayo sin gastar (aclarado en el manual). Los casos de muestra no traen
+  las preguntas nuevas de las vueltas 2 y 3. Un renglón de `datos_del_negocio` borrado queda
+  vacío sin más aviso que el "sin cargar" del arranque. `{consultar}` adentro de un dato da "no
+  existe 'consultar'. ¿Quisiste decir 'consultar_ia'?". La pista de la coma dice "el renglón de
+  arriba (el N)" aunque en el medio haya un comentario.
+- P222: el mensaje del commit `ac04a45` dice "el intérprete no cambió". Dejó de ser exacto con
+  los tres textos de error de las vueltas 2 y 3 (el README y MEJORAS sí lo dicen). No se
+  reescribe el historial; queda anotado acá.
+
+Bajos nuevos de las vueltas 4 y 5 (los encontraron el revisor y el probador sobre `df65fdc`,
+salvo P229 a P231, que los dejó anotados el implementador):
+
+- P223: lo que hay en la planilla ahora habilita datos que en la vuelta 3 se frenaban, aunque
+  solo con celdas rebuscadas. Con el teléfono cargado, un número de 7 cifras o más que esté en
+  una celda (un código de artículo o de barras en el nombre) pasa como teléfono: con el
+  producto "Repuesto cód. 4555-1234", "Llamanos al 4555-1234." pasa (en `97f9963` daba
+  "telefono"). Con "Reloj de pared 8:30", "Te espero 8:30." pasa aun sin horario cargado. Con
+  una celda entera "8 a 12" o "de 8 a 18" y horario cargado, pasa "Atendemos de 8 a 12". Con
+  "24 hs", "Atendemos las 24 hs". Con "QR" y pago cargado, "Pagás con QR". Con "Povidona 10%" o
+  "Alcohol 70%", pasan "Te hago 10% menos" y "0% de interés" (se busca como parte del texto de
+  la celda). `renglones_frenados()` no avisa de ninguna de estas celdas. No se encontró una
+  planilla corriente de mayorista que habilite un horario o un teléfono: "pieza 8 a 10 kg" y
+  "horma 3 a 4 kg" no habilitan "Abrimos de 8 a 10".
+  **Vuelta 7**: sigue igual; el revisor lo volvió a ver con "24 hs" y sumó una variante con
+  "efectivo" (P239).
+- P224: promociones inventadas que pasan si la planilla tiene una presentación con números
+  chicos. Con "pack 3 x 2 l" pasan "Hay 3x2 l en gaseosas." y "Llevando 3 x 2 litros ahorrás.";
+  con "2x1 litro" pasan "Hay 2x1 kg de yerba." y "Hay 2x1 litro en leche." (alcanza con que
+  atrás venga cualquier medida). Y si un producto o una presentación ES la promoción con algo
+  más ("Promo verano 2x1", "Promo 2x1 yerba", "pack 3 x 2"), nombrarla entera pasa. Lo segundo
+  está anotado en MEJORAS como límite.
+- P225: resto de P203 hacia el otro lado, frena de más: la presentación dicha con otra coma u
+  otra medida se toma por promoción. Con "pack 6x1.5 l" en la planilla, "La gaseosa viene en
+  pack de 6 x 1,5 l." se cambia por "Sobre las promociones: eso te lo confirma una persona.";
+  lo mismo "6 x 2.25" contra "6 x 2,25", "caja 12 x 900 mililitros" y "Viene 12 x 900.". Con
+  punto, con "litros" o pegado ("6x1.5l") pasa bien. Mostrador y equipo. Nunca llega un dato
+  falso. Anotado en MEJORAS como afuera. Se reproduce con `--ia-simulada=r.txt` y un renglón
+  "caso1 => La gaseosa viene en pack de 6 x 1,5 l.".
+- P228: una presentación que es solo "3x2" se frena como promoción al preguntar por el
+  producto ("Jabon;3x2;2.000;10", "tenes jabon?"). Es decisión de la vuelta 5 y `probar` lo
+  avisa (17 de 18, con el renglón), pero quien no corra `probar` después de editar la planilla
+  no se entera. Va con lo que queda de P203: el arreglo sugerido deja el aviso justamente para
+  estas.
+  **Vuelta 7, corregido por la decisión**: "tenes jabon?" contesta "Jabón tocador (3x2): $
+  2.000,00" y `probar` pasa. "Hay 3x2 en jabón." y "Jabón tocador: 3x2." se siguen frenando.
+- P229: `renglones_frenados()` revisa solo los primeros 300 renglones de la planilla; del 301
+  en adelante `probar` no avisa nada. `probar` del mostrador creado con 600 productos tarda unos
+  4 s (antes 1,9 s). Y el aviso está probado con una lista escrita a mano, no con un archivo de
+  planilla (va con P210).
+- P230: frenadas de más nuevas y raras de la vuelta 5. Si el nombre termina en número y la
+  presentación empieza con "x" ("Jabón 90" / "x 3") y la IA los dice seguidos sin paréntesis ni
+  coma ("Jabón 90 x 3"), se toma por promoción; como lo dice el programa ("Jabón 90 (x 3)")
+  pasa; `renglones_frenados()` no lo avisa. Y un "N x M" suelto seguido de una palabra corta
+  que no es medida ("6 x 4 u", "12 x 24 un") se frena aunque esté así en la celda; dicha
+  entera la presentación, pasa. Además una celda de una sola palabra corta (una presentación
+  "x") exceptúa esa palabra en toda respuesta.
+- P231: el renglón de estado de la mejora 127 en MEJORAS dice "hecha (vuelta 3)" y hubo cinco
+  (una prueba existente exige ese texto). Y con un producto llamado "QR", "tenes qr?" contesta
+  el renglón y agrega "Sobre las formas de pago: eso te lo confirma una persona." (es del tipo
+  P209, del lado de la pregunta del cliente).
+
+Bajos vistos en la vuelta 5 que ya estaban (iguales en `97f9963`; no son de las vueltas 4 y 5):
+
+- P226: con una planilla de 1500 renglones o más, la charla se corta a la tercera o cuarta
+  consulta con "el programa lleva más de 10.000.000 de pasos" (con 3000, a la segunda). Se
+  reproduce con `nuevo equipo alm`, `--ia-simulada=ia.txt` y cuatro consultas que vayan a la
+  IA. De paso: "tenes aceite mezcla?" contesta el renglón de "Aceite de girasol" cuando hay dos
+  aceites.
+- P227: con una planilla grande donde muchos nombres comparten una palabra y hay varios
+  productos en cero, una pregunta por un producto contesta el renglón de otro y le pega el
+  aviso "De X ahora no hay stock." de **todos** los que están en cero (30 avisos seguidos en la
+  prueba). Planilla artificial (1500 renglones "Articulo N marcaM", stock 0 cada 50, "tenes
+  articulo 700?"). El aviso de stock en cero es de la vuelta 1. Va con P212. Cada consulta
+  tarda unos 8 s con 1500 renglones (con 600, 1,7 s).
+
+Bajos de la vuelta 6 (ninguno lo introdujo `5ca704e`; P233 a P235 los anotó el revisor, P236 y
+P237 el implementador):
+
+- P233: el tamaño escrito al revés, contenido por unidades ("900x12", "350 x 24"), como celda
+  sola se frena como promoción, porque son dos enteros con M menor que N. Es lo que manda la
+  decisión del coordinador, y `probar` lo avisa con el texto claro; "lata 900x12" y "350 g x
+  24" pasan. Queda anotado porque ahí el primer número no es un entero chico, y es una forma que
+  un mayorista puede usar. Se reproduce con el renglón `Tomate;900x12;100;5` y `tenes tomate?`.
+- P234: promociones dichas de una manera que la "x" no frena. Por la regla de los decimales
+  pasan ahora "Hay 3x2.0.", "Hay 2,0x1." y "Hay 3x2.000."; y por la de M igual o mayor que N,
+  "Hay 6x6." y "Hay 2x2." (hueco aceptado en la decisión: no son promociones corrientes, y poco
+  creíbles en una IA real). Ya pasaban en `df65fdc`: "Hay 3×2." con el signo ×, las cifras no
+  latinas y **"Hay 2 por 1."**, que sí es una forma natural y no estaba anotada. Se reproduce
+  con un archivo de respuestas con `oferta => Hay 2 por 1 en yerba.`, `--ia-simulada=archivo` y
+  la pregunta `que oferta hay?`: llega tal cual al cliente. Va con P206.
+- P235 (ya estaba en la 0.7; pasa igual con el programa que crea `main`): con `--ia-simulada`,
+  la consulta de precio de un producto que comparte la primera palabra con otro de más arriba
+  contesta el renglón del otro. "cuanto sale aceite de oliva?" da "Aceite de girasol (...)" y
+  "tenes vino blanco?" da "Vino tinto (...)". El pedido ("quiero 2 vino blanco") sí toma el
+  producto correcto. Se reproduce con `nuevo mostrador alm`, `Vino tinto;caja de 6;18.000;8` y
+  debajo `Vino blanco;caja de 6;19.500;8`. Es lo que P226 traía "de paso" ("aceite mezcla").
+  Por esto, tres de los 40 renglones del revisor contestaron el renglón de otro producto, y los
+  verificó aparte con nombres que no se pisan.
+  **Vuelta 7, más casos** (iguales en `5ca704e`): alcanza con compartir una palabra cualquiera,
+  no solo la primera. "cuanto sale agua saborizada?" contestó el renglón de "Agua mineral" y
+  "tenes dulce de leche?" el de "Leche larga vida". En el equipo, "quiero 2 galletitas dulces",
+  "quiero 2 vinagre de alcohol" y "quiero 2 dulce de leche" dieron "Vamos de a un producto por
+  vez", y "quiero 2 turno manana" no pidió el sí ("mañana" es palabra floja). Se reproduce con
+  `nuevo equipo alm`, `Agua mineral;6x2.25` y debajo `Agua saborizada;6 x 2.25`, `--ia-simulada
+  --olvidar` y "cuanto sale agua saborizada?". Con cuatro nombres cambiados, los 40 productos
+  contestaron bien.
+- P236 (ya pasaba antes de la vuelta 6; no es de `dato_inventado()` sino de
+  `temas_del_negocio()` y la "x" floja, del lado de la pregunta): si el cliente escribe el
+  tamaño en la pregunta ("cuanto sale el aceite 12x900?"), contesta "Veo más de un número y no
+  quiero equivocarme. Aceite de girasol se vende por 12x900, a $ 31.200,00 cada uno. Decime una
+  sola cantidad.". Da el precio, pero toma el tamaño por cantidades. Va con P209 y P218.
+- P237: quedó sin borrar una carpeta de pruebas del implementador, **fuera del repositorio**
+  (una comprobación de seguridad le bloqueó el borrado):
+  `/tmp/claude-0/-home-user/7a7de33b-00fb-50a0-981b-03722d164c3d/scratchpad/t1`. No tiene nada
+  del dueño; se puede borrar a mano.
+
+Bajos de la vuelta 7 (P238 a P240 y P243 los encontró el revisor sobre `3ddd365`; P241, P242 y
+P244 los dejó anotados el implementador; **solo P238 es nuevo de este commit**):
+
+- P238 (**nuevo**; costo aceptado de la decisión de la vuelta 7): cuando la celda del dueño es
+  solo una promoción ("2x1", "3x2"), la IA puede adornar el renglón exacto y ahora pasa. Con
+  `Shampoo;2x1` pasan "Shampoo (2x1) también en yerba.", "Shampoo (2x1) solo por hoy.", "Shampoo
+  (2x1) hasta el viernes.", "Shampoo (2x1) en todos los productos.", "Aprovechá: Shampoo (2x1) y
+  Jabón tocador (3x2)." y "Shampoo (2x1), o sea dos por uno." (en `5ca704e` se frenaban todas).
+  El revisor no lo cuenta como medio: hace falta que el dueño haya escrito esa celda, el
+  programa mismo ya le dice al cliente "Shampoo (2x1): $ 4.800,00", y las preguntas por
+  promociones las contesta el programa sin IA. Lo que agrega un dato con cifras o palabras
+  vigiladas se sigue frenando: "Shampoo (2x1), o sea llevás 2 y pagás 1.", "... el segundo es
+  gratis.", "... pagando en efectivo.", "Sí, hay promo: Jabón tocador (3x2).", "Esta semana hay
+  oferta en Jabón tocador (3x2).", "Harina 000 (10 x 1) con 10% de descuento.", "Tenemos Agua
+  mineral (6x2.25) y abrimos a las 8.30.", "Agua mineral (6x2.25): $ 7.000,00. Llamanos al 11
+  4444-5555.".
+  Cómo se reproduce: `nuevo mostrador alm`; en `alm_precios.csv` el renglón
+  `Shampoo;2x1;4.800;30`; un `ia.txt` con `zq1 => Shampoo (2x1) también en yerba.`; `correr
+  alm.mate --ia-simulada=ia.txt --olvidar` y escribir `che zq1`: llega tal cual. Igual en `nuevo
+  equipo`. Lo repetí en el mostrador (tabla de arriba).
+- P239 (**ya estaba**, igual en `5ca704e`; viene de la regla de la vuelta 4, una celda dicha
+  entera es de la planilla; variante de P223. **Pide decisión del coordinador**): dos datos del
+  negocio pasan cuando la planilla trae justo esa celda de presentación. Con "24 hs" pasa
+  "Atendemos las 24 hs." (ya estaba en P223 y en MEJORAS). Con "efectivo" pasa "Pagás en
+  efectivo." **aun con las formas de pago sin cargar**, que no estaba escrito así: P223 solo
+  decía "QR" con el pago cargado. Sin esas dos celdas, las dos se frenan (la prueba nueva afirma
+  el caso sin la celda: "Sobre las entregas: eso te lo confirma una persona."; el caso con la
+  celda no está afirmado en ninguna prueba). Con las celdas "de 8 a 12" y "lunes", "Abrimos de 8
+  a 12." y "Abrimos los lunes." sí se frenan. El implementador no lo cambió porque la decisión
+  dice que fuera del renglón exacto todo sigue como en la vuelta 6.
+  Cómo se reproduce: `nuevo mostrador alm`; renglones `Hielo;24 hs;900;30` y `Bolsa
+  camiseta;efectivo;2.500;30`; `ia.txt` con `zq1 => Atendemos las 24 hs.` y `zq2 => Pagás en
+  efectivo.`; `correr alm.mate --ia-simulada=ia.txt --olvidar`; `che zq1`, `che zq2`: llegan tal
+  cual. Lo repetí con "24 hs" (tabla de arriba) y con "efectivo", en el mostrador.
+- P240 (**ya estaba**; va con P234 y P206, no es de la forma "Producto (celda)"): promociones
+  dichas en letras pasan con o sin renglón: "Llevás dos al precio de uno.", "En shampoo llevás
+  dos al precio de uno." y "Shampoo: llevás dos y pagás uno." pasan igual en `5ca704e` y sin
+  ninguna celda "2x1". Se reproduce con `zq1 => Llevás dos al precio de uno.`, datos sin cargar
+  y cualquier planilla.
+- P241 (resto de P232, **por la decisión**; frena de más, nunca llega un dato falso): la
+  presentación dicha fuera del renglón exacto se sigue frenando aunque sea la del producto. "Sí,
+  tenemos agua mineral, viene en 6x2.25." da "Sobre el horario: eso te lo confirma una
+  persona.", y lo mismo si la IA escribe "Agua mineral (6 x 2.25)" con la celda "6x2.25" (otros
+  espacios; lo repetí, tabla de arriba), "Jabón tocador (3 x 2)" o "Pan (8.30 )". Con la IA
+  simulada no aparece, porque el programa arma el renglón; **con un modelo de verdad puede
+  aparecer**, y es lo primero que hay que mirar en el ensayo de P220. Va con P225.
+- P242: `renglones_frenados()` quedó como red de `probar` que, en la práctica, solo avisa de un
+  renglón sin nombre de producto ('' (8.30)). El consejo de su texto ("'caja 3 x 2 l' en vez de
+  '3x2'") ya no corresponde a ningún caso conocido. Se dejó como estaba, por la decisión. Y
+  sigue sin avisar de las celdas de P223 y P239.
+- P243 (**ya estaba**; va con P226; igual en `5ca704e`: 259 contra 261 consultas): una charla
+  larga con `--ia-simulada=archivo` se corta por el tope de 10.000.000 de pasos alrededor de la
+  consulta 260, con una planilla de 40 renglones. El revisor lo vio al pasar 1400 respuestas de
+  una; en tandas de 100 no pasa. Se reproduce con `nuevo mostrador alm`, 40 renglones, un
+  `ia.txt` con 300 claves y 300 preguntas seguidas en una sola corrida.
+- P244 (**ya era así**): una celda de presentación que es solo "8.30", leída de un archivo, es
+  el número 8,3, y el programa la dice "Pan rallado (8.3): $ 500,00". Ese renglón pasa; "Pan
+  rallado (8.30)" dicho por la IA se frena.
+
+Bajos que ya estaban en la 0.7 (iguales en `main`):
+
+- P216: pasan respuestas de la IA que dicen que anotó un pedido o inventan stock ("Te anoté
+  el pedido, ya quedó reservado.", "De azúcar nos quedan 3 bolsas nada más."), y la afirmación
+  de stock no se frena si la pregunta no nombra el producto.
+- P217: se frena de más una respuesta correcta con dos precios de la lista ("Azúcar $ 9.800,50
+  y Harina 000 $ 14.500,00" sale como "Eso te lo confirma una persona. Ya te paso con alguien.").
+- P218: un pedido con palabras de más ("mandame 12 yerba el lunes", "quiero 20 azucar, pago en
+  efectivo") no llega a "¿Lo anoto?"; "Quiero 3 yerbas. mi telefono es 11 4444 5555" contesta
+  "Veo más de un número". Los pasos de `nuevo` y el aviso de falta de clave nombran notepad,
+  PowerShell y `ANTHROPIC_API_KEY` también en Linux. El ensayo del paso 7 da 27 de 28 si antes
+  se vendió azúcar sin `--olvidar`.
+
+Sin verificar:
+
+- P220: **no se probó con un modelo de verdad** (Ollama `qwen2.5:7b`, con `MATE_IA_PROPIA`).
+  No se sabe cuánto se le escapa ni cuánto frena de más con respuestas reales. Va con P11 y
+  P149, y es lo primero que hay que hacer antes de publicar.
+- P221: pytest completo corrió solo en Python 3.13. En 3.11 y 3.12 corrió `probar
+  mate/ejemplos` (en la vuelta 2). No se probó en 3.10, en 3.14 ni en Windows, y la integración
+  continua no corrió sobre esta rama porque no se subió. No pasó por el especialista en
+  seguridad. Las vueltas 4 y 5 corrieron solo en Linux con Python 3.13 e IA simulada. pytest
+  tardó 585 s y 565 s: sigue haciendo falta el tope de 10 minutos o más (P215).
+
+**Resumen de estado después de la vuelta 5**
+
+| Problema | Estado |
+|---|---|
+| P203 (medio) | corregido en parte; **abierto**: la celda que es solo "N x M" ("6x750", "10 x 1") se sigue frenando. Frena la aprobación |
+| P210 (bajo) | corregido en parte; abierto: falta una prueba que cargue desde un CSV una presentación que sea solo "N x M" |
+| P207 (bajo) | corregido solo "bulto/caja/pack/paquete cerrado"; abierto el resto |
+| P204 a P206, P208, P209, P211 a P219, P222 | abiertos, sin cambios |
+| P223 a P231 | bajos nuevos (P226 y P227 ya estaban) |
+| P220, P221 | sin verificar, sin cambios |
+
+**Lo que seguía después de la vuelta 5** (historia; se hizo en la vuelta 6): una vuelta corta
+para lo que quedaba de P203 (exceptuar la celda sola que no tiene forma de promoción, corregir
+el consejo del aviso y la frase de MEJORAS que no era cierta), con la prueba que faltaba en
+P210: una planilla leída de un CSV con "6x750" y "10 x 1".
+
+**Resumen de estado después de la vuelta 6** (historia; el de la vuelta 7 está más abajo)
+
+| Problema | Estado |
+|---|---|
+| P203 (medio) | **corregido en lo que se pedía** (la celda que es solo un tamaño da el precio); su resto pasa a P232 |
+| **P232 (medio)** | **abierto, frena la aprobación**: "6x2.25" con punto y dos decimales se toma por una hora. Ya estaba. Pendiente: que el coordinador decida si lo baja a bajo (`probar` lo avisa) o se corrige en una vuelta 7 |
+| P210 (bajo) | **corregido**: hay dos pruebas con la planilla leída de un `.csv`, con tamaños solos y con "3x2" y "10 x 1" |
+| P225 (bajo) | corregido en parte por la decisión: lo que tiene decimales o M igual o mayor que N ya no se toma por promoción ("6 x 1,5" por "6x1.5", "6 x 2,25"). Eso lo informó el implementador; no volví a probar una por una las frases de P225 |
+| P228 (bajo) | sigue igual, por la decisión: la celda que es solo "3x2" o "10 x 1" se frena; `probar` lo avisa, ahora con un consejo que sirve |
+| P231 (bajo) | sigue: MEJORAS dice "hecha (vuelta 3)" y hubo seis |
+| P215 (bajo) | sigue, y peor: pytest tardó 617 s y 614 s; el tope tiene que ser de 15 minutos |
+| P207 (bajo) | corregido solo "bulto/caja/pack/paquete cerrado"; abierto el resto |
+| P204 a P206, P208, P209, P211 a P214, P216 a P219, P222 a P224, P226, P227, P229, P230 | abiertos, sin cambios |
+| P233 a P237 | bajos anotados en la vuelta 6 (ninguno nuevo de `5ca704e`) |
+| P220, P221 | sin verificar, sin cambios: la vuelta 6 corrió solo en Linux, Python 3.13, con IA simulada |
+
+**Lo que seguía después de la vuelta 6** (historia; se hizo la vuelta 7, con otra decisión:
+el renglón como lo arma el programa nunca es un dato inventado): primero, la decisión del coordinador sobre P232: o se baja a bajo porque
+`probar` lo avisa, y con eso el revisor no tiene nada más que frene, o va una vuelta 7 corta
+(que el número que sigue a un "N x" no cuente como hora, con su prueba vista fallar antes, y
+corregir la frase de la nota de la vuelta 6 en MEJORAS). Después, el ensayo del dueño con el
+modelo real (P220: Ollama, `qwen2.5:7b`), que **sigue faltando** y va a decir cuáles de P204 a
+P211, de P223 a P225 y P234 importan de verdad. Recién con eso aprobado se decide la
+publicación: **la 0.7.1 no está publicada**. El "Estado final de la 0.7", abajo, sigue valiendo
+para `main`.
+
+**Resumen de estado después de la vuelta 7**
+
+| Problema | Estado |
+|---|---|
+| **P232 (medio)** | **corregido** (`3ddd365`): la celda sola "6x2.25", "6 x 2.25" o "12x1.50" da el renglón con el precio. Verificado por el revisor y repetido por el integrador. Su resto, bajo, es P241 |
+| P228 (bajo) | **corregido por la decisión**: la celda sola "3x2" o "10 x 1" también da el renglón, y `probar` pasa |
+| P203 (medio de las vueltas 3 a 6) | cerrado: lo que le quedaba eran P232 y P228. Sigue P233 solo para la presentación dicha suelta ("Hay 900x12." se frena); su renglón pasa ("Tomate (900x12): $ 100,00", lo probé). `correr` sigue sin avisar nada al arrancar, y ya no tiene de qué |
+| P238 (bajo, **nuevo**) | abierto, costo aceptado de la decisión: con una celda que es una promoción, la IA puede adornar el renglón exacto |
+| P239 (bajo, ya estaba) | abierto, **pide decisión del coordinador**: con una celda "24 hs" o "efectivo" pasan "Atendemos las 24 hs." y "Pagás en efectivo." |
+| P240, P243, P244 (bajos, ya estaban) | anotados en la vuelta 7 |
+| P241, P242 (bajos) | consecuencias de la decisión: la presentación fuera del renglón exacto se frena; la red de `probar` casi no tiene qué avisar |
+| P235 (bajo, ya estaba) | sigue, con más casos |
+| P231 (bajo) | sigue: MEJORAS dice "hecha (vuelta 3)" y hubo siete |
+| P215 (bajo) | sigue: pytest tardó 696 s y 666 s; el tope tiene que ser de 15 minutos (con 10 se cortó una corrida) |
+| P207 (bajo) | corregido solo "bulto/caja/pack/paquete cerrado"; abierto el resto |
+| P204 a P206, P208, P209, P211 a P214, P216 a P219, P222 a P227, P229, P230, P233, P234, P236, P237 | abiertos, sin cambios |
+| P220, P221 | sin verificar, sin cambios: la vuelta 7 corrió solo en Linux, Python 3.13, con IA simulada |
+
+**Lo que sigue**: la 0.7.1 está **aprobada por el revisor y no está publicada**; nada se subió.
+Primero, el ensayo del dueño con el modelo real (P220: Ollama, `qwen2.5:7b`), que **sigue
+faltando**: va a decir si el modelo dice el renglón como lo arma el programa o de otra manera
+(P241), y cuáles de P204 a P211, de P223 a P225, P234 y P238 a P240 importan de verdad. Segundo,
+la decisión del coordinador sobre P239 (si una celda "24 hs" o "efectivo" puede habilitar ese
+dato, o se frena). Recién después se decide la publicación. El "Estado final de la 0.7", abajo,
+sigue valiendo para `main`.
+
+
 ## Estado final de la 0.7
 
 **Estado de hoy** (integrador, después de la tercera pasada del revisor externo sobre el pull

@@ -5,7 +5,7 @@ Mate es un lenguaje de programación chico, con palabras en castellano. Sirve pa
 escribís las reglas (qué precios puede nombrar, qué no puede prometer, cuánto puede gastar por
 día) y Mate revisa cada respuesta de la IA antes de que salga.
 
-Versión 0.7. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
+Versión 0.7.1. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
 Se escribe con el Bloc de notas y se corre desde PowerShell.
 
 ```
@@ -800,6 +800,13 @@ su stock), el nombre va en una sola palabra, y al terminar muestra los pasos que
 los comandos listos para copiar. El programa pasa `verificar` y `probar` tal como sale, y sus
 pruebas usan una lista fija: siguen pasando cuando cambiás los productos, el número del envío
 o el mínimo de stock.
+
+Arriba de todo trae también los **datos del negocio** (`datos_del_negocio`: el horario, la
+dirección, el teléfono, las formas de pago, las entregas, las promociones), vacíos. Las
+preguntas por esos datos las contesta Ventas sin consultar a la IA: con lo que cargaste, tal
+cual; y lo que está vacío no se inventa (`Sobre el horario: eso te lo confirma una
+persona.`). Está contado en
+[Los datos del negocio](#los-datos-del-negocio-lo-que-no-está-cargado-no-se-inventa).
 
 Lo que hay que saber:
 
@@ -2227,7 +2234,8 @@ lección ni con un freno: se arregla poniendo cada cosa en su lugar.
 |---|---|---|
 | Lo que tiene que dar **siempre igual**: un total, el stock, una regla del negocio ("envíos desde 10 unidades") | **En el programa**: una función que arma la respuesta sin consultar a la IA | Mate hace la cuenta con todos los centavos, siempre igual, y no gasta |
 | Lo que la IA **no puede decir nunca**: un precio que no está en la lista, un descuento, una respuesta larguísima | **En un freno** (`frenos { ... }`) | Mate revisa cada respuesta antes de que le llegue al cliente; si está mal, llega la `reserva` |
-| El **tono y las costumbres**: "tratá de usted", "ofrecé también el azúcar", "si preguntan el horario, es de 8 a 17" | **En una lección** (orden `corregir`) | Es un consejo: la IA casi siempre lo sigue, pero nadie lo controla. Si una equivocación ahí cuesta plata, no va acá |
+| Los **datos del negocio**: el horario, la dirección, el teléfono, las formas de pago, las entregas, las promociones | **En `datos_del_negocio`**, arriba del programa (ver [Los datos del negocio](#los-datos-del-negocio-lo-que-no-está-cargado-no-se-inventa)) | Si la IA no sabe el horario, lo inventa. Así contesta el programa, con lo que escribiste; y lo que no escribiste lo confirma una persona |
+| El **tono y las costumbres**: "tratá de usted", "ofrecé también el azúcar", "saludá con buen día" | **En una lección** (orden `corregir`) | Es un consejo: la IA casi siempre lo sigue, pero nadie lo controla. Si una equivocación ahí cuesta plata, no va acá |
 
 El ejemplo `12_mostrador_con_reglas.mate` está armado así. Cuando el cliente pide una
 **cantidad** de un **producto** de la planilla, contesta el programa:
@@ -2300,7 +2308,8 @@ ni reserva nada. Algunos casos que conviene conocer:
   si fuera la que pidieron.
 
 Para adaptarlo, cambiá `precios.csv` (con las columnas `producto`, `presentacion`, `precio` y
-`stock`) y el número de `unidades_para_envio`, arriba de todo. Si a la planilla le falta una
+`stock`), el número de `unidades_para_envio`, arriba de todo, y los datos de tu negocio
+(`datos_del_negocio`, ahí nomás: ver [más abajo](#los-datos-del-negocio-lo-que-no-está-cargado-no-se-inventa)). Si a la planilla le falta una
 columna, o un título está escrito con mayúscula o con tilde (`Producto`, `Presentación`), el
 programa lo dice al arrancar y no atiende. Lo mismo si un precio o un stock quedó vacío o
 con letras ("consultar"): dice de qué producto es y en qué lugar de la lista está (`En
@@ -2313,6 +2322,151 @@ planilla de muestra: si cambiás los productos, `correr` anda igual, pero
 `probar` marca fallas hasta que adaptes esas pruebas a tu lista.
 Para tu negocio no hace falta copiar el
 ejemplo: lo que sigue lo arma solo, con pruebas que no dependen de la planilla.
+
+### Los datos del negocio: lo que no está cargado no se inventa
+
+Un modelo de IA, si le preguntan algo que no sabe, **lo inventa**. A un cliente que escribió
+"hola, ¿qué horarios tienen?", un modelo de verdad le contestó "atendemos de lunes a viernes
+de 8 a 18 hs". El programa no tenía ningún horario: lo sacó de la nada. Y con una lección
+("no inventes datos del negocio") mejoró, pero contestó "no trabajamos con horarios
+específicos". Una lección es un consejo; esto no puede depender de que el modelo obedezca.
+
+Por eso el ejemplo 12, el 13 y lo que crean `nuevo mostrador` y `nuevo equipo` traen, arriba
+de todo, un lugar para los datos del negocio. Se llena con el Bloc de notas, escribiendo
+entre las comillas:
+
+```
+sea datos_del_negocio = {
+    # Qué días y a qué hora atienden.
+    horario: "Lunes a viernes de 8 a 17 y sábados de 8 a 13",
+    # Dónde queda el negocio (y por dónde se retira).
+    direccion: "",
+    # El teléfono, el WhatsApp, el mail.
+    telefono: "",
+    # Cómo se puede pagar: efectivo, transferencia, tarjeta, cheque, si hacen factura...
+    formas_de_pago: "Efectivo o transferencia",
+    # En cuánto tiempo entregan un pedido y en qué zonas.
+    entregas: "",
+    # Las promociones de hoy. (Si no hay, conviene escribirlo: "Hoy no hay promociones".)
+    promociones: "",
+    # Cualquier otra cosa que quieras que la IA sepa del negocio.
+    otros: "",
+}
+```
+
+Vienen **todos vacíos**. Con eso el programa hace tres cosas, y ninguna depende de la IA:
+
+1. **Las preguntas por esos datos las contesta el programa**, antes de consultar a la IA. Las
+   reconoce por las palabras ("horario", "abren", "cierran", "qué días", "cuándo", "dónde",
+   "dirección", "local", "teléfono", "whatsapp", "página", "tarjeta", "transferencia",
+   "efectivo", "visa", "demora", "promo"...; con tilde o sin tilde, con mayúsculas o sin
+   ellas). Si el dato está cargado, lo dice **tal
+   cual lo escribiste**; si está vacío, dice que eso lo confirma una persona:
+
+   ```
+   Cliente: hola, que horarios tienen?
+   Ventas: Horario: Lunes a viernes de 8 a 17 y sábados de 8 a 13.
+   Cliente: donde quedan?
+   Ventas: Sobre la dirección: eso te lo confirma una persona.
+   Cliente: cuanto salen 2 yerbas? aceptan tarjeta?
+   Ventas: 2 x Yerba mate (...): total $ 70.000,00. Todavía no anoté nada: para pedirlo, escribí "quiero 2 yerba". Formas de pago: Efectivo o transferencia.
+   ```
+
+   Como la IA no se entera de la pregunta, no puede inventar la respuesta. Y no gasta.
+   Si en la misma pregunta nombran un producto sin decir cuántos ("¿cuánto sale la yerba?
+   ¿aceptan tarjeta?", "¿dónde consigo yerba?"), el programa contesta las dos cosas: el
+   renglón de la lista (`Yerba mate (bolsón de 10 paquetes de 1 kg): $ 35.000,00.`), con el
+   aviso si no hay stock, y el dato. Y en un pedido con su cantidad, una palabra suelta que
+   también se usa para otra cosa ("¿cuánto **pago** por 12 azúcar?", "dame 5 para el
+   **sábado**") no agrega nada: va la cuenta sola.
+2. **A la IA se le dan los datos y se le dice que no invente.** Las instrucciones llevan la
+   lista de precios y, abajo, `DATOS DEL NEGOCIO`: los cargados, y de los vacíos, `SIN CARGAR.
+   No lo digas: eso lo confirma una persona`. Lo que escribas en `otros` le llega también.
+3. **A lo que contesta la IA se le mira que no nombre un dato que no cargaste.** Después de
+   los frenos, el programa busca en la respuesta:
+   - días ("lunes", "sáb", "todos los días", "fin de semana") y horas, se escriban como se
+     escriban: "18 hs", "a las 9", "hasta las 18", "de 8 a 18", "8 a 18", "8-18", "8:30",
+     "08.00", "a las nueve", "al mediodía";
+   - plazos y zonas ("48 hs", "2 días", "una semana", "mañana mismo", "a todo el país");
+   - formas de pago ("tarjeta", "Visa", "Mercado Pago", "todos los medios de pago");
+   - promociones ("promo", "2x1", "gratis", "te regalamos", "10%");
+   - un teléfono (7 cifras o más, con espacios, guiones o puntos), un mail, una página o
+     una red ("@", "www", ".com", "Instagram");
+   - dónde queda ("estamos en...", "te esperamos en...", "Av.", "calle", "al 5000",
+     "Dirección: ...", "a dos cuadras", "sucursales");
+   - y lo que no es de ninguno de esos temas pero es una regla del negocio, como un pedido
+     mínimo: pasa solo si lo escribiste en `otros`.
+
+   Cada cosa de esas pasa solo si está escrita **en el dato de su tema** (el "11" de un
+   teléfono no habilita "abrimos a las 11", y si cargaste "No aceptamos tarjeta" la IA no
+   puede decir "aceptamos tarjeta"). Y si de un tema no cargaste **nada**, tampoco pasa que
+   la IA hable de él ("abrimos...", "aceptamos...", "te llega..."). Si no pasa, esa respuesta
+   **no le llega al cliente**: va lo que el programa sabe de ese tema (el dato cargado, tal
+   cual; o que lo confirma una persona). Con el horario cargado "de 8 a 17", una IA que diga
+   "de 8 a 20", o "de 17 a 8", tampoco pasa. Nombrar un producto de tu planilla nunca se
+   toma por un dato inventado.
+
+   **Ojo: esta revisión ataja lo más común, no todo.** Va por palabras, no por sentido. Por
+   eso lo que de verdad protege es el punto 1 y cargar tus datos; y antes de dejarlo
+   atender conviene ensayarlo con tu modelo. Más abajo, en "Lo que hay que saber", dice qué
+   se escapa.
+
+Al arrancar, el programa muestra qué datos tiene cargados y cuáles no, para que veas si lo
+que escribiste quedó:
+
+```
+(Datos del negocio cargados: horario, formas de pago.)
+(Sin cargar, los confirma una persona: dirección, teléfono, entregas, promociones.)
+```
+
+Dos cosas más que decide el programa y no la IA, de esa misma prueba con un modelo de verdad:
+
+- **De lo que no está en la lista, solo que no se trabaja.** A "¿tenés café?" un modelo
+  contestó "no trabajamos con café. Podés pedirlo si querés". Ahora, si la pregunta no nombra
+  ningún producto de la planilla y la IA dice que no se trabaja o que no lo tienen ("no
+  trabajamos", "no tenemos", "no contamos con", "no vendemos"), al cliente le llega `Eso no
+  lo trabajamos.`, y nada más. (Con `--ia-simulada` sin archivo eso no se ve: ahí la "IA"
+  contesta el renglón de la lista o "Decime el nombre del producto...".)
+- **Si preguntan por un producto que está en cero, se avisa.** A "¿tenés fideos?" (sin
+  cantidad, así que contesta la IA) el programa le agrega `De Fideos secos ahora no hay
+  stock.` En el equipo, Ventas se lo pregunta a Depósito, que es el que sabe.
+
+Lo que hay que saber:
+
+- **Cuidá las comillas y la coma** de cada renglón. Si falta la coma del final o sobra una
+  comilla, `verificar` y `probar` dan el error, que lo pregunta ("¿falta la coma al final del
+  renglón de arriba?"). Un dato que no es un texto cuenta como vacío: la prueba "tu planilla
+  está bien cargada" (orden `probar`) falla diciendo cuál es, y al arrancar se avisa que hay
+  algo mal escrito. Adentro del texto no pongas comillas ni llaves.
+- **El teléfono también va entre comillas.** Sin ellas Mate lo toma por una cuenta
+  (`4555-1234` es una resta y da 3321; a `01145551234` le saca el cero). Por eso un número
+  suelto no se le dice al cliente: cuenta como vacío y `probar` lo avisa ("el dato
+  'telefono' está sin comillas"). `verificar` no lo ve: para Mate es un número bien escrito.
+- **No cambies los nombres de los datos** (`horario`, `direccion`, `telefono`...): van en
+  minúsculas y sin tilde, como vinieron. Con `Horario` o `dirección` ese dato queda sin
+  cargar; `probar` lo dice. Si borrás un renglón, ese dato queda vacío y al arrancar figura
+  entre los "sin cargar".
+- **Las palabras con las que se reconoce cada pregunta** están en `temas_del_negocio()`, en
+  el programa: una lista por tema, en minúsculas y sin tildes. Si tus clientes preguntan con
+  otra palabra, se agrega ahí.
+- **Es por palabras, no por sentido.** "¿De dónde es la yerba?" tiene un "dónde": el
+  programa contesta el renglón de la yerba y lo de la dirección. Y una pregunta dicha sin
+  ninguna de esas palabras ("¿están ahora?") va a la IA, que tiene la orden de no inventar y
+  la revisión del punto 3.
+- **La revisión del punto 3 no lo ve todo.** Reconoce los datos por su forma y por unas
+  listas de palabras. Lo que un modelo diga de otra manera, pasa: "pasá cuando quieras,
+  siempre hay alguien", "quedamos a la vuelta de la plaza", "te lo alcanzamos enseguida",
+  "si llevás mucho te hacemos precio". Y con el dato cargado pasa lo que usa sus mismas
+  palabras con otro sentido (con "Lunes a viernes de 8 a 17", "los lunes no abrimos; el
+  viernes sí, de 8 a 17"). El ejemplo 12 tiene una prueba con esos casos, para que no se
+  olviden. Por eso lo principal es el punto 1, cargar los datos, y ensayar con el modelo de
+  verdad. Las listas de palabras están en el programa, desde `palabras_de_dias()`: si tu
+  modelo inventa algo con una palabra que no está, se agrega ahí.
+- **A veces frena de más.** Si la IA usa una de esas palabras para otra cosa ("te llega la
+  lista por mail"), al cliente le llega "Sobre ...: eso te lo confirma una persona." No es
+  la respuesta ideal, pero no inventa nada. Con el dato cargado, lo que le llega es tu dato.
+- **Los casos de muestra de `ensayar` esperan los datos vacíos.** Cuando cargues tu horario,
+  cambiá el caso (`tiene que decir: lunes a viernes de 8 a 17`).
 
 ### Un mostrador propio: `nuevo mostrador`
 
@@ -2345,14 +2499,21 @@ Los pasos que siguen (cada comando se puede copiar tal cual):
   3. Poner tus productos en la planilla (también se abre con Excel). El primer
      renglón, el de los títulos, no se toca y va una sola vez:
        notepad mi_negocio_precios.csv
-  4. Comprobar de nuevo (paso 1) y atender con la IA de verdad:
+  4. Cargar los DATOS DE TU NEGOCIO: el horario, la dirección, el teléfono, las
+     formas de pago, las entregas. Están arriba del programa, en
+     datos_del_negocio: escribí cada uno entre las comillas y guardá.
+       notepad mi_negocio.mate
+     Vienen vacíos. Lo que dejes vacío no se inventa: a quien pregunte, el
+     mostrador le contesta "eso te lo confirma una persona".
+  5. Comprobar de nuevo (paso 1) y atender con la IA de verdad:
        py mate\mate.py correr mi_negocio.mate
-  5. Ensayarlo: Mate le hace las preguntas de mi_negocio_casos.txt y dice cuáles
+  6. Ensayarlo: Mate le hace las preguntas de mi_negocio_casos.txt y dice cuáles
      contestó bien (sin --ia-simulada contesta la IA de verdad):
        py mate\mate.py ensayar mi_negocio.mate mi_negocio_casos.txt --ia-simulada
-     Ojo: esos casos son de muestra, escritos para la planilla de muestra. Si
-     cambiaste los productos (paso 3), cambiá también los casos, o van a fallar
-     los que nombran un producto que ya no está. Para abrirlos:
+     Ojo: esos casos son de muestra, escritos para la planilla de muestra y con
+     los datos del negocio vacíos. Si cambiaste los productos (paso 3) o cargaste
+     tus datos (paso 4), cambiá también los casos, o van a fallar los que
+     nombran un producto que ya no está o esperan un dato sin cargar:
        notepad mi_negocio_casos.txt
 ```
 
@@ -2376,7 +2537,8 @@ Lo que hay que saber:
   de algo no hay stock va un 0. Se arregla en la planilla, se guarda y se arranca de nuevo.
 - **Los casos de muestra son para la planilla de muestra.** Cuando pongas tus productos,
   cambiá también `mi_negocio_casos.txt`: si no, al ensayar fallan los casos que nombran un
-  producto que ya no está. Lo avisan el paso 5 y el encabezado de ese archivo.
+  producto que ya no está. Lo mismo con los datos del negocio: los casos de muestra esperan
+  que estén vacíos. Lo avisan el paso 6 y el encabezado de ese archivo.
 - **Si la planilla quedó con el renglón de títulos repetido más abajo** (pasa al pegar una
   lista debajo de otra), el programa no arranca y el error dice qué renglón borrar:
   `el renglón 8 de 'mi_negocio_precios.csv' repite los títulos de las columnas (...): borrá el
@@ -2386,8 +2548,9 @@ Lo que hay que saber:
   Por eso hace falta la carpeta `mate` completa, no solo `mate.py`. Un mostrador ya creado no
   cambia cuando se actualiza Mate: es un archivo tuyo.
 - Lo que conviene cambiar está dicho arriba de todo en el programa: los productos (en la
-  planilla), desde cuántas unidades hay envío (`unidades_para_envio`), cómo se presenta el
-  negocio ante la IA y las palabras prohibidas.
+  planilla), desde cuántas unidades hay envío (`unidades_para_envio`), los datos del negocio
+  (`datos_del_negocio`: ver [la sección de arriba](#los-datos-del-negocio-lo-que-no-está-cargado-no-se-inventa)),
+  cómo se presenta el negocio ante la IA y las palabras prohibidas.
 
 ### Ensayar un mostrador: `ensayar`
 
@@ -2470,9 +2633,9 @@ contestó el programa y la regla que no cumplió. Este es el de los casos de mue
 modelo que contestó mal la última:
 
 ```
-Ensayo de mi_negocio.mate con mi_negocio_casos.txt: 5 pregunta(s).
+Ensayo de mi_negocio.mate con mi_negocio_casos.txt: 11 pregunta(s).
 Contesta tu modelo propio (qwen2.5:3b), en http://localhost:11434/v1/chat/completions.
-Va a hacer hasta 5 consulta(s) a la IA: una por cada pregunta que el programa no
+Va a hacer hasta 11 consulta(s) a la IA: una por cada pregunta que el programa no
 conteste solo (si salta un freno, esa pregunta consulta una vez más).
 Cada pregunta se le escribe al programa donde pide:  "Cliente:"
 
@@ -2480,11 +2643,17 @@ Cada pregunta se le escribe al programa donde pide:  "Cliente:"
   ✓ me alcanzas 8 yerbas?
   ✓ necesito que me lleven 3 azucar a casa
   ✓ quiero 12 fideos con envio
-  ✗ tenes cafe?   (renglón 40 de mi_negocio_casos.txt)
+  ✗ tenes cafe?   (renglón 46 de mi_negocio_casos.txt)
       Contestó: Mostrador: Si, tenemos cafe, es muy rico.
       No cumple: no puede decir "si, tenemos" ni "si tenemos" ni "café a $"
+  ✓ hola, que horarios tienen?
+  ✓ a que hora abren?
+  ✓ donde quedan?
+  ✓ aceptan tarjeta?
+  ✓ me pasas un telefono?
+  ✓ tenes fideos?
 
-4 de 5 casos pasaron. Consultas a la IA: 1.
+10 de 11 casos pasaron. Consultas a la IA: 2.
 Las consultas de un ensayo no entran en la cuenta del día ni en la bitácora.
 Por los casos que fallaron quedó 1 lección(es) propuesta(s). Ningún agente las usa
 hasta que las apruebes. Para verlas (y aprobarlas o descartarlas):
@@ -3135,6 +3304,28 @@ Una sola cosa de la 0.7 puede frenar algo viejo: `buzon` pasó a ser una orden (
 [Qué cambió y puede frenar un programa viejo](#qué-cambió-y-puede-frenar-un-programa-viejo)).
 Lo que todavía no hace está en [Límites de la versión 0.7](#límites-de-la-versión-07).
 
+### La 0.7.1: los datos del negocio no se inventan
+
+Sale de probar el equipo de `nuevo equipo` con un modelo de verdad (uno chico, local). A
+"hola, ¿qué horarios tienen?" contestó "atendemos de lunes a viernes de 8 a 18 hs": un
+horario que no estaba en ningún lado. Tampoco agrega una palabra ni una función incluida, y
+el intérprete casi no cambió (un error dice mejor qué mirar cuando falta una coma adentro de
+unas llaves): lo nuevo está en los ejemplos 12 y 13 y en lo que crean `nuevo mostrador` y
+`nuevo equipo`.
+
+| Qué hay de nuevo | Dónde se explica |
+|---|---|
+| `datos_del_negocio`, arriba del programa: el horario, la dirección, el teléfono, las formas de pago, las entregas y las promociones, escritos entre comillas con el Bloc de notas. Vienen vacíos | [Los datos del negocio](#los-datos-del-negocio-lo-que-no-está-cargado-no-se-inventa) |
+| Las preguntas por esos datos las contesta **el programa, sin consultar a la IA**: el dato cargado, tal cual; o, si está vacío, `Sobre el horario: eso te lo confirma una persona.` | [Los datos del negocio](#los-datos-del-negocio-lo-que-no-está-cargado-no-se-inventa) |
+| A la IA se le dan esos datos y la orden de no inventar lo que falte; y a su respuesta el programa le mira que no nombre un día, una hora, un plazo, una dirección, un teléfono, una forma de pago o una promoción que no esté cargada en el dato de su tema. Si lo hace, no le llega al cliente. Esa revisión ataja lo más común, no todo: conviene cargar los datos y ensayar con el modelo de verdad | [Los datos del negocio](#los-datos-del-negocio-lo-que-no-está-cargado-no-se-inventa) |
+| De un producto que no está en la lista, solo `Eso no lo trabajamos.` (un modelo ofrecía "pedirlo"); y si preguntan por uno que está en cero, el programa avisa que ahora no hay stock. Un producto y un dato en la misma pregunta ("¿cuánto sale la yerba? ¿aceptan tarjeta?") reciben el renglón de la lista y el dato | [Los datos del negocio](#los-datos-del-negocio-lo-que-no-está-cargado-no-se-inventa) |
+| Los casos de muestra de `ensayar` suman las preguntas por el horario, la dirección, el pago y el teléfono, y la del producto en cero | [Ensayar un mostrador](#ensayar-un-mostrador-ensayar) |
+
+Un mostrador o un equipo creado con la 0.7 es una copia fija y sigue como estaba: para tener
+esto hay que crearlo de nuevo (`nuevo equipo otro_nombre`) y pasarle la planilla. Lo que
+cambia a la vista en uno nuevo: al arrancar muestra un renglón con los datos cargados, y a
+"¿qué horarios tienen?" ya no contesta la IA. El detalle está en `MEJORAS.md`, mejora 127.
+
 ## Qué cambió en la 0.6
 
 Lo nuevo de esta versión salió de usar el mostrador en un negocio de verdad. No se agregó
@@ -3367,6 +3558,15 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
 - El buzón es para programas de la **misma carpeta** de una misma computadora, sin red. Un
   programa atiende cualquier sobre bien armado que encuentre en su buzón, aunque no conozca al
   que lo manda: la carpeta tiene que ser de confianza. No se probó en una Windows de verdad.
+- Los datos del negocio (0.7.1) se reconocen **por palabras**: una pregunta por el horario
+  dicha sin ninguna de las palabras de `temas_del_negocio()` va a la IA, y una frase con un
+  "dónde" que hablaba de otra cosa recibe lo de la dirección. La revisión de lo que contesta
+  la IA ve días, horas, plazos, formas de pago, promociones, teléfonos, mails y las maneras
+  más comunes de decir una dirección: **ataja lo más común, no todo**. Lo demás que un modelo
+  pueda inventar ("quedamos a la vuelta de la plaza", "somos una empresa familiar desde
+  1980") no lo ve, y a veces frena una respuesta que estaba bien. Si la frase nombra dos productos, no se avisa
+  cuál está en cero (en el equipo, Ventas le hace una sola pregunta a Depósito por consulta).
+  No se probó todavía con el modelo de verdad que mostró el problema.
 - El equipo (`nuevo equipo` y el ejemplo 13) anota solo con un `si`, pero no entiende todo lo
   que se le escribe: "ok" y "dale" valen como sí, igual que "si" (es a propósito: así se
   contesta en un mostrador; si en tu negocio no, sacalos de `palabras_de_si()`); un `si`
