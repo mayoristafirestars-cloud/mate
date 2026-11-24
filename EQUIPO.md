@@ -4056,6 +4056,336 @@ dato, o se frena). Recién después se decide la publicación. El "Estado final 
 sigue valiendo para `main`.
 
 
+## Mate 0.8: agentes de negocios distintos (rumbo B)
+
+**Registro del integrador** (rama `equipo/mate-0.8`, que sale de `main` = Mate 0.7.1 publicado;
+sobre `fc692e7` más el commit que trae este registro; todo en commits locales, sin subir nada y
+sin tocar `main` ni `.github`). Esta sección va antes de "Estado final de la 0.7" para que la
+historia de la 0.7 quede junta; lo de la 0.7 y la 0.7.1 no se tocó.
+
+**Estado: la 0.8 está APROBADA en la vuelta 2 (sobre `fc692e7`) y NO está publicada.** Hubo
+dos vueltas. No queda ningún problema alto ni medio abierto; quedan bajos (P245 a P264).
+**P161 (1) quedó resuelto.** **Aprobada quiere decir revisada y probada en Linux, con Python
+3.13 y sin IA (el ejemplo 14 no la usa). No se probó en una Windows de verdad, ni con una
+carpeta sincronizada real (OneDrive, Google Drive, Dropbox), ni con un modelo real.** Lo
+primero a probar en la PC del dueño está en "Sin probar", más abajo (P250 antes que nada).
+
+### Qué es
+
+Hasta la 0.7 dos programas de la MISMA carpeta se hablaban por el buzón de archivos. En la 0.8
+el programa de un negocio le habla al de OTRO negocio, en otra máquina. El manual es la sección
+"Dos negocios que se hablan: los socios" de `mate/README.md`.
+
+### Dirección del coordinador (el diseño ajustó los detalles, no la dirección)
+
+1. **Transporte**: una carpeta compartida que las dos máquinas ven (sincronizada, de red o un
+   pendrive). Mate no abre conexiones ni levanta servidores: solo lee y escribe archivos, y
+   aguanta archivos a medio escribir, copias en conflicto, demoras, relojes distintos y el
+   mismo sobre visto dos veces.
+2. **Confianza**: cada par de negocios ("socios") comparte una clave. Cada sobre va firmado
+   (hmac-sha256) y trae lo necesario para rechazar repetidos y viejos. Sin firma válida de un
+   socio conocido no se entrega: va a rechazados con su motivo. P161 (1) se resuelve también
+   para el buzón local.
+3. **La clave** nunca va en el `.mate` ni en el repositorio ni se muestra entera en pantalla o
+   en la traza: vive en un archivo aparte al lado del programa y se pasa por fuera.
+4. **Lo que llega de otro negocio nunca mueve plata ni stock solo**: queda pendiente hasta el
+   `si` del dueño. Un socio solo manda los tipos que el programa declara aceptar de él.
+5. **Para el dueño**: ejemplo 14 (comprador y proveedor) y una orden que lo deja armado, con
+   pasos que andan copiados en PowerShell y que se pueden ensayar en una sola PC.
+6. **Alcance chico**: sin cifrado del contenido (límite conocido) y sin red.
+
+### Diseño resumido y decisiones
+
+- **Lenguaje**: `usar socio Proveedor acepta Cotizacion, SinStock`. El socio es destino de
+  `enviar` y `remitente`, con las prohibiciones de un agente de otro programa. `verificar` da
+  error si un mensaje del `acepta` no está declarado o no tiene exactamente un agente. No se
+  gastó cupo: siguen 36 palabras clave (tope 40) y 48 funciones (tope 48).
+- **Sobre firmado** (`"mate_buzon": 2`): HMAC-SHA256 de todo el sobre menos la firma, con clave
+  derivada por lado (A o B) y número de orden por socio. La firma se comprueba antes de usar
+  cualquier dato, y el socio lo da la carpeta donde apareció el archivo. Lo que no verifica va
+  a `rechazados` (local, con cupo de 50 archivos o 20 MB, nombre armado por Mate) y no se
+  contesta.
+- **Repetidos y viejos, sin relojes**: un piso más los números vistos con la marca de su firma
+  (hasta 2000). Una copia en conflicto se borra sin ruido; el mismo número con otro contenido y
+  lo que llega por debajo del piso se rechazan con aviso. `buzon` muestra los huecos como rangos.
+- **Clave**: 40 cifras con `secrets.randbelow` más 4 de control, en `<programa>.socios.json`
+  (0600 en POSIX; en Windows queda con los permisos de la carpeta). Orden
+  `socio invitar|aceptar|renovar|quitar`. Se pasa por `invitacion-mate.txt` (un pendrive; nunca
+  dentro de la compartida; `aceptar` la borra) o con `--dictar`. En pantalla solo se ve el
+  número de control, con el paso obligatorio de compararlo por teléfono.
+- **Carpeta compartida** (`de-a`, `de-b`, `LEEME-mate.txt`): un archivo a medio llegar se deja y
+  va a rechazados a las 24 horas del reloj local; aguanta llegada desordenada y carpeta ausente
+  (queda por salir). No sigue accesos directos ni uniones y solo borra lo que abrió y decía ser
+  un sobre. Se niega si la compartida es, contiene o está dentro de la carpeta del programa, o
+  si tiene un `.mate`, un archivo de claves o una invitación.
+- **El `si` del dueño**: nada de otro negocio llega a un agente sin `si`, mensaje por mensaje.
+  Se valida antes de preguntar (`acepta`, contrato, topes de 8 KB, 500 letras y 4 niveles) y se
+  muestra entero, con los textos entre comillas y escapados. Entrega exactamente una vez,
+  también con un corte después de guardar.
+- **Fallas entre negocios**: viaja un código de lista cerrada que traduce el que recibe, una
+  sola por mensaje enviado; pasan por el `si` cuando disparan un `al fallar`, y nunca se
+  contesta una falla con otra.
+- **Ensayo en una PC**: `nuevo socio [carpeta]` arma comprador, proveedor y compartida con una
+  clave de ensayo marcada (cada corrida lo avisa) e imprime los pasos con comillas simples
+  para PowerShell.
+
+**Decisiones del coordinador que quedaron en el código** (las informó el implementador):
+
+- `--dictar` muestra la clave entera una vez, a pedido y solo si la salida es una terminal de
+  verdad. Es la única excepción a "nunca entera en pantalla"; sin eso queda solo el pendrive.
+- Un aviso de falla de un mensaje enviado con la 0.7 antes de actualizar se rechaza una vez,
+  porque los ids enviados se recuerdan recién desde la 0.8. Está en la tabla "Qué cambió y
+  puede frenar un programa viejo".
+- En el buzón local no se exige que exista el agente remitente cuando el sobre es una falla ni
+  cuando el programa remitente usa `crear`.
+
+**Diferencias con el diseño** (del implementador): el ensayo son seis corridas y no cinco; el
+estado de socios y los ids enviados van en una parte nueva `"correo"` de la memoria y no dentro
+de `"buzon"` (para no romper las pruebas que comparan `"buzon"` exacto); se acepta `si` y `sí`
+sin distinguir mayúsculas (el cambio obligatorio 5 pedía "si" exacto).
+
+### Cambios obligatorios de seguridad (crítica al diseño, antes de programar)
+
+El especialista leyó el diseño, P161 y el buzón de la 0.7 sin ejecutar nada. Veredicto: la
+dirección es correcta y se puede programar, con 14 cambios obligatorios. Atacó y aguantaba tal
+como estaba: falsificar o alterar, devolver el sobre propio (claves por sentido), reenviar a
+otro socio, cambiar destinatario, tipo o número, los relojes, la clave débil (unos 133 bits),
+la canonización y el oráculo (no se contesta a quien no se autenticó).
+
+| # | Cambio obligatorio | Según el implementador |
+|---|---|---|
+| 1 | Verificar la firma antes de usar cualquier dato; el socio lo da la carpeta; vector fijo de prueba | hecho |
+| 2 | Ignorar "de" y "para" del sobre de un socio; respuestas solo contra ids mandados a ese socio | hecho |
+| 3 | Entrega exactamente una vez también después del `si` (corte entre guardar y borrar) | hecho, con prueba |
+| 4 | Guardar la marca de la firma por número visto; lo que llega bajo el piso se avisa; huecos como rangos | hecho |
+| 5 | El `si` se pregunta sobre lo mismo que recibe el agente, entero; validar antes; topes propios; comillas escapadas | hecho, con dos faltas bajas: P246 (números largos se recortan) y P260 (caracteres imprimibles) |
+| 6 | Limpieza de texto ajeno: sustitutos, lo que la consola no codifica, U+2028/2029, formato, nombre del archivo | hecho (`texto_ajeno`) |
+| 7 | Fallas de socio: código de lista cerrada, una por id, por el `si`, nunca falla por falla, sin falla a desconocidos | hecho, con una falta baja: P261 (el `tipo` de una falla es texto libre) |
+| 8 | Nombres locales armados por Mate | hecho para lo de socios; los rechazados del buzón local siguen usando el nombre del archivo (P161 (3)) |
+| 9 | Cupos: rechazados, tabla de vistos, tope de archivos mirados | hecho; queda P263 (molestia, no entrega) |
+| 10 | No seguir ni borrar a través de accesos directos; controles con ruta real en cada corrida | hecho; uniones de Windows sin probar |
+| 11 | Cerrar todos los caminos a la clave | hecho: `leer_archivo`, `leer_tabla`, `escribir_archivo`, `agregar_a_archivo`, `usar`, `correr`, `verificar`, `--traza=` y `--guardar=` se niegan sobre `*.socios.json` e `invitacion-mate*.txt`; `.gitignore` los cubre. Falta baja: P264 |
+| 12 | `--dictar` solo en terminal; `aceptar` se niega si no puede ocultar; solo claves de 44 cifras con control | hecho |
+| 13 | Invitación y clave de ensayo marcada; comparar el número de control por teléfono | hecho; en la vuelta 2 se cerró la invitación dentro de la compartida |
+| 14 | Texto de socio hacia la IA: aviso de `verificar`; el ejemplo 14 no le pasa nada a la IA | hecho como aviso; no se buscó una marca de "texto ajeno" para los pedidos a la IA |
+
+Recomendados y no hechos: "no a todos los de este socio"; la huella de la declaración del tipo
+dentro del sobre ("tu socio tiene Pedido declarado distinto que vos"). Recomendados y hechos:
+pasos con comillas simples; aviso si la carpeta del programa está bajo OneDrive (depende de la
+variable de entorno `OneDrive`; **sin prueba**).
+
+### Qué se implementó y quién
+
+`git log origin/main..HEAD` antes de este registro: dos commits, los dos del implementador.
+
+| Commit | Qué |
+|---|---|
+| `17e883c` | Mate 0.8, socios: lenguaje, sobre firmado, clave y orden `socio`, carpeta compartida, el `si`, fallas, P161 (1) en el buzón local, ejemplo 14, `nuevo socio`, `buzon` por socio, manual, MEJORAS 128, `docs/index.html`, `ayuda`, `ayuda socio`, `guia`, `VERSION = "0.8"`, 85 pruebas nuevas en `mate/pruebas/test_socios.py` |
+| `fc692e7` | Correcciones de la revisión sobre `17e883c`: los tres medios y varios bajos; 14 pruebas nuevas (quedan 100 en `test_socios.py`) |
+
+`git diff --stat origin/main..fc692e7`: 10 archivos, 6098 renglones agregados y 139 quitados
+(`mate/mate.py` +3029, `mate/pruebas/test_socios.py` +2182, `mate/README.md` +439,
+`mate/pruebas/test_mate.py`, los tres archivos del ejemplo 14, `mate/MEJORAS.md`,
+`docs/index.html`, `.gitignore`).
+
+**Pruebas existentes que cambiaron** (en `test_mate.py`, ninguna salteada): las de versión,
+README y ejemplos graduales quedaron al día. Ocho pruebas del buzón dejaban a mano sobres de un
+programa desconocido o fallas sin mensaje enviado, que P161 (1) ahora rechaza: el remitente
+pasa a nombrar al destinatario, o se anota el id como enviado.
+`test_buzon_contestarle_a_un_remitente_desconocido_avisa_y_no_escribe` se reescribió: antes
+afirmaba que el sobre de "fantasma" se entregaba y ahora afirma lo contrario. En la vuelta 2
+cambiaron, porque cambió el comportamiento pedido: la de "otra clave" (ahora se deja y se
+avisa), la de caracteres que engañan (ahora no cruzan), la igualdad de la ficha tras aceptar,
+la del renglón "Socios:" sin novedades y la clave de prueba de 40 nueves (ya no es válida).
+
+### Vueltas
+
+**Vuelta 1, sobre `17e883c` — NO aprobada (tres problemas medios).** El detalle de cada
+veredicto no llegó al integrador: lo que hay es lo que la vuelta 2 dice haber corregido.
+
+- Medio 1 (renovar/aceptar): entre `socio renovar` y `socio aceptar`, lo firmado con la otra
+  clave se rechazaba y se borraba de la compartida sin aviso.
+- Medio 2 (texto crudo del socio): un texto con caracteres de control o de dirección cruzaba
+  y permitía dibujar una pregunta falsa.
+- Medio 3 (invitación en la compartida): una invitación dejada en la carpeta compartida se
+  podía cargar.
+- Evidencia del implementador sobre `17e883c`: `pytest mate/pruebas mate/modelo` 1464 pasan
+  (11 min 38 s); `probar mate/ejemplos` 155 de 155; `probar mate/curso` 37 de 37. El vector de
+  la firma y la ida y vuelta del ensayo, como script suelto, con Python 3.10 a 3.14.
+
+**Vuelta 2, sobre `fc692e7` — APROBADA (revisor, probador y seguridad; ningún alto ni medio
+abierto).**
+
+- Medio 1, corregido: un sobre con forma de sobre del socio firmado con otra clave se deja y se
+  avisa ("cargá la nueva con socio aceptar") y se entrega en la corrida siguiente a cargarla.
+  Lo propio que quedó viajando con una clave anterior lo saca el que lo mandó, con un "OJO...
+  tu socio NO lo recibió". La ficha anota en `antes` la huella (no la clave) y el lado de hasta
+  5 claves anteriores. `socio renovar` cuenta lo que está viajando antes de pedir el `si`.
+- Medio 2, corregido: `no_entra_de_socio` rechaza, de ida y de vuelta (código "contrato"),
+  todo texto, nombre de campo o tipo con caracteres que `texto_ajeno` escribiría con número.
+  **Consecuencia: entre negocios los textos van en un solo renglón.**
+- Medio 3, corregido: la invitación cuenta como archivo de claves en la compartida y en
+  `de-a`/`de-b` (`correr` no manda ni recibe y pide renovar); `socio aceptar` no la carga ni la
+  borra desde una compartida; `invitar`/`renovar` no la escriben en la compartida de otro socio.
+- Bajos corregidos: el consejo de `buzon` sobre rechazados de un socio; el archivo que ahora no
+  se puede abrir se avisa como pasajero; `dejar()` insiste y se limpian los `.json.tmp` de más
+  de un día; orden completa en `invitar`/`renovar`; "Socios: no llegó nada nuevo de X."; el
+  paso del ensayo a lo real (`--olvidar`); `verificar` sigue el texto del socio hasta otro
+  agente con IA; el resumen de rechazados; claves con menos de 6 cifras distintas no valen.
+- Evidencia del implementador: `pytest` 1479 pasan, 0 fallan (685 s); `probar mate/ejemplos`
+  155 de 155 en 25 archivos; `probar mate/curso` 37 de 37 en 26 archivos. Después de esa
+  corrida solo cambió el README y repitió las 57 pruebas que leen el manual.
+- Evidencia de la revisión: cada bajo de la lista de abajo trae su forma de reproducirlo; los
+  del especialista en seguridad salen de ataques hechos con la clave del ensayo (scripts de
+  trabajo que no están en el repositorio). Ninguno logra una entrega sin `si` ni una firma
+  falsa. Los datos que recibió el integrador no dicen quién informó cada bajo; por el contenido,
+  P245 a P252 son del revisor, P253 a P259 del probador y P260 a P264 del especialista.
+
+**Lo que repitió el integrador sobre `fc692e7`** (Linux, Python 3.13.18,
+`MATE_SIN_REGISTRO=1`): `probar mate/ejemplos` 155 de 155 en 25 archivos; `probar mate/curso`
+37 de 37 en 26 archivos; `ayuda` dice "Mate 0.8"; `pytest mate/pruebas mate/modelo -q -p no:cacheprovider` 1479 pasan, 0 fallan (701 s). No repetí los ataques ni los
+pasos de `nuevo socio`.
+
+### Estado de P161
+
+- **(1) RESUELTO.** En el buzón local solo se entrega lo de un programa conocido (este lo
+  nombra con `usar buzon`, o está en la carpeta y nombra a este). A un desconocido no se le
+  contesta. Un aviso de falla tiene que nombrar un mensaje enviado de verdad (la memoria guarda
+  los últimos 2000 ids enviados). Entre negocios, además, firma. Límite: el buzón local sigue
+  sin firma, así que quien escribe en la carpeta puede crear un `.mate` que nombre al programa
+  y pasar por conocido.
+- (2) resuelto para lo que viene de un socio (`texto_ajeno` en la pregunta, la traza, los
+  avisos y el `.motivo.txt`); no revisé que cubra todos los caminos del buzón local.
+- (3) sigue abierto para los nombres locales del buzón común y `nuevo equipo`; lo de socios usa
+  nombres armados por Mate.
+- (4) sigue abierto: `rechazados` del buzón local no se limpia (los de socios tienen cupo).
+- P160 sigue abierto.
+
+### Problemas abiertos (todos bajos)
+
+Nuevos de la 0.8, salvo donde dice "ya estaba".
+
+- **P245**: cambiar la carpeta compartida obliga a cambiar la clave. Si al pendrive le cambia
+  la letra o se mueve la carpeta de OneDrive, la única salida es `socio renovar --carpeta=...`
+  y una invitación nueva. El aviso solo pregunta si está el pendrive puesto. Reproducir:
+  renombrar `compartida` en el ensayo y correr `proveedor.mate`.
+- **P246**: un número de más de 60 caracteres se muestra recortado en "¿Lo entrego?" y el
+  agente lo recibe entero (y 0.30000000000000004 se muestra como 0.3). Contradice "lo que no
+  entra no se recorta: se rechaza". Lo informaron dos revisiones. Arreglo: rechazarlo antes de
+  preguntar.
+- **P247**: `desktop.ini`, `Thumbs.db` o `.DS_Store` en la carpeta del socio disparan en cada
+  corrida "hay 1 cosa que no es un sobre de Mate... Sacalo a mano". En Windows están ocultos y
+  se vuelven a crear. Reproducido con un archivo a mano; no con una nube real.
+- **P248**: el ejemplo 14 (y lo que copia `nuevo socio`) deja un pedido trabado cuando el
+  proveedor contesta `no`, cuando su programa falla o cuando la Confirmacion se pierde: el
+  comprador no lo vuelve a mandar y el `al fallar` solo muestra un renglón.
+- **P249**: falta decir cómo recibe el otro negocio su programa al pasar del ensayo a lo real
+  (qué archivos se le pasan y cuáles no: ni el `.socios.json` ni la memoria).
+- **P250** (ya estaba; **no verificado, solo leído**; lo primero a probar en Windows):
+  `abrir_sin_seguir` compara en Windows (dev, ino) entre `os.fstat` y `os.lstat`. En un
+  pendrive FAT/exFAT o en la unidad virtual de Google Drive pueden no coincidir, y todos los
+  sobres quedarían como "archivo que ahora no se puede abrir": falla hacia el lado seguro y con
+  aviso, pero bloquea el uso.
+- **P251** (solo leído): un sobre de socios (`mate_buzon` 2) copiado al buzón local se rechaza
+  con el motivo "lo escribió una versión más nueva de Mate", que confunde.
+- **P252**: el aviso de carpeta ausente termina en "¿... o la conexión?. En esta corrida".
+- **P253**: en el paso 3 de `nuevo socio` el proveedor no ve qué cotizó su programa.
+- **P254**: un `si` que llega por tubería vale como aprobación (`echo si | ... correr`), y los
+  `si` que sobran de las preguntas del propio programa contestan "¿Lo entrego?". Un `.bat` con
+  `echo si |` anularía el "nada llega sin tu si". Lo informaron dos revisiones. Decirlo en los
+  límites o exigir una ventana de verdad.
+- **P255**: con `--invitacion` apuntando a una carpeta que no existe, el mensaje habla del
+  nombre del archivo en vez de decir que la carpeta no existe.
+- **P256**: los pasos de `nuevo socio` para el socio de verdad no anticipan las preguntas que
+  van a venir (el `si`, cómo se pasa la clave, pisar la clave de ensayo). Andan copiados.
+- **P257**: un archivo que nunca se entiende queda en `de-a`/`de-b` para siempre y el aviso se
+  repite; hay que borrarlo a mano, contra lo que dice el LEEME.
+- **P258**: el comentario de arriba de `14_comprador.mate` dice `python mate.py nuevo socio` y
+  el manual `python mate\mate.py nuevo socio` (en la PC del dueño es `py`).
+- **P259** (ya estaba): `ensayar programa.mate` sin archivo de casos sugiere como ejemplo otro
+  programa de la carpeta.
+- **P260**: la pregunta "¿Lo entrego?" se puede vestir con caracteres imprimibles (tiras de
+  espacios, comillas tipográficas, letras que se ven en blanco como U+3164 o U+2800): un socio
+  con la clave arma un mensaje falso en el primer campo y corre lo verdadero a la derecha. No
+  lo esconde, pero el manual promete que no se puede "dibujar una pregunta falsa". Arreglo:
+  rechazar dos o más espacios seguidos y esas letras, escapar las comillas tipográficas, o
+  mostrar un campo por renglón.
+- **P261**: un socio con la clave hace aparecer hasta 60 letras libres en pantalla sin `si`,
+  con un aviso de falla cuyo `tipo` no se compara con nada; además gasta el único aviso de
+  falla de ese mensaje. Arreglo: si no coincide con lo enviado, decir "un mensaje tuyo", y
+  aceptar `campo` solo si es un campo del tipo enviado.
+- **P262**: `socio aceptar` deja cargar de nuevo una clave vieja (su huella está en `antes`) y
+  arranca la cuenta de cero: los mensajes viejos se pueden repetir y vuelven a pedir el `si`.
+  Hace falta un error del dueño. Arreglo de dos renglones: negarse.
+- **P263**: quien escribe en la compartida puede dejar archivos con forma de "sobre de otra
+  clave" o más de 500 rotos: no se entregan, pero el aviso ("cargá la nueva: socio aceptar")
+  no se va más y empuja al dueño a una orden de claves.
+- **P264**: si el dueño escribe la clave como opción (`--clave=...`), el aviso de opción
+  desconocida la repite entera en pantalla.
+
+**Decisiones que pide el integrador al coordinador**: P254 (¿el `si` exige una ventana de
+verdad?), P260 y P261 (el manual promete más de lo que se cumple; los dos tienen arreglo
+barato), y P245 (¿una forma de cambiar solo la carpeta?).
+
+### Límites conocidos (están en el manual, salvo donde se aclara)
+
+- **Sin cifrado**: quien ve la carpeta compartida lee todos los mensajes, sabe quién habla con
+  quién y puede guardar copias.
+- Quien escribe en la compartida puede borrar, demorar, reordenar y llenarla de basura. No
+  puede falsificar ni hacer entregar dos veces.
+- Clave compartida por par: no sirve de prueba ante terceros. Quien consiga la invitación, el
+  pendrive o el `.socios.json` firma como cualquiera de los dos; ante la duda, renovar. Una
+  invitación que estuvo en la compartida y alguien borró antes de que Mate la viera no deja
+  rastro.
+- Una memoria vieja restaurada (o la carpeta copiada a otra PC) no se detecta: solo la ausente.
+- `usar python` y quien tenga acceso a la PC pueden leer la clave. El buzón local sigue sin
+  firma.
+- El `si` aprueba la entrega, no el negocio: la segunda barrera es el control del manejador.
+- **No hay reenvío**: un último mensaje perdido no se ve como hueco, y un pedido cuyo mensaje se
+  perdió hay que rehacerlo con otro número (P248).
+- Entre `renovar` y `aceptar`: si los dos corren, lo firmado con la clave vieja se pierde, con
+  aviso a los dos lados. Si renueva el que había aceptado (cambia de lado), en ese intervalo
+  ninguno ve aviso. Un sobre de otra clave que nadie retira (más de 5 renovaciones, o el socio
+  nunca acepta) queda en la compartida con su aviso.
+- Entre negocios los textos van en un solo renglón. Qué cuenta como carácter "que no se ve"
+  depende de la tabla Unicode de cada Python: un carácter muy nuevo puede salir de una máquina
+  y ser rechazado en la otra (falla hacia el lado seguro).
+- El aviso de `verificar` sobre la IA mira lo que el agente nombra: no ve un texto guardado en
+  el estado ni `usar python`, y puede avisar de más.
+- La orden que `invitar`/`renovar` muestran para el socio lleva la ruta de `mate.py` de esta
+  máquina.
+- No se hizo: una clase del curso sobre socios, el README de la raíz, "no a todos los de este
+  socio", la huella de la declaración del tipo.
+
+### Sin probar
+
+- **Windows de verdad**: permisos del archivo de clave (no se llama a `icacls`), `getpass` en
+  PowerShell, uniones (`st_reparse_tag` / `isjunction`), `abrir_sin_seguir` sin `O_NOFOLLOW`
+  (P250), el archivo tomado por el sincronizador o el antivirus (simulado con un
+  `PermissionError`) y los pasos impresos corridos en PowerShell.
+- **Carpeta sincronizada real**: copias en conflicto, demoras y archivos a medio llegar están
+  simulados. Un archivo "solo en la nube" puede demorar la lectura.
+- **Otras versiones de Python**: `pytest` corrió solo con 3.13. Con 3.10, 3.11, 3.12 y 3.14
+  corrió, sobre `17e883c`, el script suelto del vector de la firma y la ida y vuelta; sobre
+  `fc692e7`, nada.
+- **Modelo real**: nada de la 0.8 se probó con un modelo de verdad (el ejemplo 14 no usa IA).
+
+**Para el dueño, en Windows** (parado en la carpeta que tiene adentro a `mate`)
+
+```
+py mate\mate.py ayuda
+py mate\mate.py ayuda socio
+py -m pytest mate\pruebas mate\modelo -q -p no:cacheprovider
+py mate\mate.py probar mate\ejemplos
+py mate\mate.py nuevo socio ensayo
+```
+
+`ayuda` tiene que decir "Mate 0.8". `nuevo socio` imprime los pasos que siguen; conviene
+hacerlos una vez con la carpeta `compartida` en el disco y otra en un pendrive (P250).
+
+**Lo que sigue**: probar en la PC del dueño (Windows, pendrive y una carpeta sincronizada), las
+decisiones de P254, P260, P261 y P245, y recién después publicar.
+
 ## Estado final de la 0.7
 
 **Estado de hoy** (integrador, después de la tercera pasada del revisor externo sobre el pull
