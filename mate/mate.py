@@ -581,7 +581,8 @@ def revisar_numero(txt, fuente, pos, hondo, linea):
     if re.match(r"\.\d", fuente[pos:pos + 2]) and "." in txt:
         raise ErrorMate(
             "un número lleva un solo punto, y es el de los decimales. Los miles no llevan "
-            "punto: se escriben todos juntos o con guion bajo (1500000 o 1_500_000)", linea)
+            "punto: se escriben todos juntos o con guion bajo (1500000 o 1_500_000). Si no "
+            "es una cantidad (un teléfono, una fecha), va entre comillas", linea)
     if _MILES.fullmatch(txt):
         corto = txt.rstrip("0").rstrip(".")
         raise ErrorMate(
@@ -1595,7 +1596,12 @@ class Parser:
                         raise ErrorMate(
                             "dentro del texto: lo que está entre { y } quedó a medio escribir "
                             "(usá \\{ para una llave literal)", ln)
-                    raise ErrorMate(f"dentro del texto: {e.mensaje}", ln)
+                    # (0.7.1) Unas llaves adentro de un texto son una cuenta para Mate.
+                    # Si eran parte de lo escrito ("de {8 a 17}"), se dice cómo seguir.
+                    raise ErrorMate(
+                        f"dentro del texto: {e.mensaje}. (Lo que va entre {{ y }} Mate lo "
+                        "toma por una cuenta. Si las llaves eran parte de lo que querías "
+                        "escribir, sacalas, o poné \\{ para una llave literal)", ln)
                 i = fin
             else:
                 actual.append(c)
@@ -10230,7 +10236,8 @@ prueba "tu planilla está bien cargada" {
         fallar(a_corregir)
     }
     # Y mira lo que cargaste arriba, en datos_del_negocio: que cada dato sea un texto
-    # entre comillas.
+    # entre comillas (un teléfono también: sin comillas, Mate lo toma por una cuenta) y
+    # que el nombre de cada dato siga como vino, en minúsculas y sin tilde.
     sea mal_escrito = datos_mal_puestos(datos_del_negocio)
     si mal_escrito != nada {
         fallar(mal_escrito)
@@ -10309,6 +10316,13 @@ prueba "el horario, la dirección o cómo se paga los contesta el programa: sin 
     asegurar atender(lista_de_prueba(), "hola, que horarios tienen?", cargados) == "Horario: Lunes a viernes de 8 a 17."
     asegurar atender(lista_de_prueba(), "aceptan tarjeta?", cargados) == "Formas de pago: Efectivo o transferencia."
     asegurar atender(lista_de_prueba(), "horario y direccion?", cargados) == "Horario: Lunes a viernes de 8 a 17. Sobre la dirección: eso te lo confirma una persona."
+    # Un teléfono SIN comillas no se dice: Mate toma 4555-1234 por una resta (da 3321).
+    # Cuenta como vacío, y la prueba de la planilla dice qué arreglar.
+    sea sin_comillas = { telefono: 4555 - 1234 }
+    asegurar atender(lista_de_prueba(), "cual es el telefono?", sin_comillas) == "Sobre el teléfono: eso te lo confirma una persona."
+    asegurar tiene(datos_mal_puestos(sin_comillas), "el dato 'telefono' está sin comillas")
+    # El nombre de un dato cambiado ("Horario", con mayúscula) también se avisa.
+    asegurar tiene(datos_mal_puestos({ Horario: "8 a 17" }), "tiene que quedar escrito 'horario'")
     asegurar largo(consultas_ia()) == 0
 }
 
@@ -10760,7 +10774,8 @@ prueba "tu planilla está bien cargada" {
         fallar(a_corregir)
     }
     # Y mira lo que cargaste arriba, en datos_del_negocio: que cada dato sea un texto
-    # entre comillas.
+    # entre comillas (un teléfono también: sin comillas, Mate lo toma por una cuenta) y
+    # que el nombre de cada dato siga como vino, en minúsculas y sin tilde.
     sea mal_escrito = datos_mal_puestos(datos_del_negocio)
     si mal_escrito != nada {
         fallar(mal_escrito)
@@ -11274,6 +11289,14 @@ prueba "el horario, la dirección o cómo se paga los contesta Ventas sin IA: si
     asegurar consultar_a_ventas("f", "hola, que horarios tienen?") == "Horario: Lunes a viernes de 8 a 17."
     asegurar consultar_a_ventas("g", "aceptan tarjeta?") == "Formas de pago: Efectivo o transferencia."
     asegurar consultar_a_ventas("h", "horario y direccion?") == "Horario: Lunes a viernes de 8 a 17. Sobre la dirección: eso te lo confirma una persona."
+    # Un teléfono SIN comillas no se dice: Mate toma 4555-1234 por una resta (da 3321).
+    # Cuenta como vacío, y la prueba de la planilla dice qué arreglar.
+    sea sin_comillas = { telefono: 4555 - 1234 }
+    abrir_el_negocio(lista_de_prueba(), sin_comillas)
+    asegurar consultar_a_ventas("i", "cual es el telefono?") == "Sobre el teléfono: eso te lo confirma una persona."
+    asegurar tiene(datos_mal_puestos(sin_comillas), "el dato 'telefono' está sin comillas")
+    # El nombre de un dato cambiado ("Horario", con mayúscula) también se avisa.
+    asegurar tiene(datos_mal_puestos({ Horario: "8 a 17" }), "tiene que quedar escrito 'horario'")
     asegurar largo(consultas_ia()) == 0
 }
 

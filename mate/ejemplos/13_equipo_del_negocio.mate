@@ -291,6 +291,9 @@ agente Ventas {
             # completa y con cuántos bultos son, lo deja esperando y pide el "si". Si
             # entendió mal, el cliente lo ve acá, antes de que se descuente nada.
             pendientes[quien] = { fila: pedido.fila, cantidad: pedido.cantidad, envio: pedido.envio }
+            # (Acá no se agrega ningún dato del negocio: un pedido que además PREGUNTA
+            # algo, "quiero 12 azucar, ¿abren el sábado?", no es un pedido claro, y ya se
+            # contestó más arriba, con la cuenta y el dato.)
             responder RespuestaDeVentas { charla: c.charla, respuesta: antes + pregunta_de_confirmar(pedido) }
         }
         # 2. Quiere devolver, anular o dice "no quiero...": no se anota nada, y tampoco se
@@ -343,13 +346,11 @@ agente Ventas {
         var motivo_de_la_falla = nada
         intentar {
             # El tercer valor es lo que "contesta la IA" con --ia-simulada. Pasó los
-            # frenos; falta mirar una cosa más, que la mira el programa: que no nombre un
-            # horario, un teléfono o una forma de pago que no está cargada.
-            contestado = sin_inventar(datos, consultar_ia(instrucciones, c.dicho, sin_ia), filas)
-            # De lo que no está en la lista, solo que no se trabaja: sin ofrecer pedirlo.
-            si largo(nombrados) == 0 {
-                contestado = sin_ofrecer(contestado)
-            }
+            # frenos; falta mirar dos cosas más, que las mira el programa (revisada(), que
+            # llama a sin_ofrecer() y a sin_inventar(...)): de lo que no está en la lista,
+            # solo que no se trabaja, sin ofrecer pedirlo; y que no nombre un horario, un
+            # teléfono o una forma de pago que no está cargada.
+            contestado = revisada(datos, consultar_ia(instrucciones, c.dicho, sin_ia), filas, c.dicho)
         } si falla motivo {
             # Sin clave, sin internet o sin crédito: se contesta con lo que dice la lista.
             contestado = sin_ia
@@ -1515,6 +1516,34 @@ prueba "un dato cargado lo dice Ventas tal cual está escrito, sin IA" {
     asegurar empieza_con(pedir_y_confirmar("e", "quiero 2 yerbas"), "Anotado: 2 x Yerba mate")
 }
 
+prueba "un pedido con una pregunta por un dato: Ventas contesta la cuenta y el dato, y no anota" {
+    abrir_el_negocio(lista, { horario: "Lunes a viernes de 8 a 17" })
+    simular_ia("Abrimos todos los días.")
+    # Con una pregunta adentro no es un pedido claro: va la cuenta, cómo pedirlo y el dato.
+    para dicho en ["quiero 12 azucar, abren el sabado?", "quiero 12 azucar, a que hora abren"] {
+        sea contestado = consultar_a_ventas(dicho, dicho)
+        asegurar empieza_con(contestado, "12 x Azúcar (bolsa de 10 kg) a $ 9.800,50 cada uno: total $ 117.606,00. Todavía no anoté nada"), dicho
+        asegurar termina_con(contestado, " Horario: Lunes a viernes de 8 a 17."), dicho
+    }
+    asegurar largo(mensajes_enviados("Reservar")) == 0
+    # Un pedido claro que nombra "el local" sin preguntar nada sigue siendo un pedido:
+    # Ventas lo repite y pide el "si", sin agregar nada.
+    sea repetido = consultar_a_ventas("a", "quiero 10 yerbas para retirar en el local")
+    asegurar empieza_con(repetido, "Entendí: 10 x Yerba mate") y no tiene(repetido, "persona")
+    # ("para el sábado" tampoco pregunta nada: las palabras flojas no cuentan en un pedido)
+    sea para_el_sabado = consultar_a_ventas("b", "quiero 2 yerbas para el sabado")
+    asegurar no tiene(para_el_sabado, "persona") y no tiene(para_el_sabado, "Horario")
+    asegurar largo(consultas_ia()) == 0
+}
+
+prueba "a '¿hacen envíos a...?' Ventas contesta la regla y, si están cargadas, las entregas" {
+    abrir_el_negocio(lista, { entregas: "En 48 horas, en zona oeste" })
+    asegurar consultar_a_ventas("a", "hacen envios a cordoba?") == "Hacemos envíos desde 10 unidades. Decime cuántas unidades de qué producto de la lista querés y te digo el total. Entregas: En 48 horas, en zona oeste."
+    abrir_el_negocio(lista, {})
+    asegurar consultar_a_ventas("b", "hacen envios a cordoba?") == "Hacemos envíos desde 10 unidades. Decime cuántas unidades de qué producto de la lista querés y te digo el total."
+    asegurar largo(consultas_ia()) == 0
+}
+
 prueba "si la IA igual inventa un horario, un teléfono o una forma de pago, no le llega al cliente" {
     abrir_el_negocio(lista, {})
     # La pregunta no nombra el horario, así que va a la IA; y la IA lo inventa.
@@ -1554,9 +1583,22 @@ prueba "una hora, una dirección o un contacto inventados no llegan, se escriban
         simular_ia(inventada)
         asegurar consultar_a_ventas(inventada, "hola") == tema + persona, inventada
     }
-    # Una respuesta que no nombra ningún dato pasa como está.
+    # (lo que se sumó en la tercera vuelta: la dirección con su rótulo, las cuadras, el
+    # fiado, el pedido mínimo, que no es de ningún tema)
+    para inventada, tema en { "Dirección: Belgrano 300": "Sobre la dirección",
+                              "Estamos a dos cuadras de la estación de Morón.": "Sobre la dirección",
+                              "Sí, te lo fiamos sin problema, pagás a fin de mes.": "Sobre las formas de pago",
+                              "Atendemos 24/7.": "Sobre el horario" } {
+        simular_ia(inventada)
+        asegurar consultar_a_ventas(inventada, "hola") == tema + persona, inventada
+    }
+    simular_ia("El pedido mínimo son cinco bultos.")
+    asegurar consultar_a_ventas("minimo", "hola") == "Eso te lo confirma una persona."
+    # Una respuesta que no nombra ningún dato pasa como está. (También los cierres de un
+    # modelo: "escribinos" sin decir por dónde, "buen fin de semana".)
     para buena en ["Cualquier cosa, estamos en contacto.", "Viene en bolsas de 10 a 25 kg.",
-                   "Tenemos una amplia oferta de productos."] {
+                   "Tenemos una amplia oferta de productos.", "Cualquier cosa, escribinos.",
+                   "¡De nada! Que tengas buen fin de semana."] {
         simular_ia(buena)
         asegurar consultar_a_ventas(buena, "hola") == buena, buena
     }
@@ -1610,6 +1652,9 @@ prueba "si la IA dice que no lo tienen pero ofrece conseguirlo, Ventas dice solo
     abrir_el_negocio(lista, {})
     simular_ia("Lamentablemente no tenemos café, pero te lo puedo conseguir para más adelante.")
     asegurar consultar_a_ventas("a", "tenes cafe?") == "Eso no lo trabajamos."
+    # Si agrega cuándo "entra", igual va eso solo (y no "sobre las entregas...").
+    simular_ia("No tenemos por ahora, la semana que viene entran.")
+    asegurar consultar_a_ventas("b", "tenes galletitas?") == "Eso no lo trabajamos."
 }
 
 prueba "de lo que no está en la lista Ventas dice solo que no lo trabaja, sin ofrecer pedirlo" {

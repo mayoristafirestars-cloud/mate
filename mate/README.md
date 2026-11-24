@@ -2392,7 +2392,10 @@ Vienen **todos vacíos**. Con eso el programa hace tres cosas, y ninguna depende
    - promociones ("promo", "2x1", "gratis", "te regalamos", "10%");
    - un teléfono (7 cifras o más, con espacios, guiones o puntos), un mail, una página o
      una red ("@", "www", ".com", "Instagram");
-   - dónde queda ("estamos en...", "te esperamos en...", "Av.", "calle", "al 5000").
+   - dónde queda ("estamos en...", "te esperamos en...", "Av.", "calle", "al 5000",
+     "Dirección: ...", "a dos cuadras", "sucursales");
+   - y lo que no es de ninguno de esos temas pero es una regla del negocio, como un pedido
+     mínimo: pasa solo si lo escribiste en `otros`.
 
    Cada cosa de esas pasa solo si está escrita **en el dato de su tema** (el "11" de un
    teléfono no habilita "abrimos a las 11", y si cargaste "No aceptamos tarjeta" la IA no
@@ -2430,11 +2433,19 @@ Dos cosas más que decide el programa y no la IA, de esa misma prueba con un mod
 
 Lo que hay que saber:
 
-- **Cuidá las comillas y la coma** de cada renglón. Si un dato queda mal escrito (sin
-  comillas, por ejemplo), `verificar` o `probar` lo dicen; si falta la coma del final, el
-  error lo pregunta ("¿falta la coma al final del renglón de arriba?"); un dato que no es un texto cuenta
-  como vacío, y la prueba "tu planilla está bien cargada" falla diciendo cuál es. Adentro del
-  texto no pongas comillas ni llaves.
+- **Cuidá las comillas y la coma** de cada renglón. Si falta la coma del final o sobra una
+  comilla, `verificar` y `probar` dan el error, que lo pregunta ("¿falta la coma al final del
+  renglón de arriba?"). Un dato que no es un texto cuenta como vacío: la prueba "tu planilla
+  está bien cargada" (orden `probar`) falla diciendo cuál es, y al arrancar se avisa que hay
+  algo mal escrito. Adentro del texto no pongas comillas ni llaves.
+- **El teléfono también va entre comillas.** Sin ellas Mate lo toma por una cuenta
+  (`4555-1234` es una resta y da 3321; a `01145551234` le saca el cero). Por eso un número
+  suelto no se le dice al cliente: cuenta como vacío y `probar` lo avisa ("el dato
+  'telefono' está sin comillas"). `verificar` no lo ve: para Mate es un número bien escrito.
+- **No cambies los nombres de los datos** (`horario`, `direccion`, `telefono`...): van en
+  minúsculas y sin tilde, como vinieron. Con `Horario` o `dirección` ese dato queda sin
+  cargar; `probar` lo dice. Si borrás un renglón, ese dato queda vacío y al arrancar figura
+  entre los "sin cargar".
 - **Las palabras con las que se reconoce cada pregunta** están en `temas_del_negocio()`, en
   el programa: una lista por tema, en minúsculas y sin tildes. Si tus clientes preguntan con
   otra palabra, se agrega ahí.

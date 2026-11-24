@@ -10369,7 +10369,7 @@ def test_el_ejemplo_12_resuelve_los_pedidos_sin_consultar_a_la_ia(tmp_path, caps
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["probar", ruta]) == 0
     salida = capsys.readouterr().out
-    assert "36 de 36 pruebas pasaron" in salida
+    assert "38 de 38 pruebas pasaron" in salida
     assert "✓ los dos pedidos que una IA contestó mal: total exacto, envío bien y sin IA" in salida
     assert sorted(p.name for p in tmp_path.iterdir()) == [nombre, "precios.csv"]  # probar no deja nada
     # corrido de verdad, con el teclado: el pedido lo contesta el programa aunque la IA
@@ -12106,7 +12106,7 @@ def test_el_ejemplo_13_pasa_sus_pruebas_y_no_deja_nada(tmp_path, capsys):
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["probar", ruta]) == 0
     salida = capsys.readouterr().out
-    assert "49 de 49 pruebas pasaron" in salida and "✗" not in salida
+    assert "51 de 51 pruebas pasaron" in salida and "✗" not in salida
     for prueba in ("al bajar del mínimo sale UN pedido de reposición, no uno por cada venta",
                    "pedir más de lo que hay no vende, y no descuenta nada",
                    "la conversación va de Ventas a Depósito, y de Depósito a Compras",
@@ -20013,3 +20013,148 @@ def test_071_si_falta_la_coma_de_un_dato_el_error_dice_que_mirar(tmp_path, capsy
     ruta.write_text(original.replace('\n    horario: "",\n', '\n    horario: "De 8 a 17",\n'),
                     encoding="utf-8-sig")
     assert mate.main(["probar", "negocio.mate"]) == 0
+
+
+# ── 0.7.1, vuelta 3: lo que encontraron el revisor y el probador sobre la vuelta 2 ───────
+
+@pytest.mark.parametrize("que", ["equipo", "mostrador"])
+@pytest.mark.parametrize("sin_comillas", ["4555-1234", "01145551234", "1145551234"])
+def test_071_un_telefono_sin_comillas_no_se_le_dice_cambiado_al_cliente(
+        tmp_path, capsys, monkeypatch, ia, que, sin_comillas):
+    """`telefono: 4555-1234,` es una resta (3321) y a 01145551234 se le va el cero: antes
+    Ventas contestaba "Teléfono: 3321." y 'probar' pasaba entero."""
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "negocio"]) == 0
+    ruta = tmp_path / "negocio.mate"
+    original = ruta.read_text(encoding="utf-8-sig")
+    assert original.count('\n    telefono: "",\n') == 1
+    ruta.write_text(original.replace('\n    telefono: "",\n', f"\n    telefono: {sin_comillas},\n"),
+                    encoding="utf-8-sig")
+    quien = QUIEN_ATIENDE[que]
+    dicho, salida = charla_con_ia_de_verdad("negocio.mate", capsys, monkeypatch,
+                                            "cual es el telefono?")
+    assert dicho == [f"{quien}: Sobre el teléfono: eso te lo confirma una persona."]
+    assert "Teléfono: " not in salida and "3321" not in salida and "1145551234" not in salida
+    assert len(ia.pedidos) == 0
+    assert "(Datos del negocio: no hay ninguno cargado." in salida
+    assert "(Ojo: en datos_del_negocio hay algo mal escrito. La orden 'probar' dice qué es.)" in salida
+    assert mate.main(["probar", "negocio.mate"]) == 1
+    salida = capsys.readouterr().out
+    assert "✗ tu planilla está bien cargada" in salida
+    assert ("Arriba, en datos_del_negocio, el dato 'telefono' está sin comillas y Mate lo tomó "
+            "por un número (leyó ") in salida
+    assert 'Escribilo entre comillas, por ejemplo "11 4555-1234".' in salida
+    # entre comillas se dice tal cual, con su cero y su guion
+    ruta.write_text(original.replace('\n    telefono: "",\n', f'\n    telefono: "{sin_comillas}",\n'),
+                    encoding="utf-8-sig")
+    assert mate.main(["probar", "negocio.mate"]) == 0
+    dicho, salida = charla_con_ia_de_verdad("negocio.mate", capsys, monkeypatch,
+                                            "cual es el telefono?")
+    assert dicho == [f"{quien}: Teléfono: {sin_comillas}."]
+    assert "(Datos del negocio cargados: teléfono.)" in salida and "mal escrito" not in salida
+
+
+@pytest.mark.parametrize("que", ["equipo", "mostrador"])
+def test_071_el_nombre_de_un_dato_cambiado_lo_dice_probar(tmp_path, capsys, monkeypatch, que):
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "negocio"]) == 0
+    ruta = tmp_path / "negocio.mate"
+    original = ruta.read_text(encoding="utf-8-sig")
+    ruta.write_text(original.replace('\n    horario: "",\n', '\n    Horario: "8 a 17",\n'),
+                    encoding="utf-8-sig")
+    capsys.readouterr()
+    assert mate.main(["probar", "negocio.mate"]) == 1
+    salida = capsys.readouterr().out
+    assert "✗ tu planilla está bien cargada" in salida
+    assert ("Arriba, en datos_del_negocio, el nombre 'Horario' tiene que quedar escrito "
+            "'horario': todo en minúsculas y sin tilde, como vino.") in salida
+    # un renglón propio, con el nombre que el dueño quiera, no es un error
+    ruta.write_text(original.replace('\n    otros: "",\n',
+                                     '\n    otros: "",\n    Estacionamiento: "En la puerta",\n'),
+                    encoding="utf-8-sig")
+    assert mate.main(["probar", "negocio.mate"]) == 0
+
+
+@pytest.mark.parametrize("que", ["equipo", "mostrador"])
+def test_071_vuelta_3_lo_inventado_de_otra_manera_no_llega_y_un_cierre_si(
+        tmp_path, capsys, monkeypatch, ia, que):
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "negocio"]) == 0
+    quien = QUIEN_ATIENDE[que]
+    persona = ": eso te lo confirma una persona."
+    ia.respuestas = [dice("Dirección: Belgrano 300"),
+                     dice("Estamos a dos cuadras de la estación de Morón."),
+                     dice("Sí, te lo fiamos sin problema, pagás a fin de mes."),
+                     dice("Atendemos 24/7."), dice("Llevando 3 pagás 2."),
+                     dice("El pedido mínimo son cinco bultos."),
+                     dice("Cualquier cosa, escribinos."),
+                     dice("¡De nada! Que tengas buen fin de semana."),
+                     dice("No tenemos por ahora, la semana que viene entran.")]
+    dicho, salida = charla_con_ia_de_verdad(
+        "negocio.mate", capsys, monkeypatch, "hola", "buenas", "todo bien?", "che", "una consulta",
+        "otra consulta", "gracias", "muchas gracias", "tenes galletitas?")
+    assert dicho == [
+        f"{quien}: Sobre la dirección{persona}", f"{quien}: Sobre la dirección{persona}",
+        f"{quien}: Sobre las formas de pago{persona}", f"{quien}: Sobre el horario{persona}",
+        f"{quien}: Sobre las promociones{persona}", f"{quien}: Eso te lo confirma una persona.",
+        # los cierres de un modelo no nombran ningún dato: pasan como están
+        f"{quien}: Cualquier cosa, escribinos.", f"{quien}: ¡De nada! Que tengas buen fin de semana.",
+        # y de lo que no está en la lista, solo que no se trabaja (no "sobre las entregas")
+        f"{quien}: Eso no lo trabajamos."]
+    assert len(ia.pedidos) == 9
+    for inventado in ["Belgrano", "Morón", "fiamos", "24/7", "pagás 2", "cinco bultos", "entran"]:
+        assert inventado not in salida, inventado
+
+
+@pytest.mark.parametrize("que", ["equipo", "mostrador"])
+def test_071_vuelta_3_mas_preguntas_las_contesta_el_programa_y_el_telefono_no_es_una_altura(
+        tmp_path, capsys, monkeypatch, ia, que):
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "negocio"]) == 0
+    cargar_datos(tmp_path, "negocio.mate", telefono="11 4555-1234", direccion="Av. Mitre 1234, Lanús",
+                 entregas="En 48 horas, en zona oeste")
+    assert mate.main(["probar", "negocio.mate"]) == 0
+    quien = QUIEN_ATIENDE[que]
+    ia.respuestas = [dice("Llamanos al 4555-1234.")]
+    dicho, salida = charla_con_ia_de_verdad(
+        "negocio.mate", capsys, monkeypatch, "puedo ir ahora?", "estan en capital?",
+        "tienen numero?", "hacen 2x1?", "hacen envios a cordoba?", "hola")
+    persona = ": eso te lo confirma una persona."
+    assert dicho == [
+        f"{quien}: Sobre el horario{persona}", f"{quien}: Dirección: Av. Mitre 1234, Lanús.",
+        f"{quien}: Teléfono: 11 4555-1234.", f"{quien}: Sobre las promociones{persona}",
+        f"{quien}: Hacemos envíos desde 10 unidades. Decime cuántas unidades de qué producto de "
+        "la lista querés y te digo el total. Entregas: En 48 horas, en zona oeste.",
+        # el teléfono cargado, dicho por la IA sin la característica: no se cambia por la dirección
+        f"{quien}: Llamanos al 4555-1234."]
+    assert len(ia.pedidos) == 1
+
+
+def test_071_vuelta_3_los_errores_al_cargar_un_dato_dicen_que_hacer(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", "equipo", "negocio"]) == 0
+    ruta = tmp_path / "negocio.mate"
+    original = ruta.read_text(encoding="utf-8-sig")
+
+    def con(renglon_viejo, escrito):
+        ruta.write_text(original.replace(f"\n    {renglon_viejo}\n", f"\n    {escrito}\n"),
+                        encoding="utf-8-sig")
+        capsys.readouterr()
+        assert mate.main(["verificar", "negocio.mate"]) != 0
+        capturado = capsys.readouterr()
+        return capturado.out + capturado.err
+
+    # llaves adentro del texto: se dice que Mate las toma por una cuenta, y cómo seguir
+    salida = con('horario: "",', 'horario: "Lunes a viernes {de 8 a 17}",')
+    assert "dentro del texto: esperaba el fin de la expresión y encontré '8'." in salida
+    assert ("(Lo que va entre { y } Mate lo toma por una cuenta. Si las llaves eran parte de lo "
+            "que querías escribir, sacalas, o poné \\{ para una llave literal)") in salida
+    # un teléfono con puntos y sin comillas: no es una cantidad
+    salida = con('telefono: "",', "telefono: 11.4555.1234,")
+    assert "Los miles no llevan punto" in salida
+    assert "Si no es una cantidad (un teléfono, una fecha), va entre comillas" in salida
+    mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+    assert "Nota de la vuelta 3" in mejoras and "Estado: hecha (vuelta 3)" in mejoras
+    leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "**El teléfono también va entre comillas.**" in leeme
+    assert "`verificar` o `probar` lo dicen" not in leeme
