@@ -1,0 +1,168 @@
+# Dos NEGOCIOS que se hablan (0.8): un comprador y su proveedor, cada uno en su máquina.
+# Este es el comprador; el otro es 14_proveedor.mate. No están en la misma carpeta ni en
+# la misma PC: comparten una carpeta (de OneDrive, de Google Drive, de red o un pendrive)
+# y una clave que acordaron entre los dos. Cada mensaje viaja FIRMADO con esa clave.
+#
+# La manera fácil de probarlo, todo en una sola PC:
+#
+#   python mate.py nuevo socio
+#
+# Eso arma una carpeta con los dos negocios (comprador y proveedor), la carpeta que
+# comparten y una clave de ensayo, y muestra los pasos para copiar. Son seis corridas:
+#
+#   1. comprador:  manda el Pedido.
+#   2. proveedor:  Mate le muestra el Pedido y pregunta "¿Lo entrego?": si. Cotiza.
+#   3. comprador:  le llega la Cotizacion: si. Queda anotada.
+#   4. comprador:  el programa pregunta "¿Confirmás...?": si. Manda la Confirmacion.
+#   5. proveedor:  le llega la Confirmacion: si. Recién ahí descuenta stock. Avisa.
+#   6. comprador:  le llega el Confirmado: si.
+#
+# Nada de otro negocio llega a un agente sin tu si, mensaje por mensaje. Y lo que mueve
+# plata o stock tiene además el control del propio agente (mirá Confirmacion, del otro lado).
+
+usar "14_trato.mate"
+
+# Proveedor es cómo llamo YO al otro negocio (él me puede llamar como quiera). Después de
+# 'acepta' van los únicos mensajes que le recibo: cualquier otro se rechaza solo.
+# La clave NO va acá: se carga con la orden 'socio' y queda en un archivo aparte.
+usar socio Proveedor acepta Cotizacion, Confirmado
+
+# Los mensajes de entrecasa (no cruzan al otro negocio).
+mensaje Pedir { pedido: texto, producto: texto, cantidad: numero }
+mensaje PorConfirmar { }
+mensaje Confirmar { pedido: texto }
+
+agente Compras {
+    # Cada pedido y en qué anda: "pedido", "cotizado", "sin stock", "confirmando" o
+    # "confirmado". Se recuerda de una corrida a la otra.
+    estado recordado pedidos = {}
+
+    al recibir Pedir como p {
+        # El mismo pedido no se manda dos veces, aunque el programa corra muchas.
+        si tiene(pedidos, p.pedido) {
+            devolver
+        }
+        pedidos[p.pedido] = { estado: "pedido", producto: p.producto, cantidad: p.cantidad, total: 0 }
+        enviar Pedido { pedido: p.pedido, producto: p.producto, cantidad: p.cantidad } a Proveedor
+    }
+
+    # La cotización llega en una corrida de más adelante, después de tu si.
+    al recibir Cotizacion como c {
+        sea mio = obtener(pedidos, c.pedido, nada)
+        # El control del negocio: tiene que ser de un pedido mío, que espera cotización,
+        # y por lo mismo que pedí. Si no, no se anota nada.
+        si mio == nada o mio.estado != "pedido" {
+            mostrar("Llegó una cotización del pedido {c.pedido}, que no espera ninguna: no la anoto.")
+            devolver
+        }
+        si c.producto != mio.producto o c.cantidad != mio.cantidad {
+            mostrar("La cotización del pedido {c.pedido} no es por lo que pedí: no la anoto.")
+            devolver
+        }
+        si no c.hay {
+            pedidos[c.pedido] = { estado: "sin stock", producto: mio.producto, cantidad: mio.cantidad, total: 0 }
+            mostrar("Pedido {c.pedido}: el proveedor no tiene {c.cantidad} de {c.producto}.")
+            devolver
+        }
+        pedidos[c.pedido] = { estado: "cotizado", producto: mio.producto, cantidad: mio.cantidad, total: c.total }
+        mostrar("Pedido {c.pedido}: {c.cantidad} de {c.producto} a {pesos(c.precio_unitario)} cada uno, total {pesos(c.total)} (vale hasta {c.vale_hasta}).")
+    }
+
+    # Los pedidos cotizados que esperan tu confirmación.
+    al recibir PorConfirmar {
+        var lista = []
+        para cual en claves(pedidos) {
+            si pedidos[cual].estado == "cotizado" {
+                lista = agregar(lista, { pedido: cual, total: pedidos[cual].total })
+            }
+        }
+        responder lista
+    }
+
+    # Confirmar es mandar la Confirmacion con el total que me cotizaron.
+    al recibir Confirmar como k {
+        sea mio = obtener(pedidos, k.pedido, nada)
+        si mio == nada o mio.estado != "cotizado" {
+            devolver
+        }
+        pedidos[k.pedido] = { estado: "confirmando", producto: mio.producto, cantidad: mio.cantidad, total: mio.total }
+        enviar Confirmacion { pedido: k.pedido, total: mio.total } a Proveedor
+    }
+
+    al recibir Confirmado como k {
+        sea mio = obtener(pedidos, k.pedido, nada)
+        si mio == nada o mio.estado != "confirmando" {
+            mostrar("Llegó un 'confirmado' del pedido {k.pedido}, que no esperaba ninguno: no lo anoto.")
+            devolver
+        }
+        pedidos[k.pedido] = { estado: "confirmado", producto: mio.producto, cantidad: mio.cantidad, total: mio.total }
+        mostrar("Pedido {k.pedido}: confirmado por el proveedor.")
+    }
+
+    # Si el proveedor no atendió algo (lo descartó, no cumplía su contrato...), avisa.
+    al fallar como f {
+        mostrar("El proveedor no atendió {f.mensaje.pedido}: {f.motivo}")
+    }
+}
+
+# ── El programa ──
+# El pedido de siempre. Sale una sola vez: Compras recuerda que ya lo mandó.
+enviar Pedir { pedido: "A-17", producto: "yerba", cantidad: 10 } a Compras
+
+# Lo que ya está cotizado se confirma recién con TU si (si no hay teclado, vale "no").
+sea cotizados = preguntar PorConfirmar { } a Compras
+para c en cotizados {
+    si minusculas(leer("¿Confirmás el pedido {c.pedido} por {pesos(c.total)}? (si/no)", "no")) == "si" {
+        enviar Confirmar { pedido: c.pedido } a Compras
+    }
+}
+
+# ── Las pruebas: 'probar' no lee ni escribe nada de socios ──
+
+prueba "el pedido sale para el proveedor, una sola vez" {
+    enviar Pedir { pedido: "P-1", producto: "yerba", cantidad: 5 } a Compras
+    enviar Pedir { pedido: "P-1", producto: "yerba", cantidad: 5 } a Compras
+    sea salidos = mensajes_enviados("Pedido")
+    asegurar largo(salidos) == 1
+    asegurar salidos[0].a == "Proveedor"
+    asegurar salidos[0].mensaje.cantidad == 5
+}
+
+prueba "el contrato frena una cantidad imposible antes de que salga" {
+    asegurar falla { Pedido { pedido: "P-2", producto: "yerba", cantidad: 5000 } }
+}
+
+prueba "la cotización se anota y no se confirma sola" {
+    enviar Pedir { pedido: "P-3", producto: "yerba", cantidad: 5 } a Compras
+    # La llegada se prueba mandándola desde la prueba.
+    enviar Cotizacion { pedido: "P-3", producto: "yerba", cantidad: 5, precio_unitario: 100, total: 500, hay: verdadero, vale_hasta: "30/11" } a Compras
+    asegurar largo(preguntar PorConfirmar { } a Compras) == 1
+    asegurar largo(mensajes_enviados("Confirmacion")) == 0
+}
+
+prueba "con el si sale la confirmación, con el total cotizado" {
+    enviar Pedir { pedido: "P-4", producto: "yerba", cantidad: 5 } a Compras
+    enviar Cotizacion { pedido: "P-4", producto: "yerba", cantidad: 5, precio_unitario: 100, total: 500, hay: verdadero, vale_hasta: "30/11" } a Compras
+    enviar Confirmar { pedido: "P-4" } a Compras
+    sea salidas = mensajes_enviados("Confirmacion")
+    asegurar largo(salidas) == 1
+    asegurar salidas[0].a == "Proveedor"
+    asegurar salidas[0].mensaje.total == 500
+}
+
+prueba "una cotización por otra cosa que la pedida no se anota" {
+    enviar Pedir { pedido: "P-5", producto: "yerba", cantidad: 5 } a Compras
+    enviar Cotizacion { pedido: "P-5", producto: "yerba", cantidad: 50, precio_unitario: 100, total: 5000, hay: verdadero, vale_hasta: "30/11" } a Compras
+    enviar Cotizacion { pedido: "X-9", producto: "yerba", cantidad: 5, precio_unitario: 100, total: 500, hay: verdadero, vale_hasta: "30/11" } a Compras
+    asegurar largo(preguntar PorConfirmar { } a Compras) == 0
+}
+
+prueba "lo que contesta el proveedor se prueba con simular" {
+    simular Proveedor al recibir Pedido como p {
+        responder Cotizacion { pedido: p.pedido, producto: p.producto, cantidad: p.cantidad, precio_unitario: 10, total: 10 * p.cantidad, hay: verdadero, vale_hasta: "30/11" }
+    }
+    enviar Pedir { pedido: "P-6", producto: "azucar", cantidad: 3 } a Compras
+    sea pendientes = preguntar PorConfirmar { } a Compras
+    asegurar largo(pendientes) == 1
+    asegurar pendientes[0].total == 30
+}

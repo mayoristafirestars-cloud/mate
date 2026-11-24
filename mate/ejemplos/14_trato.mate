@@ -1,0 +1,23 @@
+# El trato entre dos NEGOCIOS: los mensajes que cruzan entre 14_comprador.mate (el que
+# compra) y 14_proveedor.mate (el que vende). Cada negocio tiene su copia de este archivo
+# y la trae con 'usar': los dos tienen que decir lo mismo. Si un día cambia un campo, se
+# cambia en las dos copias.
+#
+# 'pedido' es el número propio de cada pedido: es lo que une el pedido con su cotización
+# y con su confirmación, y lo que deja ver si algo llegó repetido.
+
+# El comprador pide. Las reglas del campo frenan un pedido imposible ANTES de que salga.
+mensaje Pedido { pedido: texto, producto: texto, cantidad: numero desde 1 hasta 1000 }
+
+# El proveedor contesta con precio y disponibilidad. No reserva nada: es una cotización.
+mensaje Cotizacion {
+    pedido: texto, producto: texto, cantidad: numero desde 1 hasta 1000,
+    precio_unitario: numero desde 0, total: numero desde 0,
+    hay: logico, vale_hasta: texto
+}
+
+# El comprador confirma, repitiendo el total que le cotizaron.
+mensaje Confirmacion { pedido: texto, total: numero desde 0 }
+
+# El proveedor avisa que lo anotó. Recién acá se movió stock.
+mensaje Confirmado { pedido: texto }
