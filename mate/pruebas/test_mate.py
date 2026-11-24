@@ -20209,16 +20209,16 @@ def test_071_vuelta_4_una_presentacion_n_x_m_no_se_toma_por_promocion(
 def test_071_vuelta_4_probar_avisa_si_un_renglon_de_la_planilla_se_frenaria(
         tmp_path, capsys, monkeypatch, que):
     # P210: la prueba "tu planilla está bien cargada" pasa cada renglón de la planilla del
-    # dueño por la revisión. Lo único que queda afuera de la regla (una celda que es un
-    # número solo con pinta de hora) se avisa ahí, antes de que lo vea un cliente.
+    # dueño por la revisión. Desde la vuelta 7 el renglón como lo arma el programa no se
+    # frena nunca (ni con una celda que es un número solo con pinta de hora): la red queda
+    # por si aparece otro caso, y hoy solo avisa de un renglón sin nombre.
     monkeypatch.chdir(tmp_path)
     assert mate.main(["nuevo", que, "alm"]) == 0
     capsys.readouterr()
     assert mate.main(["probar", "alm.mate"]) == 0
     assert "✓ tu planilla está bien cargada" in capsys.readouterr().out
-    # Una celda "8.30" sola, leída de un archivo, es el número 8,3: se prueba con una lista
-    # escrita a mano. (La que sí se frena leída de un archivo, una celda que es solo "3x2",
-    # está en la prueba de la vuelta 6.)
+    # Se prueba con una lista escrita a mano: 'Pan' (8.30) ya no se avisa (antes de la
+    # vuelta 7, sí); el renglón sin nombre, sí.
     ruta = tmp_path / "alm.mate"
     texto = ruta.read_text(encoding="utf-8-sig")
     tabla = "precios" if que == "mostrador" else "lista"
@@ -20226,14 +20226,16 @@ def test_071_vuelta_4_probar_avisa_si_un_renglon_de_la_planilla_se_frenaria(
     assert texto.count(llamada) == 1
     ruta.write_text(texto.replace(llamada, 'sea frenados = renglones_frenados([{ producto: '
                                   '"Yerba mate", presentacion: "bolsón", precio: 1, stock: 1 }, '
-                                  '{ producto: "Pan", presentacion: "8.30", precio: 1, stock: 1 }])'),
+                                  '{ producto: "Pan", presentacion: "8.30", precio: 1, stock: 1 }, '
+                                  '{ producto: "", presentacion: "8.30", precio: 1, stock: 1 }])'),
                     encoding="utf-8-sig")
     assert mate.main(["probar", "alm.mate"]) == 1
     salida = capsys.readouterr().out
     assert "✗ tu planilla está bien cargada" in salida
     assert ("En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, "
-            "una promoción): 'Pan' (8.30). Cuando la IA lo nombre") in salida
-    assert "'Yerba mate'" not in salida.split("En tu planilla, esto se parece")[1].split("\n")[0]
+            "una promoción): '' (8.30). Cuando la IA lo nombre") in salida
+    aviso = salida.split("En tu planilla, esto se parece")[1].split("\n")[0]
+    assert "'Yerba mate'" not in aviso and "'Pan'" not in aviso
 
 
 def test_071_vuelta_4_con_una_planilla_larga_probar_sigue_pasando(tmp_path, capsys, monkeypatch):
@@ -20354,10 +20356,12 @@ def test_071_vuelta_6_una_presentacion_que_es_solo_un_tamaño_no_se_toma_por_pro
 
 
 @pytest.mark.parametrize("que", ["mostrador", "equipo"])
-def test_071_vuelta_6_una_celda_que_es_solo_una_promocion_se_sigue_frenando_y_probar_dice_que_hacer(
+def test_071_vuelta_6_una_celda_que_es_solo_una_promocion_dicha_suelta_se_frena_y_su_renglon_pasa(
         tmp_path, capsys, monkeypatch, que):
-    # Con el segundo número más chico ("3x2", "10 x 1") sigue como en la vuelta 5: se frena,
-    # y 'probar' avisa de la celda y dice cómo escribirla.
+    # Con el segundo número más chico ("3x2", "10 x 1"), la presentación dicha suelta sigue
+    # como en la vuelta 5: se frena. Lo que cambió en la vuelta 7 (decisión del coordinador;
+    # esta prueba afirmaba lo contrario): el renglón como lo arma el programa, "Jabón tocador
+    # (3x2): $ 2.000,00", ya no se frena, y 'probar' ya no avisa de esas celdas.
     monkeypatch.chdir(tmp_path)
     assert mate.main(["nuevo", que, "alm"]) == 0
     (tmp_path / "alm_precios.csv").write_text(
@@ -20367,12 +20371,78 @@ def test_071_vuelta_6_una_celda_que_es_solo_una_promocion_se_sigue_frenando_y_pr
     dicho = charla_de_la_vuelta_6(que, capsys, monkeypatch, "que oferta hay?", "tenes jabon?",
                                   "cuanto sale el vino tinto?")
     frenada = "Sobre las promociones: eso te lo confirma una persona."
-    assert dicho == [frenada, frenada, "Vino tinto (6x750): $ 18.000,00"]
-    assert mate.main(["probar", "alm.mate"]) == 1
+    assert dicho == [frenada, "Jabón tocador (3x2): $ 2.000,00", "Vino tinto (6x750): $ 18.000,00"]
+    assert mate.main(["probar", "alm.mate"]) == 0
     salida = capsys.readouterr().out
-    assert "✗ tu planilla está bien cargada" in salida
-    assert ("una promoción): 'Jabón tocador' (3x2); 'Harina 000' (10 x 1). Cuando la IA lo "
-            "nombre") in salida
+    assert "✓ tu planilla está bien cargada" in salida and "✗" not in salida
+    # el consejo de la red sigue en el programa, por si alguna vez avisa
     assert ("Escribí esa celda de otra manera (agregale el envase o la medida: por ejemplo, "
-            "'caja 3 x 2 l' en vez de '3x2') y volvé a probar.") in salida
+            "'caja 3 x 2 l' en vez de '3x2') y volvé a probar.") in (
+        RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
     assert "con más de una palabra" not in salida
+
+
+# ───── 0.7.1, vuelta 7: el renglón de la lista como lo arma el programa nunca es inventado ─────
+
+PLANILLA_DE_LA_VUELTA_7 = ("producto;presentacion;precio;stock\n"
+                           "Agua mineral;6x2.25;7.000;8\n"
+                           "Soda;6 x 2.25;6.500;8\n"
+                           "Gaseosa cola;12x1.50;9.000;8\n"
+                           "Jabón tocador;3x2;2.000;8\n"
+                           "Harina 000;10 x 1;14.500;8\n"
+                           "Pan rallado;8.30;500;8\n")
+RENGLONES_DE_LA_VUELTA_7 = [
+    ("cuanto sale el agua mineral?", "Agua mineral (6x2.25): $ 7.000,00"),
+    ("tenes soda?", "Soda (6 x 2.25): $ 6.500,00"),
+    ("tenes gaseosa?", "Gaseosa cola (12x1.50): $ 9.000,00"),
+    ("tenes jabon?", "Jabón tocador (3x2): $ 2.000,00"),
+    ("cuanto sale la harina?", "Harina 000 (10 x 1): $ 14.500,00"),
+    # (una celda "8.30" sola, leída de un archivo, es el número 8,3: el programa la dice así)
+    ("tenes pan rallado?", "Pan rallado (8.3): $ 500,00"),
+    ("tenes hielo?", "Hielo (24 hs): $ 900,00"),
+]
+
+
+@pytest.mark.parametrize("que", ["mostrador", "equipo"])
+def test_071_vuelta_7_el_renglon_como_lo_arma_el_programa_no_es_un_dato_inventado(
+        tmp_path, capsys, monkeypatch, que):
+    # P232: con la celda "6x2.25" (el pack de gaseosa de 2,25 l), a "cuanto sale el agua
+    # mineral?" le llegaba "Sobre el horario: eso te lo confirma una persona." (el "2.25"
+    # parece una hora); y con una celda "3x2" o "10 x 1", "Sobre las promociones: ...".
+    monkeypatch.chdir(tmp_path)
+    assert mate.main(["nuevo", que, "alm"]) == 0
+    (tmp_path / "alm_precios.csv").write_text(PLANILLA_DE_LA_VUELTA_7 + "Hielo;24 hs;900;8\n",
+                                              encoding="utf-8")
+    # Lo inventado, con los datos sin cargar: la presentación fuera del renglón se frena.
+    (tmp_path / "ia.txt").write_text(
+        "novedad => Hay 3x2 en jabón.\n"
+        "ahorro => Hay 2x1.\n"
+        "viene => Abrimos a las 8.30\n"
+        "decime => Jabón tocador: 3x2.\n"
+        "otra cosa => Pan rallado (3x2): $ 500,00\n"
+        "contas => Atendemos 24 hs\n", encoding="utf-8")
+    inventadas = ["alguna novedad?", "hay algun ahorro?", "como viene?", "decime algo",
+                  "otra cosa?"]
+    dicho = charla_de_la_vuelta_6(
+        que, capsys, monkeypatch, *[pregunta for pregunta, _ in RENGLONES_DE_LA_VUELTA_7],
+        *inventadas)
+    promo = "Sobre las promociones: eso te lo confirma una persona."
+    assert dicho == [renglon for _, renglon in RENGLONES_DE_LA_VUELTA_7] + [
+        promo, promo, "Sobre el horario: eso te lo confirma una persona.", promo, promo]
+    # 'probar' da todo bien con esa planilla: ya no hay renglones que avisar
+    assert mate.main(["probar", "alm.mate"]) == 0
+    salida = capsys.readouterr().out
+    assert "✓ tu planilla está bien cargada" in salida and "✗" not in salida
+    # "Atendemos 24 hs" se frena mientras "24 hs" no sea una celda de la planilla. (Si lo
+    # es, pasa, igual que antes de esta vuelta: una celda de dos palabras dicha entera es
+    # de la planilla. Eso no lo cambió la vuelta 7 y acá no se afirma.)
+    (tmp_path / "alm_precios.csv").write_text(PLANILLA_DE_LA_VUELTA_7, encoding="utf-8")
+    dicho = charla_de_la_vuelta_6(que, capsys, monkeypatch, "que me contas?", *inventadas)
+    assert len(dicho) == 6 and all("eso te lo confirma una persona." in d for d in dicho)
+    assert dicho[0] == "Sobre las entregas: eso te lo confirma una persona."
+
+
+def test_071_vuelta_7_la_regla_esta_en_el_ejemplo_y_en_las_mejoras():
+    ejemplo = (RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
+    assert "\nfuncion sin_los_renglones(" in ejemplo
+    assert "Nota de la vuelta 7" in (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")

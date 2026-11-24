@@ -10242,9 +10242,9 @@ prueba "tu planilla está bien cargada" {
     si mal_escrito != nada {
         fallar(mal_escrito)
     }
-    # Y que ningún renglón de tu planilla se parezca a un dato del negocio: lo que está
-    # escrito en la planilla no cuenta como inventado, pero si igual alguno se frenara
-    # (una celda que es solo "3x2" o "10 x 1", por ejemplo), acá te enterás antes que el cliente.
+    # Y que ningún renglón de tu planilla se parezca a un dato del negocio: el renglón de
+    # la lista, dicho como lo arma el programa ("Jabón (3x2)"), no cuenta como inventado.
+    # No se conoce ninguno que se frene; si igual apareciera, acá te enterás antes que el cliente.
     sea frenados = renglones_frenados(precios)
     si frenados != nada {
         fallar(frenados)
@@ -10428,7 +10428,15 @@ prueba "una respuesta que no nombra ningún dato del negocio pasa como está" {
     asegurar dato_inventado({}, "Hay 2x1 en yerba.", chica) == "promociones"
     asegurar dato_inventado({}, "Llevando 4x3 te ahorrás uno.", chica) == "promociones"
     asegurar dato_inventado({}, "Los precios son por bulto cerrado.", con_equis) == nada
+    # El renglón como lo arma el programa pasa siempre, aunque la presentación sea solo
+    # "3x2" o "6x2.25". La misma presentación dicha de otra manera, no.
+    sea sola = [{ producto: "Jabón", presentacion: "3x2", precio: 2000, stock: 5 },
+                { producto: "Agua mineral", presentacion: "6x2.25", precio: 7000, stock: 5 }]
+    asegurar dato_inventado({}, "Jabón (3x2): $ 2.000,00", sola) == nada
+    asegurar dato_inventado({}, "Agua mineral (6x2.25): $ 7.000,00", sola) == nada
+    asegurar dato_inventado({}, "Hay 3x2 en jabón.", sola) == "promociones"
     asegurar renglones_frenados(con_equis) == nada y renglones_frenados(lista_de_prueba()) == nada
+    asegurar renglones_frenados(chica) == nada y renglones_frenados(sola) == nada
 }
 
 prueba "con los datos cargados, cada cosa se compara con el dato de su tema" {
@@ -10804,9 +10812,9 @@ prueba "tu planilla está bien cargada" {
     si mal_escrito != nada {
         fallar(mal_escrito)
     }
-    # Y que ningún renglón de tu planilla se parezca a un dato del negocio: lo que está
-    # escrito en la planilla no cuenta como inventado, pero si igual alguno se frenara
-    # (una celda que es solo "3x2" o "10 x 1", por ejemplo), acá te enterás antes que el cliente.
+    # Y que ningún renglón de tu planilla se parezca a un dato del negocio: el renglón de
+    # la lista, dicho como lo arma el programa ("Jabón (3x2)"), no cuenta como inventado.
+    # No se conoce ninguno que se frene; si igual apareciera, acá te enterás antes que el cliente.
     sea frenados = renglones_frenados(lista)
     si frenados != nada {
         fallar(frenados)

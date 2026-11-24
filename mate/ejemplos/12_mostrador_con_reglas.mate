@@ -1160,7 +1160,8 @@ funcion horas_con_dos_puntos(dicho) {
 
 # ── Lo que contesta la IA: que no nombre un dato que no está cargado ─────────────────
 # Cómo se mira una respuesta, paso por paso (lo hace dato_inventado(), más abajo):
-#   1. Se parte en palabras, sin tildes ni mayúsculas.
+#   1. Se le sacan los renglones de la lista dichos como los arma el programa ("Agua
+#      mineral (6x2.25)") y se parte en palabras, sin tildes ni mayúsculas.
 #   2. Se juntan sus MENCIONES: cada cosa que dice de un tema del negocio. Una hora ("a
 #      las 9", "de 8 a 18"), un plazo ("2 días"), un día, una forma de pago, una
 #      promoción, un contacto. Las arman hora_nombrada(), plazo_nombrado() y
@@ -1620,6 +1621,8 @@ funcion palabras_de_medida() {
 # ("viene de a 12 x 900 ml") si está así en una celda Y atrás trae una medida o la misma
 # palabra que en la celda. Con "2x1 litro" en la planilla, "hay 2x1 en yerba" no pasa. Y
 # una celda que es solo un "3 x 2" no se saca: dicha sola es igual a una promoción.
+# (Salvo en el renglón como lo arma el programa, "Jabón (3x2)": ese ya lo sacó
+# sin_los_renglones(), más abajo, sea cual sea la celda.)
 # (Un "12 x 900" ni llega a mirarse como promoción: el segundo número no es más chico.
 # Ver palabra_nombrada().)
 funcion sin_lo_de_la_planilla(frase, celdas) {
@@ -1660,6 +1663,51 @@ funcion sin_lo_de_la_planilla(frase, celdas) {
     devolver quedan
 }
 
+# Un texto en minúsculas y sin tildes: así se comparan dos textos letra por letra.
+funcion en_minusculas_y_sin_tildes(escrito) {
+    var t = minusculas(escrito)
+    para con, sin en { "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u" } {
+        t = reemplazar(t, con, sin)
+    }
+    devolver t
+}
+
+# La respuesta (en minúsculas y sin tildes) sin los RENGLONES de la lista dichos como los
+# arma el programa: el nombre y, pegada atrás, entre paréntesis, la presentación de ESE
+# producto ("Agua mineral (6x2.25)", "Jabón (3x2)", "Pan (8.30)"). Donde había uno queda
+# la palabra "producto". Eso es la lista del dueño, diga lo que diga la celda: no es un
+# dato inventado. Vale solo esa forma exacta: "Hay 3x2 en jabón.", "Jabón: 3x2." o la
+# presentación atrás de OTRO producto quedan como están, y se revisan como siempre.
+funcion sin_los_renglones(respuesta, tabla) {
+    var t = en_minusculas_y_sin_tildes(respuesta)
+    # (si no hay ningún paréntesis, no hay ningún renglón dicho así)
+    si no tiene(t, "(") {
+        devolver t
+    }
+    sea de_palabra = "abcdefghijklmnñopqrstuvwxyz0123456789"
+    para fila en tabla {
+        si recortar("{fila.producto}") == "" {
+            continuar
+        }
+        sea renglon = en_minusculas_y_sin_tildes("{fila.producto} ({fila.presentacion})")
+        si no tiene(t, renglon) {
+            continuar
+        }
+        sea partes = partir(t, renglon)
+        t = partes[0]
+        para i en rango(1, largo(partes)) {
+            # (el nombre tiene que arrancar una palabra: "Champán (8.30)" no es "Pan (8.30)")
+            sea antes = partes[i - 1]
+            si antes != "" y tiene(de_palabra, antes[largo(antes) - 1]) {
+                t += renglon + partes[i]
+            } sino {
+                t += " producto " + partes[i]
+            }
+        }
+    }
+    devolver t
+}
+
 # ¿Ese pedazo ("8:30", "70%") está escrito así en un nombre o en una presentación de la
 # planilla? (cifras: si es un número largo, se miran solo las cifras de la celda.)
 funcion en_la_planilla(tabla, pedazo, cifras = falso) {
@@ -1675,7 +1723,9 @@ funcion en_la_planilla(tabla, pedazo, cifras = falso) {
 
 # Los renglones de la planilla que la revisión frenaría, en un texto para el dueño; o nada
 # si pasan todos (lo normal). Mira cada renglón como lo dice el programa, con los datos
-# del negocio vacíos, que es cuando la revisión es más estricta. Lo usa la prueba "tu
+# del negocio vacíos, que es cuando la revisión es más estricta. (El renglón dicho así
+# no se frena nunca, sea cual sea la presentación: ver sin_los_renglones(). No se
+# conoce ningún renglón con nombre que se frene; queda como red.) Lo usa la prueba "tu
 # planilla está bien cargada" de los programas que crea 'nuevo'. (Mira hasta los primeros
 # 300 renglones: es una red, y con una planilla más larga tardaría de más.)
 funcion renglones_frenados(tabla) {
@@ -1905,9 +1955,10 @@ funcion pedazos_sueltos(respuesta) {
 # y ensayar con el modelo de verdad antes de dejarlo atender.
 funcion dato_inventado(datos, respuesta, tabla = []) {
     # Lo que contestó la IA, palabra por palabra.
-    # (menos lo que está tal cual en la planilla: eso lo escribió el dueño, no la IA)
+    # (menos lo que está tal cual en la planilla: eso lo escribió el dueño, no la IA.
+    # Primero los renglones enteros como los arma el programa; después, celda por celda.)
     sea celdas = celdas_de_la_planilla(tabla)
-    sea frase = sin_lo_de_la_planilla(palabras_y_cortes(respuesta), celdas)
+    sea frase = sin_lo_de_la_planilla(palabras_y_cortes(sin_los_renglones(respuesta, tabla)), celdas)
     sea de_la_lista = palabras_de_la_lista(celdas)
     para vista en menciones_de(frase, respuesta, de_la_lista) {
         si no mencion_cargada(datos, vista) {
@@ -2605,10 +2656,43 @@ prueba "lo que está escrito en la planilla no es un dato inventado, se escriba 
         asegurar dato_inventado({}, buena, chica) == nada, buena
     }
     asegurar renglones_frenados(chica) == nada
-    # Una celda que es solo un "3 x 2" es igual a una promoción: se frena, y se avisa.
-    sea sola = [{ producto: "Jabón", presentacion: "3x2", precio: 2000, stock: 8 }]
-    asegurar dato_inventado({}, "Hay 3x2.", sola) == "promociones"
-    asegurar empieza_con(renglones_frenados(sola), "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una promoción): 'Jabón' (3x2). ")
+    # Una celda que es solo un "3 x 2" es igual a una promoción: dicha suelta se frena.
+    # Pero el renglón como lo arma el programa, "Jabón (3x2)", es la lista del dueño y
+    # pasa siempre: con esa celda, con un tamaño con punto ("6x2.25", que parece una
+    # hora) o con un número solo.
+    sea sola = [{ producto: "Jabón", presentacion: "3x2", precio: 2000, stock: 8 },
+                { producto: "Agua mineral", presentacion: "6x2.25", precio: 7000, stock: 8 },
+                { producto: "Agua saborizada", presentacion: "6 x 2.25", precio: 7500, stock: 8 },
+                { producto: "Gaseosa cola", presentacion: "12x1.50", precio: 9000, stock: 8 },
+                { producto: "Harina 000", presentacion: "10 x 1", precio: 14500, stock: 8 },
+                { producto: "Pan", presentacion: "8.30", precio: 500, stock: 8 },
+                { producto: "Hielo", presentacion: "24 hs", precio: 900, stock: 8 }]
+    enviar CargarLista { precios: sola } a Mostrador
+    para fila en sola {
+        sea renglon = "{fila.producto} ({fila.presentacion}): {pesos(fila.precio)}"
+        para dicha en [renglon, "- {renglon}", minusculas(renglon), "Sí, tenemos {fila.producto} ({fila.presentacion}).",
+                       "12 x {fila.producto} ({fila.presentacion}) a {pesos(fila.precio)} cada uno."] {
+            asegurar dato_inventado({}, dicha, sola) == nada, dicha
+            asegurar dato_inventado(cargados, dicha, sola) == nada, dicha
+        }
+        simular_ia(renglon)
+        asegurar atender(sola, "que tenes?", {}) == renglon, renglon
+    }
+    asegurar dato_inventado({}, "JABON (3X2) y Harina 000 (10 x 1).", sola) == nada
+    # Fuera de esa forma exacta, todo sigue igual: la presentación suelta, sin los
+    # paréntesis, o atrás del nombre de OTRO producto, se frena.
+    para inventada en ["Hay 3x2.", "Hay 3x2 en jabón.", "Jabón 3x2.", "Jabón: 3x2.", "Hay 2x1.", "Hay 10 x 1 en harina.",
+                       "Pan (3x2).", "Jabón (10 x 1).", "Jabón (3x2) y además hay 3x2 en pan.", "Jabón, (3x2)."] {
+        asegurar dato_inventado({}, inventada, sola) == "promociones", inventada
+    }
+    para inventada en ["Abrimos a las 8.30.", "Abrimos 24 hs.", "El agua (6x2.25) no, abrimos 8.30.", "Hielo (8.30).",
+                       "Champán (8.30).", "Pan(8.30).", "Pan (8.30 )."] {
+        asegurar dato_inventado({}, inventada, sola) == "horario", inventada
+    }
+    # ("Atendemos 24 hs." se frena si "24 hs" no es una celda de la planilla. Si lo es,
+    # pasa, como antes: una celda de dos palabras dicha entera es de la planilla.)
+    asegurar dato_inventado({}, "Atendemos 24 hs.", porcion(sola, 0, 6)) == "entregas"
+    asegurar renglones_frenados(sola) == nada
     # Una promoción es "llevás N, pagás M": dos enteros, y el segundo más chico. Si el
     # segundo es igual o más grande, o alguno tiene decimales, es un tamaño: no se frena,
     # esté o no en la planilla, y una celda que es solo eso ("12x900") tampoco se avisa.
@@ -2638,12 +2722,16 @@ prueba "lo que está escrito en la planilla no es un dato inventado, se escriba 
     }
     asegurar dato_inventado({}, "Hoy está cerrado.", precios) == "horario"
     asegurar dato_inventado({}, "El bulto sale $ 100. Cerrado los domingos.", precios) == "horario"
-    # renglones_frenados(): ningún renglón de esas planillas se frena. Lo único que
-    # queda afuera es una celda que es un solo número con pinta de hora: se avisa.
+    # renglones_frenados(): ningún renglón de esas planillas se frena, tampoco el de una
+    # celda que es un solo número con pinta de hora: el renglón como lo arma el programa
+    # pasa siempre. Queda como red, por si aparece otro caso: lo único que hoy avisa es
+    # un renglón sin nombre con una presentación así.
     asegurar renglones_frenados(rara) == nada
     asegurar renglones_frenados(precios) == nada
-    sea aviso = renglones_frenados([{ producto: "Pan", presentacion: "8.30", precio: 500, stock: 1 }])
-    asegurar empieza_con(aviso, "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una promoción): 'Pan' (8.30). ")
+    asegurar renglones_frenados([{ producto: "Pan", presentacion: "8.30", precio: 500, stock: 1 }]) == nada
+    asegurar renglones_frenados([{ producto: "8.30", presentacion: "", precio: 500, stock: 1 }]) == nada
+    sea aviso = renglones_frenados([{ producto: "", presentacion: "8.30", precio: 500, stock: 1 }])
+    asegurar empieza_con(aviso, "En tu planilla, esto se parece a un dato del negocio (un horario, un teléfono, una promoción): '' (8.30). ")
 }
 
 prueba "con los datos cargados, cada cosa se compara con el dato de su tema" {
