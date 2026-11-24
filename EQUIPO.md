@@ -3269,6 +3269,213 @@ no participa de la corrida no se puede detectar; nombres 8.3 y letras Unicode en
 sin verificar.
 
 
+### 0.7.1: la IA no inventa datos del negocio
+
+**Registro del integrador** (rama `equipo/mate-0.7.1`, que sale de `main` = Mate 0.7 publicado;
+sobre `97f9963` más el commit que trae este registro; todo en commits locales, sin subir nada y
+sin tocar `main` ni `.github`).
+
+**Estado: la 0.7.1 NO está aprobada y NO está publicada.** Hubo tres vueltas. Después de la
+tercera queda un problema **medio** abierto (P203) y no hay ninguno alto. Además **falta
+probarla con un modelo de verdad**: todo lo de acá se verificó con IA simulada o con una IA de
+mentira, y el problema que dio origen al cambio apareció justamente con un modelo real.
+`VERSION` dice `"0.7.1"` en la rama, pero eso no es una publicación.
+
+**Origen.** El dueño probó `nuevo equipo negocio` con un modelo real (Ollama, `qwen2.5:7b`):
+
+| El cliente escribió | La IA contestó | Por qué está mal |
+|---|---|---|
+| `hola, que horarios tienen?` | "lunes a viernes de 8 a 18hs" | **grave**: el programa no tenía ningún horario; lo inventó |
+| `tenes cafe?` | "no trabajamos con café. Podés pedirlo si querés" | ofrece algo que el negocio no trabaja |
+
+Las instrucciones a la IA solo llevaban la lista de precios, y los frenos de la 0.7 no miraban
+datos inventados.
+
+**Qué se implementó** (los tres commits son del implementador; el revisor y el probador
+encontraron lo que se corrigió en las vueltas 2 y 3; el integrador escribió este registro)
+
+| Commit | Vuelta | Qué trae |
+|---|---|---|
+| `ac04a45` | 1 | `datos_del_negocio` arriba del programa (horario, direccion, telefono, formas_de_pago, entregas, promociones, otros; entre comillas, vacíos por defecto). El programa contesta las preguntas por esos datos **antes** de consultar a la IA: el dato tal cual, o "Sobre el horario: eso te lo confirma una persona.". Las instrucciones a la IA llevan los datos y la orden de no inventar. A la respuesta de la IA el programa le mira que no nombre un día, hora, plazo, teléfono, forma de pago o promoción que no esté cargado. De lo que no está en la lista, solo "Eso no lo trabajamos.". Aviso de stock en cero (en el equipo, por Depósito). Ejemplos 12 y 13, `nuevo mostrador` y `nuevo equipo`; README, MEJORAS 127, casos de muestra |
+| `1f5c236` | 2 | `dato_inventado()` rehecha (ejemplo 12; de ahí la toman el 13 y los programas creados): más formatos de hora, dirección, contacto, pago, entregas y promociones; cada mención se compara solo con el dato de su tema; menos frenadas de más; `temas_del_negocio()` contesta más preguntas corrientes sin IA; producto más dato en la misma pregunta contesta las dos cosas; `sin_ofrecer()` más amplia; los textos dejan de prometer de más ("ataja lo más común, no todo"); una prueba que dependía de la ruta del repositorio, corregida; en el intérprete, un solo cambio de texto (la pista de la coma que falta adentro de unas llaves) |
+| `97f9963` | 3 | Un teléfono sin comillas ya no se le dice cambiado al cliente (`el_dato()` solo acepta texto; `datos_mal_puestos()` avisa); aviso si se cambió el nombre de un dato; la revisión ve más con los datos vacíos y frena menos de más; más preguntas contestadas sin IA; función `revisada()`: "Eso no lo trabajamos." se mira antes que los datos; en el intérprete, dos textos de error más claros (llaves adentro de un texto; "los miles no llevan punto" avisa que un teléfono va entre comillas) |
+
+En total, contra `main`: 9 archivos, 3398 renglones agregados y 132 quitados. No suma palabras
+clave ni funciones incorporadas. En `mate.py` cambian los programas que crea `nuevo` y tres
+textos de error; el comportamiento del intérprete no cambia.
+
+**Decisiones**
+
+- Los datos van arriba del programa y vacíos: un dato sin cargar se contesta con "eso te lo
+  confirma una persona", nunca con un valor de muestra que el dueño pudiera olvidarse de cambiar.
+- Lo que el programa sabe lo contesta el programa, sin IA. La IA queda para lo demás.
+- La revisión de la respuesta de la IA es **por palabras**: ataja lo más común y no todo, y a
+  veces frena de más. Se decidió decirlo así en el encabezado, el README y MEJORAS 127, en vez
+  de prometer que la IA "no puede" inventar. Cuando frena, al cliente le llega "Sobre ...: eso
+  te lo confirma una persona.": puede no venir al caso, pero nunca es un dato falso.
+- Si la respuesta de la IA trae un dato inventado, se reemplaza **entera**. No se corta por
+  frases, porque el punto también está en "Av." y en "8.30" y podría pasar medio dato (P208).
+- En un pedido con su cantidad, las palabras "flojas" (pago, sábado, hora, llega) no agregan
+  un dato: "cuanto pago por 12 azucar?" da la cuenta sola (vuelta 2).
+- No se sumó "domicilio" como palabra de dirección: rompía "5 galletitas a domicilio".
+- No se tocaron los casos de muestra en las vueltas 2 y 3 ni el texto de reserva de
+  `--ia-simulada` sin archivo, para no mover pruebas de la 0.7 (P219).
+- Ninguna prueba se salteó ni se aflojó. Se ajustaron conteos y el texto del aviso OJO, y la
+  prueba que usaba `telefono: 1145551234` sin comillas ahora lleva las comillas.
+
+**Veredictos**
+
+| Vuelta | Sobre | Resultado | Qué quedó |
+|---|---|---|---|
+| 1 | `ac04a45` | **no aprobada** | un hallazgo alto/medio (una prueba dependía de la ruta donde está `mate.py`), varios medios (formatos de hora, dirección, contacto y pago que pasaban; preguntas corrientes que iban a la IA; producto más dato perdía el producto; textos que prometían de más) y bajos |
+| 2 | `1f5c236` | **no aprobada** | un medio (un teléfono sin comillas se leía como una cuenta: `4555-1234` daba 3321) y bajos |
+| 3 | `97f9963` | **no aprobada** | **un medio nuevo: P203**. Sin altos. 15 bajos (P204 a P218), 3 de ellos ya estaban en la 0.7 |
+
+A este registro el resultado de la verificación le llegó junto (revisor y probador), no un
+veredicto por cada uno: no anoto quién encontró qué.
+
+**Evidencia**
+
+Informadas por el implementador sobre `97f9963` (Linux, Python 3.13, `MATE_SIN_REGISTRO=1`):
+
+| Comando | 0.7.1 (`97f9963`) | Vuelta 2 (`1f5c236`) | 0.7 (`main`) |
+|---|---|---|---|
+| `python3 -m pytest mate/pruebas mate/modelo -q -p no:cacheprovider` | 1357 pasan, 0 fallan (547 s) | 1344 pasan | 1319 pasan |
+| `python3 mate/mate.py probar mate/ejemplos` | 141 de 141, en 22 archivos | 137 de 137 | 114 de 114 |
+| `python3 mate/mate.py probar mate/curso` | 37 de 37, en 26 archivos | 37 de 37 | 37 de 37 |
+
+Pruebas por archivo: 38 en el ejemplo 12, 51 en el 13, 18 en el mostrador creado y 32 en el
+equipo creado.
+
+Lo que corrió el integrador para este registro (Linux, Python 3.13.18, `MATE_SIN_REGISTRO=1`,
+sobre `97f9963`): `probar mate/ejemplos` dio 141 de 141 en 22 archivos y `probar mate/curso`
+37 de 37 en 26 archivos; después `git status --short` no mostró nada. **No corrí pytest**: el
+1357 es el número del implementador. Y reproduje P203 en una carpeta vacía:
+
+| Paso | Qué pasó |
+|---|---|
+| `nuevo mostrador alm`, `correr alm.mate --ia-simulada`, `tenes aceite?` | "Aceite de girasol (caja de 12 botellas de 900 ml): $ 31.200,00" (bien) |
+| Cambiar en `alm_precios.csv` la presentación a `caja 12 x 900 ml` y repetir | "Sobre las promociones: eso te lo confirma una persona." (**P203**) |
+| `probar alm.mate` con esa planilla | 18 de 18: el dueño no se entera |
+
+**Problemas abiertos** (siguen la numeración; el último anterior era P202)
+
+Medio, frena la aprobación:
+
+- **P203** (medio, nuevo en la 0.7.1): si la presentación de un producto está escrita como
+  "N x M" ("caja 12 x 900 ml", "pack 6 x 2,25 l", "pack 6x1.5 l", "bolsa 10 x 1 kg"), toda
+  respuesta que la nombre se toma por una promoción inventada y se cambia entera por "Sobre las
+  promociones: eso te lo confirma una persona.". Le pasa a "tenes aceite?" y a "cuanto sale el
+  aceite?", también con `--ia-simulada`, en el mostrador y en el equipo. En la 0.7 contestaba el
+  renglón de la lista. Con "pack 8.30 cm" pasa lo mismo hacia "Sobre el horario". "caja x 24"
+  y "blister x 4" andan bien, y el pedido con cantidad ("quiero 2 aceite") no se ve afectado.
+  Causa: `palabra_nombrada()` arma la mención "12 x 900" y `palabras_de_la_lista()` descarta las
+  palabras de una o dos letras y los números, así que la "x" de la planilla no queda exceptuada
+  (ejemplo 12, cerca de los renglones 1511 y 1542). `probar` y `ensayar` pasan igual. Arreglo
+  sugerido: no contar como promoción un "N x M" que está así en la planilla, o que tenga atrás
+  una medida (ml, l, kg, g, cc, u).
+
+Bajos, nuevos en la 0.7.1:
+
+- P204: horarios inventados que pasan con los datos vacíos, cuando no hay "abrimos",
+  "atendemos", "las" ni "de N a N": "Estamos de 9 hasta 18.", "Estamos entre 9 y 18.", "de 8 hrs
+  a 18 hrs", "de 9 a.m. a 6 p.m.", "Estamos L-V.", "Lu a Vi.", "Sólo días de semana.", "Estamos
+  toda la semana.". No están en la prueba de "lo que se escapa".
+- P205: direcciones inventadas que pasan: "Podés retirar el pedido en Mitre 1234.", "Pasá por
+  Mitre 1234.", "El depósito está en Mitre 1234.", "Estamos por Avellaneda.", "Estamos cerca de
+  la estación."; y con la dirección cargada, la misma calle con otra localidad.
+- P206: otros datos inventados que pasan. Pago: "Pagás por MP.", "PayPal o cripto.", "Rapipago
+  o Pago Fácil.", "Echeq.", "Ualá.", "Pago contra entrega.", "Facturamos A y B.". Promociones:
+  "El envío es sin costo.", "sin cargo", "te bonificamos el envío", "precio especial", "más
+  barato", "liquidación". Entregas: "Lo recibís mañana.", "Repartimos en zona sur y CABA.".
+  Contacto: "Llamá al 444555." (6 cifras), "0800 MAYORISTA", "mayorista.ar", un usuario de
+  Instagram. Otros: "como mínimo 5 bultos".
+- P207: respuestas legítimas frenadas con los datos vacíos: "Los precios son por bulto
+  cerrado." y "Vendemos solo por bulto cerrado." ("cerrado" se toma por horario, y es palabra
+  de todos los días en un mayorista), "Desde las 10 hacemos envíos.", "De las 3 que nombraste
+  tengo dos.", "Te aviso a la tarde.", "Es precio de contado.", "No hacemos descuentos.",
+  "a partir de mañana", la palabra "dirección" en cualquier respuesta. Llega "Sobre ...: eso
+  te lo confirma una persona.", nunca un dato falso.
+- P208: si la IA mezcla un dato inventado con algo útil, el cliente pierde lo útil. A "hola"
+  le llega "Sobre el horario: eso te lo confirma una persona."; a "tenes yerba?" (IA: "Sí,
+  tenemos yerba mate a $ 35.000,00. Aceptamos Mercado Pago.") le llega "Sobre las formas de
+  pago...", sin el precio. Con un producto nombrado se podría anteponer el renglón de la lista,
+  como ya hace `con_los_productos()`.
+- P209: preguntas que el programa contesta con un tema que no es, o con un agregado de más
+  (nunca con un dato falso): "el pedido de ayer no llego" recibe "Sobre la dirección..."; "a
+  donde les escribo?" recibe la dirección y no el teléfono; "te pago cuando llega" recibe tres
+  temas; "cuando entra harina?" recibe el precio y "Sobre el horario..."; "cuanto me cobras por
+  5 yerbas?", "quiero 5 azucar al contado" y "dame 3 harina con factura" suman "Sobre las
+  formas de pago..."; "de donde es la yerba?" suma "Sobre la dirección..."; "...al contado no
+  cambian" se toma por forma de pago. El mostrador agrega la dirección a "quiero 10 yerbas para
+  retirar en el local" y el equipo no.
+- P210: las pruebas de la revisión usan solo la planilla de muestra, con presentaciones con
+  "de" ("caja de 12 botellas de 900 ml"). No hay ninguna con "N x M" ni con "bulto cerrado", y
+  por eso P203 no saltó. La prueba "tu planilla está bien cargada" del programa creado no pasa
+  los renglones de la planilla del dueño por `dato_inventado()`, que sería la forma barata de
+  avisarle.
+- P211: frases vagas que pasan con los datos sin cargar: "Repartimos en toda la zona oeste.",
+  "Te esperamos mañana a primera hora.", "Pasá cuando quieras, siempre hay alguien.", "Tenemos
+  estacionamiento propio para clientes.", "Podés retirar por el local.", "Te lo alcanzamos
+  enseguida", "Quedamos a la vuelta de la plaza". Con horario cargado pasan "Lunes a viernes de
+  8 a 17" y "Los lunes no abrimos; el viernes sí, de 8 a 17". Parte está fijada como LÍMITES
+  CONOCIDOS en una prueba del ejemplo 12.
+- P212: el aviso de stock en cero. Con dos productos en cero, "tenes aceite y fideos?" contesta
+  solo el precio del aceite, sin aviso. Si la IA afirma que hay, llegan las dos frases que se
+  contradicen ("Sí, tenemos... De ... ahora no hay stock."). "tenes cafe y yerba?" deja pasar
+  el "podés pedirlo" de la IA.
+- P213: una pregunta pegada a un pedido se pierde sin decir nada: "quiero 3 yerba, como se
+  paga?" y "que dia llega si pido 10 yerbas?" dan solo la cuenta. Es la regla de las palabras
+  flojas (decisión de la vuelta 2). "hacen envios a cordoba?" con entregas vacío contesta solo
+  la regla de unidades, sin decir que la zona la confirma una persona.
+- P214: después de cargar los datos (paso 5), ensayar con los casos de muestra da 23 de 28:
+  fallan los 5 casos que esperan "eso te lo confirma una persona". Está avisado en el paso 7 y
+  en el encabezado, pero el dueño ve cruces por hacer lo que se le pidió.
+- P215: la batería de pytest tardó 550 s contra 294 s en `main`, con 38 pruebas más, y `probar`
+  del equipo creado pasó de 2,8 s a 4,6 s (una sola corrida de cada una: no es concluyente).
+  **Hay que correr pytest con un tope de al menos 10 minutos** (va con P148). El programa
+  creado pasó de 128 KB a 201 KB (3889 renglones) y `datos_del_negocio` queda en el renglón
+  153, debajo de 150 renglones de comentarios.
+- P219: cosas chicas que dejó anotadas el implementador. Con `--ia-simulada` sin archivo,
+  "tenes cafe?" contesta "Decime el nombre del producto..." y el dueño no ve "Eso no lo
+  trabajamos." en un ensayo sin gastar (aclarado en el manual). Los casos de muestra no traen
+  las preguntas nuevas de las vueltas 2 y 3. Un renglón de `datos_del_negocio` borrado queda
+  vacío sin más aviso que el "sin cargar" del arranque. `{consultar}` adentro de un dato da "no
+  existe 'consultar'. ¿Quisiste decir 'consultar_ia'?". La pista de la coma dice "el renglón de
+  arriba (el N)" aunque en el medio haya un comentario.
+- P222: el mensaje del commit `ac04a45` dice "el intérprete no cambió". Dejó de ser exacto con
+  los tres textos de error de las vueltas 2 y 3 (el README y MEJORAS sí lo dicen). No se
+  reescribe el historial; queda anotado acá.
+
+Bajos que ya estaban en la 0.7 (iguales en `main`):
+
+- P216: pasan respuestas de la IA que dicen que anotó un pedido o inventan stock ("Te anoté
+  el pedido, ya quedó reservado.", "De azúcar nos quedan 3 bolsas nada más."), y la afirmación
+  de stock no se frena si la pregunta no nombra el producto.
+- P217: se frena de más una respuesta correcta con dos precios de la lista ("Azúcar $ 9.800,50
+  y Harina 000 $ 14.500,00" sale como "Eso te lo confirma una persona. Ya te paso con alguien.").
+- P218: un pedido con palabras de más ("mandame 12 yerba el lunes", "quiero 20 azucar, pago en
+  efectivo") no llega a "¿Lo anoto?"; "Quiero 3 yerbas. mi telefono es 11 4444 5555" contesta
+  "Veo más de un número". Los pasos de `nuevo` y el aviso de falta de clave nombran notepad,
+  PowerShell y `ANTHROPIC_API_KEY` también en Linux. El ensayo del paso 7 da 27 de 28 si antes
+  se vendió azúcar sin `--olvidar`.
+
+Sin verificar:
+
+- P220: **no se probó con un modelo de verdad** (Ollama `qwen2.5:7b`, con `MATE_IA_PROPIA`).
+  No se sabe cuánto se le escapa ni cuánto frena de más con respuestas reales. Va con P11 y
+  P149, y es lo primero que hay que hacer antes de publicar.
+- P221: pytest completo corrió solo en Python 3.13. En 3.11 y 3.12 corrió `probar
+  mate/ejemplos` (en la vuelta 2). No se probó en 3.10, en 3.14 ni en Windows, y la integración
+  continua no corrió sobre esta rama porque no se subió. No pasó por el especialista en
+  seguridad.
+
+**Lo que sigue**: una vuelta 4 para P203 (con P210, que es la prueba que lo hubiera visto, y
+P207 si entra: "bulto cerrado"); después, el ensayo del dueño con el modelo real (P220), que
+va a decir cuáles de P204 a P211 importan de verdad. Recién con eso aprobado se decide la
+publicación. El "Estado final de la 0.7", abajo, sigue valiendo para `main`.
+
+
 ## Estado final de la 0.7
 
 **Estado de hoy** (integrador, después de la tercera pasada del revisor externo sobre el pull
