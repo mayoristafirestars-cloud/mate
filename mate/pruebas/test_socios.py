@@ -1218,8 +1218,11 @@ def test_lo_que_no_se_ve_o_engana_no_cruza_entre_negocios(lugar, capsys, monkeyp
     dejar(compartida / "de-b", sobre_de(1, {"tipo": "Dato", "campos": {
         "n": 1, "nota": raro}}))
     dejar(compartida / "de-b", sobre_de(2, {"tipo": "Ot\u202ero\x1b[2J", "campos": {}}))
+    # Windows no deja crear un archivo con un carácter de control en el nombre (ahí ese
+    # caso no puede existir): se prueba igual con el de dirección, que sí se puede.
+    campana = "" if os.name == "nt" else "\x07"
     dejar(compartida / "de-b", sobre_de(3, firmar=False),
-          "0000\u202e0003 \x07raro.json")
+          f"0000\u202e0003 {campana}raro.json")
     codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
                                 "--traza", respuestas=["si"] * 3)
     todo = salida + err + "".join(rechazados(local).values())
@@ -1227,7 +1230,8 @@ def test_lo_que_no_se_ve_o_engana_no_cruza_entre_negocios(lugar, capsys, monkeyp
     assert "no se ve o engaña al ojo" in err and len(rechazados(local)) == 3
     for malo in ("\u202e", "\x07", "\x1b", "\u2028", "\ud800", "\u200b"):
         assert malo not in todo, repr(malo)
-    assert r"0000\u202e0003 \u0007raro.json" in "".join(rechazados(local).values())
+    escrito = r"0000\u202e0003 raro.json" if os.name == "nt" else r"0000\u202e0003 \u0007raro.json"
+    assert escrito in "".join(rechazados(local).values())
     # Al socio (que sí se autenticó) le vuelve la falla, con el código y SIN su texto.
     fallas = sobres(compartida / "de-a")
     assert [(f["clase"], f["motivo"], f["mensaje"]) for f in fallas] == [
