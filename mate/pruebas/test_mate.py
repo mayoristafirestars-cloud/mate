@@ -2067,14 +2067,16 @@ GRADUALES = sorted(p.name for p in (RAIZ / "ejemplos").glob("[0-9][0-9]_*.mate")
 
 
 def test_estan_los_seis_ejemplos_graduales():  # (y el 7.º, la IA; el 8.º, aprende; el 9.º, Python...)
+    # (el 14, de la 0.8, son tres archivos: dos negocios que se hablan y el trato entre ellos)
     assert [n[:2] for n in GRADUALES] == ["01", "02", "03", "04", "05", "06", "07", "08", "09",
-                                          "10", "11", "12", "13"]
-    assert GRADUALES[0] == "01_hola.mate" and GRADUALES[-5] == "09_con_python.mate"
-    assert GRADUALES[-6] == "08_agente_que_aprende.mate"
-    assert GRADUALES[-4] == "10_mostrador_mayorista.mate"
-    assert GRADUALES[-3] == "11_mostrador_con_frenos.mate"
-    assert GRADUALES[-2] == "12_mostrador_con_reglas.mate"
-    assert GRADUALES[-1] == "13_equipo_del_negocio.mate"
+                                          "10", "11", "12", "13", "14", "14", "14"]
+    assert GRADUALES[0] == "01_hola.mate" and GRADUALES[-8] == "09_con_python.mate"
+    assert GRADUALES[-9] == "08_agente_que_aprende.mate"
+    assert GRADUALES[-7] == "10_mostrador_mayorista.mate"
+    assert GRADUALES[-6] == "11_mostrador_con_frenos.mate"
+    assert GRADUALES[-5] == "12_mostrador_con_reglas.mate"
+    assert GRADUALES[-4] == "13_equipo_del_negocio.mate"
+    assert GRADUALES[-3:] == ["14_comprador.mate", "14_proveedor.mate", "14_trato.mate"]
     for nombre in GRADUALES:  # están comentados: al menos un comentario cada cuatro renglones
         renglones = [r.strip() for r in (RAIZ / "ejemplos" / nombre).read_text(
             encoding="utf-8").splitlines() if r.strip()]
@@ -2090,10 +2092,20 @@ def test_los_ejemplos_graduales_corren_y_pasan_sus_pruebas(nombre, capsys, tmp_p
     shutil.copy(RAIZ / "ejemplos" / "precios.csv", tmp_path)  # (el del ejemplo 10)
     if nombre.startswith("13_"):  # (el 13 trae las funciones del 12 con 'usar')
         shutil.copy(RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate", tmp_path)
+    if nombre.startswith("14_") and nombre != "14_trato.mate":  # (los dos traen el trato)
+        shutil.copy(RAIZ / "ejemplos" / "14_trato.mate", tmp_path)
     assert mate.main(["verificar", ruta]) == 0
     assert mate.main(["correr", ruta]) == 0
     capturado = capsys.readouterr()
-    assert capturado.err == "" and len(capturado.out.splitlines()) >= 3
+    if nombre == "14_trato.mate":  # (solo declara los mensajes que cruzan: no muestra nada)
+        assert capturado.err == "" and "sin errores" in capturado.out
+    elif nombre.startswith("14_"):
+        # (0.8) Sin la clave del socio cargada corre igual: avisa qué orden falta y no manda.
+        # El ida y vuelta entero, con la clave y los seis pasos, está en test_socios.py.
+        assert "falta cargar la clave del socio" in capturado.err
+        assert "socio invitar" in capturado.err and "error" not in capturado.err
+    else:
+        assert capturado.err == "" and len(capturado.out.splitlines()) >= 3
     assert mate.main(["probar", ruta]) == 0
     assert "✗" not in capsys.readouterr().out
 
@@ -3577,30 +3589,48 @@ def test_la_orden_consola(capsys, monkeypatch):
 
 # Mejora 89: versión 0.3 (después 0.4: agentes que recuerdan y aprenden; 0.5: más rápido y
 # con puente a Python; 0.6: el mostrador con reglas, 'nuevo mostrador' y 'ensayar'; y ahora
-# 0.7: agentes que se hablan entre sí, 'nuevo equipo', la conversación en 'ensayar' y el buzón)
+# 0.7: agentes que se hablan entre sí, 'nuevo equipo', la conversación en 'ensayar' y el buzón;
+# 0.8: agentes de negocios distintos que se hablan por una carpeta compartida, los socios)
 
-def test_version_0_7_y_el_readme_lo_dice(capsys):
-    assert mate.VERSION == "0.7.1"
+def test_version_0_8_y_el_readme_lo_dice(capsys):
+    assert mate.VERSION == "0.8"
     leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
-    assert "Versión 0.7." in leeme and "## Límites de la versión 0.7" in leeme
-    assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.7", "")
-    assert "desde la versión 0.2 hasta la 0.7" in leeme and "versión 0.3" not in leeme
+    assert "Versión 0.8." in leeme and "## Límites de la versión 0.8" in leeme
+    assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.8", "")
+    assert "desde la versión 0.2 hasta la 0.8" in leeme and "versión 0.3" not in leeme
+    assert "Versión 0.7." not in leeme and "Límites de la versión 0.7" not in leeme
+    assert "hasta la 0.7 (" not in leeme and "límites-de-la-versión-07" not in leeme
     # el número viejo no quedó en ningún título ni enlace que hable de "esta versión"
     assert "Versión 0.5." not in leeme and "Límites de la versión 0.5" not in leeme
     assert "hasta la 0.5 (" not in leeme
     assert "Versión 0.6." not in leeme and "Límites de la versión 0.6" not in leeme
     assert "hasta la 0.6 (" not in leeme and "límites-de-la-versión-06" not in leeme
     assert "se está sumando" not in leeme
-    assert "[Qué cambió en la 0.7](#qué-cambió-en-la-07)" in leeme
-    assert "[Límites de la versión 0.7](#límites-de-la-versión-07)" in leeme
+    assert "[Qué cambió en la 0.8](#qué-cambió-en-la-08)" in leeme
+    assert "[Límites de la versión 0.8](#límites-de-la-versión-08)" in leeme
     titulos = re.findall(r"(?m)^## (.+)$", leeme)
+    assert titulos.index("Qué cambió en la 0.8") + 1 == titulos.index("Qué cambió en la 0.7")
     assert titulos.index("Qué cambió en la 0.7") + 1 == titulos.index("Qué cambió en la 0.6")
     assert titulos.index("Qué cambió en la 0.6") + 1 == titulos.index("Qué cambió en la 0.5")
-    todos_los_titulos = re.findall(r"(?m)^#{2,3} (.+)$", leeme)
+    todos_los_titulos = re.findall(r"(?m)^#{2,4} (.+)$", leeme)
 
     def el_titulo_existe(ancla):
         return any(ancla == re.sub(r"[^\w\- ]", "", t.lower()).replace(" ", "-")
                    for t in todos_los_titulos)
+    # lo de la 0.8 está en su sección, cada agregado con su renglón, y sus enlaces existen
+    novedades_08 = leeme.split("## Qué cambió en la 0.8")[1].split("\n## ")[0]
+    for frase in ["`usar socio Proveedor acepta Cotizacion`", "**firmado**",
+                  "**Nada de otro negocio se entrega sin tu `si`**",
+                  "`¿Lo entrego? (si / no / despues)`", "La orden `socio`", "**número de control**",
+                  "`14_comprador.mate`, `14_proveedor.mate` y `14_trato.mate`", "`nuevo socio`",
+                  "**una sola PC**", "**solo lo que viene de un programa conocido**",
+                  "No agrega una palabra ni una función\nincluida", "mejora 128",
+                  "`socio` pasó\na ser una orden"]:
+        assert frase in novedades_08, frase
+    anclas = re.findall(r"\]\(#([^)]+)\)", novedades_08)
+    assert len(anclas) >= 9
+    for ancla in anclas:
+        assert el_titulo_existe(ancla), ancla
     # lo de la 0.7 está en su sección, y sus enlaces llevan a títulos que existen
     novedades_07 = leeme.split("## Qué cambió en la 0.7")[1].split("\n## ")[0]
     for frase in ["13_equipo_del_negocio.mate", "`nuevo equipo mi_negocio`", "clase 13 del curso",
@@ -3612,16 +3642,37 @@ def test_version_0_7_y_el_readme_lo_dice(capsys):
     assert len(anclas) >= 7
     for ancla in anclas:
         assert el_titulo_existe(ancla), ancla
-    # los límites de la 0.7 cuentan lo del equipo y lo del buzón, y sus enlaces existen
-    limites = leeme.split("## Límites de la versión 0.7")[1].split("\n## ")[0]
+    # los límites cuentan lo del equipo, lo del buzón y lo de los socios, y sus enlaces existen
+    limites = leeme.split("## Límites de la versión 0.8")[1].split("\n## ")[0]
     for frase in ["misma carpeta", "sin red", "anota solo con un `si`", "Enter\n  solo",
-                  "es una copia\n  fija", "`--ia-simulada`"]:
+                  "es una copia\n  fija", "`--ia-simulada`", "**carpeta compartida**",
+                  "**no cifrados**", "**No se probó en una Windows de verdad**",
+                  "OneDrive, un Google Drive o un Dropbox reales"]:
         assert frase in limites, frase
     for ancla in re.findall(r"\]\(#([^)]+)\)", limites):
         assert el_titulo_existe(ancla), ancla
     # la orden nueva que puede frenar algo viejo está en la tabla
     frenan = leeme.split("## Qué cambió y puede frenar un programa viejo")[1].split("\n## ")[0]
     assert "| `buzon` es una orden (0.7)" in frenan and "`correr buzon.mate`" in frenan
+    assert "| `socio` es una orden (0.8)" in frenan and "`correr socio.mate`" in frenan
+    assert "entrega solo lo que viene de un programa **conocido** (0.8)" in frenan
+    assert "`*.socios.json` o `invitacion-mate*.txt` (0.8)" in frenan
+    # los socios tienen su sección, con sus órdenes en la tabla y los límites dichos
+    socios = leeme.split("### Dos negocios que se hablan: los socios")[1].split("\n### ")[0]
+    for frase in ["usar socio Proveedor acepta Cotizacion, Confirmado", "mate.py nuevo socio",
+                  "mate.py socio invitar comprador.mate Proveedor",
+                  "mate.py socio aceptar proveedor.mate Cliente", "| `socio renovar ",
+                  "| `socio quitar ", "**no cifrados**", "**llamá a tu socio y comparen el número**",
+                  "`¿Lo entrego?`", "No existe \"si a todos\"", "#### Límites de los socios",
+                  "**Sin cifrado.**", "**no se probaron en una Windows de verdad**",
+                  "**Nubes de verdad sin probar.**", "Nunca por mail ni por WhatsApp",
+                  "no va adentro de OneDrive**", "comprador.socios.json"]:
+        assert frase in socios, frase
+    for ancla in re.findall(r"\]\(#([^)]+)\)", socios):
+        assert el_titulo_existe(ancla), ancla
+    assert "| `nuevo socio` | arma en la carpeta donde estás el ensayo" in leeme
+    assert "| `socio invitar comprador.mate Proveedor` | genera la clave" in leeme
+    assert "| `14_comprador.mate` y `14_proveedor.mate` | dos **negocios distintos**" in leeme
     # lo de la 0.6 sigue en su sección, y sus enlaces llevan a títulos que existen
     novedades = leeme.split("## Qué cambió en la 0.6")[1].split("\n## ")[0]
     for frase in ["12_mostrador_con_reglas.mate", "`nuevo mostrador mi_negocio`", "`ensayar ",
@@ -3633,10 +3684,11 @@ def test_version_0_7_y_el_readme_lo_dice(capsys):
     for ancla in anclas:
         assert el_titulo_existe(ancla), ancla
     assert mate.main(["--version"]) == 0
-    assert capsys.readouterr().out.startswith("Mate 0.7.1 ")
+    assert capsys.readouterr().out.startswith("Mate 0.8 ")
     # la página de presentación dice el mismo número
     pagina = (RAIZ.parent / "docs" / "index.html").read_text(encoding="utf-8")
-    assert '<span class="marca">Mate 0.7.1</span>' in pagina and "Mate 0.6" not in pagina
+    assert '<span class="marca">Mate 0.8</span>' in pagina and "Mate 0.6" not in pagina
+    assert "Mate 0.7" not in pagina
     assert "Mate 0.5" not in pagina
 
 
@@ -6808,7 +6860,7 @@ def test_informe_resume_el_registro(tmp_path, con_registro):
     renglones = out.splitlines()
     assert renglones[0] == "Informe de errores de uso de Mate"
     assert re.fullmatch(r"Hay 6 error\(es\) de uso anotado\(s\), del \d\d/\d\d/\d{4} \d\d:\d\d "
-                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.7\.1\)\.", renglones[1])
+                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.8\)\.", renglones[1])
     assert renglones[3:6] == [
         "Los más frecuentes:",
         "    4 veces  antes de correr: no existe '<nombre>'",
@@ -9551,7 +9603,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
         "Qué cambió y puede frenar un programa viejo")
     primer_pantallazo = leeme[:leeme.index("## Por dónde empezar")]
     for frase in ["Mate es un lenguaje de programación chico, con palabras en castellano",
-                  "Versión 0.7", "Add python.exe to PATH", "instalar.bat", "mate --version",
+                  "Versión 0.8", "Add python.exe to PATH", "instalar.bat", "mate --version",
                   "No toca el PATH ni el registro", ".\\mate\\instalar.bat quitar",
                   "Todavía no se probó en una Windows de verdad", "python mate\\mate.py curso"]:
         assert frase in primer_pantallazo, frase
@@ -9589,7 +9641,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
     ayuda = mate.texto_de_ayuda()
     assert "  curso  " in ayuda and "  curso 1  " in ayuda
     assert max(len(r) for r in ayuda.splitlines()) <= 100
-    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.7.1"
+    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.8"
 
 
 # ───────────────────── Correcciones de la revisión de la 0.5 (mejora 120) ─────────────────────
@@ -14267,6 +14319,19 @@ def dejar_bz(carpeta, sobre, nombre=None):
     return archivo
 
 
+def anotar_enviado_bz(carpeta, programa, destino, *ids):
+    """(0.8, P161) Deja anotado en la memoria de ese programa que le mandó esos mensajes al
+    otro. Un aviso de falla solo se toma si nombra un mensaje que el programa envió de
+    verdad, y en estas pruebas el mensaje original se dejó a mano en el buzón del otro."""
+    import json
+    archivo = carpeta / f"{programa}.memoria.json"
+    datos = json.loads(archivo.read_text(encoding="utf-8-sig")) if archivo.exists() \
+        else {"agentes": {}}
+    datos.setdefault("correo", {}).setdefault("enviados", []).extend(
+        f"{destino}/{i}" for i in ids)
+    archivo.write_text(json.dumps(datos), encoding="utf-8")
+
+
 def sobres_de(carpeta):
     """Los sobres que esperan en un buzón, en orden de nombre."""
     import json
@@ -14511,6 +14576,7 @@ def test_buzon_contrato_al_llegar_rechaza_sin_cortar_y_avisa_de_vuelta(tmp_path,
     (tmp_path / "ventas.mate").write_text(
         VENTAS_BZ.replace('enviar Vender { pedido: "A-17", producto: "yerba", cantidad: 2 } '
                           'a Ventas\n', ""), encoding="utf-8")
+    anotar_enviado_bz(tmp_path, "ventas", "deposito", malo["id"])  # (se dejó a mano)
     codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
     assert codigo == 0
     assert err == ("aviso: Deposito (deposito.mate) no pudo atender Reservar de Ventas: "
@@ -14639,6 +14705,7 @@ def test_buzon_el_aviso_de_falla_llega_al_al_fallar_del_que_envio(tmp_path, caps
     assert codigo == 0 and "acá no hay ningún agente llamado Expedicion" in err
     (falla,) = sobres_de(tmp_path / "ventas.buzon")
     assert falla["clase"] == "falla" and falla["de"]["agente"] == "Expedicion"
+    anotar_enviado_bz(tmp_path, "ventas", "deposito", perdido["id"])  # (se dejó a mano)
     codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate", "--traza")
     assert (codigo, err) == (0, "")
     assert "Ventas se entera de que Expedicion (deposito.mate) no pudo atender Reservar" in salida
@@ -14767,23 +14834,41 @@ contrato conversacion {
 
 def test_buzon_contestarle_a_un_remitente_desconocido_avisa_y_no_escribe(tmp_path, capsys,
                                                                          monkeypatch):
+    # (0.8, P161) Hasta la 0.7.1 un sobre de un programa que no está en la carpeta se
+    # entregaba igual, y si estaba la carpeta de su buzón se le contestaba ahí: un nombre
+    # elegido por quien dejó el sobre. Ahora no se entrega ni se contesta: va a rechazados.
     carpeta_bz(tmp_path, monkeypatch, ventas_mate=None)
     dejar_bz(tmp_path / "deposito.buzon", sobre_bz(
         1, de={"programa": "fantasma", "agente": "Alguien"}))
     codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
-    assert codigo == 0 and salida == "Buzón: atendí 1 mensaje (1 de fantasma).\n"
-    assert err == ("aviso: no encontré a quién contestarle (fantasma): en esta carpeta no está "
-                   "fantasma.mate ni la carpeta de su buzón\n")
+    rechazados = mate.os.path.join("deposito.buzon", "rechazados")
+    assert codigo == 0 and salida == f"Buzón: 1 no se pudo entregar: está en {rechazados}.\n"
+    assert err == (
+        "aviso: no entregué un mensaje del buzón: Reservar de Alguien (fantasma) para "
+        "Deposito: no conozco a 'fantasma': para recibir de otro programa, ese programa tiene "
+        'que tener usar buzon "deposito.mate" (o este, usar buzon "fantasma.mate"). Quedó en '
+        f"{rechazados}\n")
     assert archivos_de(tmp_path) == ["deposito.buzon", "deposito.mate", "deposito.memoria.json",
                                      "mensajes.mate"]
-    assert memoria_de(tmp_path, "deposito")["buzon"]["por_salir"] == []
-    # Si está la carpeta de su buzón (aunque no su programa), sí se le contesta.
+    # Aunque esté la carpeta de su buzón: a un desconocido no se le escribe nada.
     (tmp_path / "Fantasma.buzon").mkdir()
     dejar_bz(tmp_path / "deposito.buzon", sobre_bz(
         2, de={"programa": "fantasma", "agente": "Alguien"}))
     codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
-    assert (codigo, err) == (0, "") and len(sobres_de(tmp_path / "Fantasma.buzon")) == 1
+    assert codigo == 0 and "no conozco a 'fantasma'" in err
+    assert sobres_de(tmp_path / "Fantasma.buzon") == []
     assert "fantasma.buzon" not in archivos_de(tmp_path)  # (el nombre es el del listado)
+    assert "buzon" not in memoria_de(tmp_path, "deposito")  # no se anotó ni se atendió nada
+    # Cuando ese programa está en la carpeta y nombra a este, sí se entrega y se le contesta.
+    (tmp_path / "fantasma.mate").write_text(
+        'usar "mensajes.mate"\nusar buzon "deposito.mate"\nagente Alguien {\n'
+        "    al recibir Reservado como r { }\n}\n", encoding="utf-8")
+    dejar_bz(tmp_path / "deposito.buzon", sobre_bz(
+        3, de={"programa": "fantasma", "agente": "Alguien"}))
+    codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
+    assert (codigo, err) == (0, "") and "atendí 1 mensaje (1 de fantasma.mate)" in salida
+    assert len(sobres_de(tmp_path / "Fantasma.buzon")) == 1
+    assert memoria_de(tmp_path, "deposito")["buzon"]["por_salir"] == []
 
 
 def test_buzon_a_un_remitente_sin_usar_buzon_solo_se_le_contesta(tmp_path, capsys, monkeypatch):
@@ -15386,10 +15471,14 @@ def test_buzon_un_sobre_ya_recibido_que_sigue_en_el_buzon_se_borra_sin_entregar(
     assert (codigo, salida, err) == (0, "", "")
     assert sobres_de(tmp_path / "deposito.buzon") == [] and sobres_de(tmp_path / "ventas.buzon") == []
     assert memoria_de(tmp_path, "deposito") == antes
-    # El mismo id de OTRO programa es otro mensaje.
+    # El mismo id de OTRO programa es otro mensaje. (0.8, P161: ese otro programa tiene
+    # que estar en la carpeta y nombrar a este; uno que no existe ya no entrega.)
+    (tmp_path / "compras.mate").write_text(
+        'usar "mensajes.mate"\nusar buzon "deposito.mate"\nagente C {\n'
+        "    al recibir Reservado como r { }\n}\n", encoding="utf-8")
     dejar_bz(tmp_path / "deposito.buzon", dict(otro, de={"programa": "compras", "agente": "C"}))
     codigo, salida, err = orden_mate(capsys, "correr", "deposito.mate")
-    assert codigo == 0 and "atendí 1 mensaje (1 de compras)" in salida
+    assert codigo == 0 and "atendí 1 mensaje (1 de compras.mate)" in salida
     assert memoria_de(tmp_path, "deposito")["agentes"]["Deposito"]["estado"]["stock"]["yerba"] == 4
     assert len(memoria_de(tmp_path, "deposito")["buzon"]["recibidos"]) == 2
 
@@ -16010,7 +16099,10 @@ def test_buzon_el_motivo_de_una_falla_escrita_a_mano_sale_en_un_renglon(tmp_path
     carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_BZ.split("\nenviar Vender")[0] + "\n")
     falla = sobre_bz(1, clase="falla", motivo="porque sí\nOTRO RENGLON\r\n" + "x" * 900,
                      de={"programa": "deposito", "agente": "Deposito"},
-                     para={"programa": "ventas", "agente": "Ventas"})
+                     para={"programa": "ventas", "agente": "Ventas"},
+                     en_respuesta_a=sobre_bz(7)["id"])
+    # (0.8, P161: la falla tiene que nombrar un mensaje que Ventas mandó de verdad)
+    anotar_enviado_bz(tmp_path, "ventas", "deposito", sobre_bz(7)["id"])
     dejar_bz(tmp_path / "ventas.buzon", falla)
     codigo, salida, err = orden_mate(capsys, "correr", "ventas.mate")
     assert (codigo, err) == (0, "")
@@ -17509,7 +17601,7 @@ def test_en_la_charla_por_teclado_el_cliente_es_uno_solo_y_siempre_el_mismo(tmp_
 def test_el_manual_dice_lo_que_cambio_con_la_revision_externa():
     leeme = " ".join((RAIZ / "README.md").read_text(encoding="utf-8").split())
     equipo = leeme.split("### Un equipo propio: `nuevo equipo`")[1].split(" ### ")[0]
-    limites = leeme.split("## Límites de la versión 0.7")[1].split(" ## ")[0]
+    limites = leeme.split("## Límites de la versión 0.8")[1].split(" ## ")[0]
     memoria = leeme.split("### Memoria: `estado recordado`")[1].split(" ### ")[0]
     buzon = leeme.split("### Dos programas que se hablan: el buzón")[1].split(" ### ")[0]
     # (C1) una ventana por vez para un programa con estado recordado
@@ -18000,6 +18092,9 @@ agente Ventas {
     al recibir Reservado como r { mostrar("Pedido {r.pedido}: listo.") }
 }
 """
+# (0.8, P161) Para que Ventas reciba de Depósito sin nombrarlo, Depósito tiene que nombrar a
+# Ventas: de un programa con el que no hay ninguna relación de buzón no se entrega nada.
+DEPOSITO_QUE_NOMBRA_A_VENTAS = 'usar buzon "ventas.mate"\n' + DEPOSITO_BZ
 
 
 def no_arranco_por_el_candado(err, como, programa="ventas"):
@@ -18027,7 +18122,7 @@ def test_buzon_la_recuperacion_no_se_hace_sin_candado_si_no_se_puede_tomar(
     monkeypatch.chdir(tmp_path)
     envia = programa == "envía a otros programas"
     (tmp_path / "mensajes.mate").write_text(MENSAJES_BZ, encoding="utf-8")
-    (tmp_path / "deposito.mate").write_text(DEPOSITO_BZ, encoding="utf-8")
+    (tmp_path / "deposito.mate").write_text(DEPOSITO_QUE_NOMBRA_A_VENTAS, encoding="utf-8")
     (tmp_path / "ventas.mate").write_text(
         VENTAS_SIN_ESTADO if envia else VENTAS_QUE_SOLO_RECIBE, encoding="utf-8")
     memoria_con_por_salir(tmp_path, 2)
@@ -18201,7 +18296,8 @@ def test_buzon_sin_el_candado_de_la_memoria_no_se_atiende_lo_que_llego(como, tmp
     # Falla SOLO el candado de la memoria; el del buzón (ventas.buzon/candado) se podría
     # tomar. Antes (b6afab9) el programa atendía los mensajes y anotaba "recibidos" en la
     # memoria sin candado y sin aviso. Atender es anotar: sin candado no se atiende.
-    carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_SOLO_RECIBE)
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_SOLO_RECIBE,
+                   deposito_mate=DEPOSITO_QUE_NOMBRA_A_VENTAS)
     for n in (1, 2):
         dejar_bz(tmp_path / "ventas.buzon", sobre_bz(
             n, {"tipo": "Reservado", "campos": {"pedido": f"A-{n}", "hecho": True, "quedan": 1}},
@@ -18437,7 +18533,7 @@ prueba "vuelta 2: ana y ana con espacios son el mismo cliente" {
 
 def test_el_manual_dice_lo_de_la_vuelta_2_de_la_revision_externa():
     leeme = " ".join((RAIZ / "README.md").read_text(encoding="utf-8").split())
-    limites = leeme.split("## Límites de la versión 0.7")[1].split(" ## ")[0]
+    limites = leeme.split("## Límites de la versión 0.8")[1].split(" ## ")[0]
     memoria = leeme.split("### Memoria: `estado recordado`")[1].split(" ### ")[0]
     buzon = leeme.split("### Dos programas que se hablan: el buzón")[1].split(" ### ")[0]
     # el candado que no se puede tomar frena; y donde no hay candados, también (tercera
@@ -19067,7 +19163,8 @@ def test_la_cuenta_de_consultas_se_anota_con_el_candado_y_sin_el_no_se_escribe(
 # memoria ocupado por otro proceso: mostraba "Pedido A-1: listo.", no podía anotar que lo
 # había atendido, salía con 1 y dejaba el sobre, que se atendía otra vez.
 def receptor_con_dos_sobres(tmp_path, monkeypatch):
-    carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_SOLO_RECIBE)
+    carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_SOLO_RECIBE,
+                   deposito_mate=DEPOSITO_QUE_NOMBRA_A_VENTAS)
     for n in (1, 2):
         dejar_bz(tmp_path / "ventas.buzon", sobre_bz(
             n, {"tipo": "Reservado", "campos": {"pedido": f"A-{n}", "hecho": True, "quedan": 1}},
@@ -19173,7 +19270,8 @@ def test_la_lectura_del_arranque_se_hace_con_el_candado_de_la_memoria_tomado(
     if programa == "envia":
         carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_ENVIA_SIN_ESTADO)
     else:  # no envía nada, pero ya tiene una memoria (por salir, de una corrida anterior)
-        carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_SOLO_RECIBE)
+        carpeta_bz(tmp_path, monkeypatch, ventas_mate=VENTAS_QUE_SOLO_RECIBE,
+                   deposito_mate=DEPOSITO_QUE_NOMBRA_A_VENTAS)
         memoria_con_por_salir(tmp_path, 1)
     leer_de_verdad, leer_buzon_de_verdad, lecturas = (
         mate.leer_memoria, mate.leer_buzon_de_memoria, [])
@@ -19365,7 +19463,7 @@ def test_todo_lo_que_hay_no_lee_un_candado_que_otro_proceso_tiene_tomado(tmp_pat
 
 def test_el_manual_dice_lo_de_la_cuarta_pasada_de_la_revision_externa():
     leeme = " ".join((RAIZ / "README.md").read_text(encoding="utf-8").split())
-    limites = leeme.split("## Límites de la versión 0.7")[1].split(" ## ")[0]
+    limites = leeme.split("## Límites de la versión 0.8")[1].split(" ## ")[0]
     memoria = leeme.split("### Memoria: `estado recordado`")[1].split(" ### ")[0]
     buzon = leeme.split("### Dos programas que se hablan: el buzón")[1].split(" ### ")[0]
     # la regla, dicha una vez, y lo que cambia para el que usa Mate
@@ -19598,9 +19696,9 @@ def cargar_datos(tmp_path, programa, **datos):
 
 
 def test_version_0_7_1_y_el_readme_cuenta_los_datos_del_negocio():
-    assert mate.VERSION == "0.7.1"
+    assert mate.VERSION == "0.8"  # (la 0.7.1 ya pasó: lo suyo sigue contado en su sección)
     leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
-    assert "Versión 0.7.1." in leeme
+    assert "Versión 0.8." in leeme
     novedades = leeme.split("## Qué cambió en la 0.7")[1].split("\n## ")[0]
     de_la_071 = novedades.split("### La 0.7.1: los datos del negocio no se inventan")[1]
     for frase in ["`datos_del_negocio`", "**el programa, sin consultar a la IA**",
@@ -19618,7 +19716,7 @@ def test_version_0_7_1_y_el_readme_cuenta_los_datos_del_negocio():
     # el horario ya no se da de ejemplo de lo que va en una lección
     assert "si preguntan el horario, es de 8 a 17" not in leeme
     assert "| Los **datos del negocio**:" in leeme
-    limites = leeme.split("## Límites de la versión 0.7")[1].split("\n## ")[0]
+    limites = leeme.split("## Límites de la versión 0.8")[1].split("\n## ")[0]
     assert "se reconocen **por palabras**" in limites
     assert "No se probó todavía con el modelo de verdad" in limites
     mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")

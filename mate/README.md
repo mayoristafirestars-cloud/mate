@@ -5,7 +5,7 @@ Mate es un lenguaje de programación chico, con palabras en castellano. Sirve pa
 escribís las reglas (qué precios puede nombrar, qué no puede prometer, cuánto puede gastar por
 día) y Mate revisa cada respuesta de la IA antes de que salga.
 
-Versión 0.7.1. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
+Versión 0.8. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
 Se escribe con el Bloc de notas y se corre desde PowerShell.
 
 ```
@@ -106,11 +106,11 @@ o la página `docs\index.html`, que explica los pasos.
 | Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
 | Que una IA te escriba un programa en Mate | `python mate\mate.py guia` imprime una página para pegarle antes de pedírselo |
 | Contarle a otra persona qué es Mate | La página `docs\index.html` (está fuera de la carpeta `mate`): un solo archivo que se ve bien en el celular |
-| Saber qué cambió en esta versión | [Qué cambió en la 0.7](#qué-cambió-en-la-07) |
+| Saber qué cambió en esta versión | [Qué cambió en la 0.8](#qué-cambió-en-la-08) |
 
 **Para qué no sirve todavía:** no atiende por WhatsApp ni por una página web (la charla es por
 teclado, en PowerShell); es un proyecto nuevo, de una sola persona, sin comunidad; y es lento
-y chico al lado de Python. El detalle está en [Límites de la versión 0.7](#límites-de-la-versión-07).
+y chico al lado de Python. El detalle está en [Límites de la versión 0.8](#límites-de-la-versión-08).
 
 ## El curso
 
@@ -256,7 +256,8 @@ usa una palabra, preguntale a Mate: `python mate\mate.py ayuda si` (o `ayuda par
 
 **7. Seguir aprendiendo.** Lo mejor para arrancar es [el curso](#el-curso)
 (`python mate\mate.py curso`). Además, en `mate\ejemplos` hay trece programas cortos, explicados renglón por
-renglón, para leer y correr en orden:
+renglón, para leer y correr en orden (y uno más, el 14, que son dos programas que se hablan
+entre dos negocios):
 
 | Archivo | Qué enseña |
 |---|---|
@@ -273,6 +274,7 @@ renglón, para leer y correr en orden:
 | `11_mostrador_con_frenos.mate` | un mostrador con frenos: Mate revisa cada respuesta de la IA (precios, palabras prohibidas, largo), le pone tope al gasto del día y propone lecciones (se prueba sin clave) |
 | `12_mostrador_con_reglas.mate` | un mostrador donde la plata y las reglas las resuelve el programa: si piden una cantidad de un producto, Mate hace la cuenta, mira el stock y aplica la regla del envío sin consultar a la IA; la IA queda para el resto, con frenos (se prueba sin clave; se explica en "Qué va en una lección, qué en un freno y qué en el programa") |
 | `13_equipo_del_negocio.mate` | un equipo de tres agentes que se hablan: Ventas atiende (con la lógica de pedidos del 12), Depósito es el único dueño del stock y lo recuerda, y Compras anota lo que hay que reponer; un `contrato conversacion` dice en qué orden se pueden hablar (se prueba sin clave; con `--traza` se ve la conversación) |
+| `14_comprador.mate` y `14_proveedor.mate` | dos **negocios distintos** que se hablan, cada uno en su máquina: pedido, cotización y confirmación viajan firmados por una carpeta compartida, y nada llega a un agente sin tu `si`. Los dos traen `14_trato.mate`, con los mensajes que cruzan. Se ensaya en una sola PC con `nuevo socio` (ver [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios)) |
 
 ```
 python mate\mate.py correr mate\ejemplos\01_hola.mate
@@ -319,6 +321,8 @@ notepad guia.txt
 | `propuestas archivo.mate aprobar 1` | aprueba la propuesta 1 (pasa a ser una lección); con `descartar 1` la saca |
 | `proponer archivo.mate Mostrador "..."` | le contás qué estuvo mal y Mate redacta la lección y la deja propuesta |
 | `buzon deposito.mate` | muestra qué hay en el buzón de ese programa, sin tocarlo: los mensajes de otros programas que esperan, los que tiene por salir y los rechazados con su motivo (ver [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón)) |
+| `nuevo socio` | arma en la carpeta donde estás el ensayo de dos negocios que se hablan: `comprador`, `proveedor` y la carpeta `compartida`, con una clave de ensayo ya cargada y los pasos para copiar (ver [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios)) |
+| `socio invitar comprador.mate Proveedor` | genera la clave de ese socio y dice cómo pasársela (en un pendrive, o dictada); del otro lado, `socio aceptar proveedor.mate Cliente`. Con `socio renovar` se cambia y con `socio quitar` se saca |
 | `informe` | resume los errores de uso que Mate fue anotando en esta computadora (ver [El lenguaje también aprende](#el-lenguaje-también-aprende-el-registro-de-errores-de-uso)) |
 | `informe --para-mejorar` | arma un texto listo para pegarle a un asistente o a un equipo de agentes y pedirle mejoras para Mate |
 | `informe --borrar` | borra el registro de errores de uso |
@@ -1258,26 +1262,370 @@ atendió). Lo único que se puede repetir es lo que el agente había mostrado en
   Nada sale ni se atiende dos veces; para destrabarlo, copiá la carpeta de los programas a
   un disco de esa computadora.
 - **Carpetas sincronizadas** (OneDrive, Dropbox): no están cubiertas. El buzón está pensado
-  para una carpeta común de una misma PC.
+  para una carpeta común de una misma PC. Para hablar con otra máquina están los
+  [socios](#dos-negocios-que-se-hablan-los-socios), que sí aguantan una carpeta sincronizada.
 - **Si el archivo de memoria se rompe** (o se usa `--olvidar` sobre una memoria rota) se
   pierde la lista de mensajes ya atendidos y los que estaban por salir.
 - **Un mensaje pesa hasta 1 MB** y **todavía no puede llevar un agente adentro** (ni un mapa
   cuya única clave sea `agente`: esa forma está reservada). El `contrato conversacion` cubre
   solo lo de adentro de un programa: un mensaje de ese contrato no puede ir a otro.
-- **Quién puede escribir en el buzón.** Cualquiera que pueda escribir un archivo en esa
-  carpeta puede hacerle llegar a un agente un mensaje que cumpla su contrato, haciéndose
-  pasar por otro programa, o mandar un aviso de falla inventado. No puede lograr que Mate
-  lea o escriba fuera de la carpeta, ni que ejecute algo, ni meter un agente adentro de un
-  mensaje, ni colgar el programa. Los sobres todavía no van firmados: quien puede escribir
-  en la carpeta ya puede editar los `.mate`. El motivo de una falla viaja tal cual al otro
-  programa (puede llevar texto de un error de adentro), y la carpeta `rechazados` no se
-  limpia sola.
+- **De quién se recibe (0.8).** Un programa entrega solo lo que viene de un programa que
+  **conoce**: uno que él nombra con `usar buzon`, o uno de la misma carpeta que lo nombra a
+  él con `usar buzon` (Depósito recibe de Ventas porque Ventas lo nombra). Además el agente
+  que figura como remitente tiene que existir en ese programa. Un sobre a nombre de un
+  programa que no está en la carpeta, o que no tiene esa relación, va a `rechazados` con el
+  motivo `no conozco a '...'`, y **no se le contesta** (el aviso se escribiría en una carpeta
+  con el nombre que eligió quien dejó el sobre). Y un **aviso de falla** solo se toma si
+  nombra un mensaje que este programa le mandó de verdad a ese programa (recuerda los
+  últimos 2000 que envió): uno inventado va a `rechazados`.
+- **Quién puede escribir en el buzón.** Los sobres del buzón local todavía no van firmados
+  (los que cruzan entre negocios, sí). Quien puede
+  escribir un archivo en esa carpeta puede también editar los `.mate`, o crear uno que
+  nombre a tu programa y así pasar por conocido: la carpeta tiene que ser de confianza. No
+  puede lograr que Mate lea o escriba fuera de la carpeta, ni que ejecute algo, ni meter un
+  agente adentro de un mensaje, ni colgar el programa. La firma es para lo que cruza entre
+  negocios (los [socios](#dos-negocios-que-se-hablan-los-socios)). El motivo de una falla
+  entre programas de la misma carpeta viaja tal cual (puede llevar texto de un error de
+  adentro; al mostrarlo, lo que no se ve o engaña al ojo va escrito con su número), y la
+  carpeta `rechazados` no se limpia sola.
 - **Sin probar en una Windows de verdad**: el candado del buzón y el paso a `rechazados` se
   probaron en Linux. Si algo de esto falla con `py`, avisá.
 
-Es la base para conectar programas de distintas máquinas más adelante: el sobre nombra
-programa y agente (no rutas), todo es asíncrono, el que recibe valida y descarta lo repetido,
-y lo que está "por salir" es la bandeja de la que un día va a tomar un cartero.
+Sobre esta base se armaron, en la 0.8, los [socios](#dos-negocios-que-se-hablan-los-socios):
+programas de negocios distintos, en máquinas distintas, que se mandan sobres firmados por
+una carpeta compartida.
+
+### Dos negocios que se hablan: los socios
+
+El buzón conecta dos programas de la **misma carpeta**. Los **socios** (0.8) conectan
+programas de **negocios distintos, en máquinas distintas**: tu programa de compras le manda
+el pedido al programa de tu proveedor, y el de él te contesta con precio y disponibilidad.
+
+Mate sigue sin abrir conexiones de red y sin levantar servidores. Lo único que hace es leer
+y escribir archivos en una **carpeta que las dos máquinas ven**: una carpeta de OneDrive, de
+Google Drive o de Dropbox compartida entre los dos, una carpeta de red o un pendrive que va
+y viene. Hacen falta tres cosas:
+
+1. **Una carpeta compartida**, aparte, solo para ese par de negocios.
+2. **Una clave** que acuerdan entre los dos, una sola vez. Con ella cada mensaje viaja
+   **firmado**: lo que no trae la firma de tu socio no se entrega.
+3. **Tu si.** Nada de lo que manda otro negocio llega a un agente solo: Mate te lo muestra
+   entero y pregunta `¿Lo entrego?`, mensaje por mensaje.
+
+Los mensajes van firmados pero **no cifrados**: quien puede ver la carpeta compartida los
+puede leer (ver [los límites](#límites-de-los-socios), más abajo).
+
+#### Ensayarlo en una sola PC: `nuevo socio`
+
+Antes de coordinar nada con otro negocio, se puede probar todo en tu máquina:
+
+```
+python mate\mate.py nuevo socio
+```
+
+Eso crea la carpeta `ensayo_de_socios` (o la que le digas: `nuevo socio mi_ensayo`) con tres
+adentro, y muestra los pasos para copiar tal cual en PowerShell:
+
+| Carpeta | Qué es |
+|---|---|
+| `comprador` | el negocio que compra: `comprador.mate` y su copia de `trato.mate` |
+| `proveedor` | el negocio que vende: `proveedor.mate` y su copia de `trato.mate` |
+| `compartida` | la carpeta que comparten los dos (hace de OneDrive) |
+
+Los dos ya tienen cargada una **clave de ensayo**, al azar, que no se muestra. Son seis
+corridas: el comprador manda el pedido; el proveedor lo recibe (`si`) y cotiza; al
+comprador le llega la cotización (`si`); el comprador corre de nuevo y el programa le
+pregunta si confirma (`si`); al proveedor le llega la confirmación (`si`) y recién ahí
+descuenta stock; al comprador le llega el aviso (`si`). Son los ejemplos
+`14_comprador.mate`, `14_proveedor.mate` y `14_trato.mate` de `mate\ejemplos`.
+
+La clave de ensayo no sirve para un socio de verdad, y esa carpeta **no se le manda a
+nadie** (adentro está la clave): cada corrida lo avisa, en un renglón. Para pasar a un socio
+real, cada negocio se queda con su carpeta, en su máquina, y generan una clave nueva (más
+abajo).
+
+**Ojo al pasar del ensayo a lo real: las carpetas se acuerdan del ensayo.** El pedido A-17
+ya figura mandado o confirmado y el stock ya está descontado, así que la primera corrida de
+verdad no mandaría nada. Antes, cada uno cambia en su programa los datos de muestra por los
+suyos (el pedido A-17 está en el último renglón de `comprador.mate`) y corre **una** vez con
+`--olvidar`, que arranca con la memoria limpia:
+
+```
+python mate\mate.py correr comprador.mate --olvidar
+```
+
+Una corrida que no tiene nada que mandar ni que recibir también lo dice (`Socios: no llegó
+nada nuevo de Cliente.`): si corrés los pasos en otro orden, sabés que anduvo.
+
+#### En el programa: `usar socio`
+
+```
+usar "trato.mate"
+usar socio Proveedor acepta Cotizacion, Confirmado
+```
+
+- `trato.mate` tiene los mensajes que cruzan. **Cada negocio tiene su copia** y la trae con
+  `usar`; las dos tienen que decir lo mismo.
+- `Proveedor` es **cómo llamás vos** al otro negocio (con mayúscula adelante). Del otro
+  lado te pueden llamar `Cliente`: no hace falta ponerse de acuerdo en los nombres.
+- Después de `acepta` van **los únicos mensajes que le recibís**. Cualquier otro se rechaza
+  solo, y a tu socio le vuelve el aviso. Sin `acepta`, solo le mandás.
+- `socio` y `acepta` no son palabras reservadas: solo significan esto después de `usar`.
+
+`Proveedor` queda como destino de `enviar` (y como `remitente`, así que `responder` anda):
+
+```
+enviar Pedido { pedido: "A-17", producto: "yerba", cantidad: 10 } a Proveedor
+```
+
+Se le manda **al negocio**, no a un agente de adentro: del otro lado lo recibe el único
+agente que tiene `al recibir Pedido`. Por eso `verificar` da un error, antes de correr, si
+un mensaje de tu `acepta` no está declarado o no tiene **exactamente un** agente que lo
+reciba. Un socio tiene las mismas prohibiciones que un agente de otro programa: no se le
+puede `preguntar` (su programa corre en otro momento), ni `crear`, ni mirarle el estado, ni
+meterlo adentro de un mensaje, y un `contrato conversacion` no cruza.
+
+Un mensaje entre negocios es **corto**: hasta 8 KB en total, textos de hasta 500 letras y
+hasta 4 cosas una adentro de otra. Es así porque se te muestra entero antes del `si`: lo que
+no entra en pantalla no se recorta, se rechaza.
+
+Y sus textos van **en un solo renglón y sin caracteres que no se ven**: un texto con un salto
+de renglón, un tabulador, un carácter de control o de dirección de texto no sale hacia un
+socio (el `enviar` da un error) ni entra (se rechaza, y a tu socio le vuelve `no cumple el
+contrato`). Es una barrera de seguridad: una vez que dijiste `si`, el `mostrar` de tu agente
+imprime ese texto tal cual, y con esos caracteres un socio malicioso podría dibujar en tu
+pantalla una pregunta falsa y esconder la verdadera.
+
+`probar`, `verificar`, `ensayar` y la consola no leen ni escriben nada de socios, igual que
+con el buzón. En una prueba se mira lo que salió (`mensajes_enviados("Pedido")[0].a ==
+"Proveedor"`), lo que contesta el socio se pone con `simular Proveedor al recibir ...`, y la
+llegada se prueba mandando el mensaje desde la prueba.
+
+#### La clave: cómo se genera y cómo se le pasa al otro
+
+La clave **no va en el programa**. Vive en un archivo aparte, al lado del programa
+(`comprador.mate` → `comprador.socios.json`), que maneja solo la orden `socio`. Ese archivo
+**no se copia, no se manda y no se sube a ningún lado**: quien lo tenga puede firmar
+mensajes como vos o como tu socio.
+
+Uno de los dos la genera. Parado en la carpeta de su programa:
+
+```
+python mate\mate.py socio invitar comprador.mate Proveedor
+```
+
+Mate pregunta dos cosas: cuál es la **carpeta compartida** (la ruta completa) y **cómo le
+pasás la clave** a tu socio. Nunca por mail ni por WhatsApp. Hay dos caminos:
+
+1. **En un pendrive o en mano (lo recomendado).** Mate escribe un archivo
+   `invitacion-mate.txt` donde le digas (por ejemplo `E:\`, el pendrive). Se lo llevás a tu
+   socio. Mate se niega a escribirlo adentro de la carpeta compartida.
+2. **Dictada por teléfono.** Mate muestra la clave **una sola vez**, en 11 grupos de 4
+   cifras, para leérsela. Son cifras y no letras para que no se confunda una B con una V.
+   Es la única vez que la clave se ve entera, y solo en una ventana de verdad (si la salida
+   va a un archivo, se niega).
+
+El otro negocio, parado en la carpeta de su programa:
+
+```
+python mate\mate.py socio aceptar proveedor.mate Cliente
+```
+
+Mate le pregunta por su carpeta compartida (en su máquina la ruta es otra) y por la
+invitación: si la tiene en un archivo, dónde está (la carga y **la borra**); si se la
+dictaron, la tipea **sin que se vea** en pantalla. Las últimas 4 cifras son de control: si
+se equivoca en una, Mate se da cuenta y no la carga.
+
+Si preferís no contestar preguntas, las tres cosas se pueden decir en la orden. En
+PowerShell las rutas van entre comillas simples:
+
+```
+python mate\mate.py socio invitar comprador.mate Proveedor --carpeta='C:\Users\vos\OneDrive\ConMiProveedor' --invitacion='E:\'
+python mate\mate.py socio aceptar proveedor.mate Cliente --carpeta='D:\Dropbox\ConMiCliente' --invitacion='E:\'
+```
+
+(Con `--dictar` en vez de `--invitacion`, se dicta. La clave misma **nunca** va en la
+orden: quedaría guardada en el historial de PowerShell.)
+
+**El número de control.** Los dos terminan viendo un número de 6 cifras, por ejemplo
+`482 913`. Es obligatorio: **llamá a tu socio y comparen el número**. Si no ven el mismo,
+alguien cambió la clave en el camino (un pendrive cambiado, por ejemplo): no la usen. Es
+lo único de la clave que Mate muestra, y aparece al lado de cada mensaje que llega.
+
+| Orden | Qué hace |
+|---|---|
+| `socio invitar comprador.mate Proveedor` | genera la clave de ese socio y dice cómo pasársela. No pisa una que ya esté |
+| `socio aceptar proveedor.mate Cliente` | carga la clave que te pasó tu socio (del archivo de invitación, o tipeada sin que se vea) |
+| `socio renovar comprador.mate Proveedor` | cambia la clave por una nueva (pide un `si`). Tu socio la tiene que aceptar de nuevo. Lo que estaba por salir, esperando tu `si` o viajando en la carpeta compartida con la clave vieja deja de valer, con aviso |
+| `socio quitar comprador.mate Proveedor` | saca la clave (pide un `si`): con ese socio no se manda ni se recibe más |
+| `buzon comprador.mate` | muestra, sin tocar nada, lo que hay con cada socio: el número de control, la carpeta (y si se ve), lo que está por salir, lo que espera tu `si` y los números que faltan |
+
+Si un programa tiene `usar socio Proveedor` y todavía no tiene la clave, **corre igual**:
+avisa qué orden falta, y lo que le mande a ese socio queda anotado y sale cuando la clave
+esté. No es un error.
+
+**Renová la clave** (`socio renovar` de un lado, `socio aceptar` del otro) si se perdió o
+pudo haberse copiado el pendrive, la invitación o el archivo `.socios.json`; si restauraste
+una copia vieja de la carpeta del programa, o la copiaste a otra PC; o si Mate avisa `se
+perdió la cuenta de los mensajes` o `tu socio repitió un número`. Una misma clave va en un
+solo programa de cada lado: no la cargues en dos.
+
+**Entre el `socio renovar` de uno y el `socio aceptar` del otro conviene que ninguno corra
+su programa** (la invitación puede tardar días en llegar en un pendrive). Si igual corren,
+no se pierde nada callado:
+
+- Lo que manda **el que renovó** va firmado con la clave nueva. El otro todavía no la tiene:
+  Mate no lo entrega, no lo rechaza y **no lo borra** de la carpeta compartida; avisa
+  (`firmado con otra clave... cargá la nueva con socio aceptar`) y lo entrega en la corrida
+  siguiente a cargarla.
+- Lo que manda **el que todavía tiene la clave vieja** ya no vale. El que renovó tampoco lo
+  borra: avisa. Y al que lo mandó, cuando acepta la clave nueva, Mate le avisa fuerte en la
+  primera corrida (`OJO: 1 mensaje que le habías mandado... tu socio NO lo recibió`) y saca
+  ese archivo. Hay que mandarlo de nuevo.
+- Lo mismo le pasa al que renueva con mensajes suyos todavía en la carpeta: `socio renovar`
+  le dice cuántos son antes de pedirle el `si`.
+
+**La invitación nunca va en la carpeta compartida**, tampoco copiada a mano "porque es la
+carpeta que vemos los dos": lleva la clave entera, y ahí la lee quien vea la carpeta (y
+queda en la papelera y en el historial de la nube). Si Mate encuentra una invitación ahí
+adentro (o en `de-a` o `de-b`), no manda ni recibe nada con ese socio hasta que la saques, y
+`socio aceptar` se niega a cargarla desde ahí: esa clave ya no sirve, hay que hacer `socio
+renovar` y llevar la invitación nueva en un pendrive (o dictarla).
+
+#### Lo que llega: el `si`
+
+Cuando corrés tu programa, después de sus renglones (y del buzón), Mate mira la carpeta
+compartida. Por cada mensaje de tu socio que trae su firma en regla y cumple lo que le
+aceptás:
+
+```
+Proveedor (control 482 913) te manda Cotizacion { pedido: "A-17", producto: "yerba", cantidad: 10, precio_unitario: 3500, total: 35000, hay: verdadero, vale_hasta: "fin de mes" }
+  escrito el 24/11/2026 10:32 según el reloj de tu socio. Lo recibe: Compras.
+¿Lo entrego? (si / no / despues)
+```
+
+- **`si`**: se le entrega al agente, igual que cualquier mensaje.
+- **`no`**: no se entrega; queda en `rechazados` y a tu socio le vuelve el aviso de que lo
+  descartaste.
+- **Enter, `despues`, cualquier otra cosa, sin teclado o Ctrl+C**: queda esperando, y Mate
+  avisa cuántos hay. Vuelve a preguntar la próxima vez que corra.
+
+Solo vale `si`. No existe "si a todos": es mensaje por mensaje. Lo que ves es **lo mismo
+que recibe el agente**, entero y ya validado con tu contrato. Los textos van entre comillas.
+Un mensaje con caracteres que no se ven o engañan al ojo (de control, de dirección de texto,
+un salto de renglón) **no llega a la pregunta**: se rechaza antes. Y si algo así apareciera
+igual en un aviso, en la traza o en un motivo, va escrito con su número (`\u202e`).
+
+El `si` aprueba **la entrega**, no el negocio. Un socio con la clave puede mandar un pedido
+bien armado y falso. Por eso lo que mueve plata o stock lleva además el control del propio
+agente, como en el ejemplo: el proveedor descuenta stock solo si el pedido está cotizado,
+el total coincide con el cotizado y no estaba ya confirmado. La fecha que se muestra es la
+que dice el reloj de tu socio y **no decide nada**: una confirmación demorada semanas sigue
+siendo válida para Mate; si una cotización vence, eso lo controla tu programa (`vale_hasta`)
+y tu `si`.
+
+Lo que **sale** hacia un socio no pide un `si` nuevo: lo decide tu programa. En el ejemplo,
+la confirmación sale recién cuando contestás `si` a un `leer`.
+
+Si el otro lado no atiende un mensaje tuyo, te vuelve un **aviso de falla**. El motivo es
+uno de una lista cerrada (`no cumple el contrato de tu socio`, `tu socio no acepta ese tipo
+de mensaje`, `el dueño lo descartó`, `el programa de tu socio falló al atenderlo`): nunca
+viaja el texto de un error de adentro de un programa. Si tu agente tiene `al fallar`, ese
+aviso también pasa por tu `si`; si no, se muestra y listo. Solo vale el aviso de un mensaje
+que tu programa le mandó de verdad a ese socio, y uno solo por mensaje.
+
+#### Qué hay en la carpeta compartida
+
+```
+ConMiProveedor\
+  LEEME-mate.txt      (qué es esta carpeta)
+  de-a\               (acá escribe el que invitó; lee el otro)
+  de-b\               (acá escribe el que aceptó; lee el otro)
+```
+
+Cada mensaje es un archivo (`00000017-ab12cd34.json`) que se escribe una sola vez. Mate
+aguanta lo que hace una carpeta sincronizada:
+
+- **Un archivo a medio llegar** no se rechaza: se deja y se mira de nuevo en la corrida
+  siguiente. Recién si sigue sin entenderse un día entero (del reloj de tu máquina) va a
+  `rechazados`.
+- **Una copia en conflicto** (`... (conflicto de PC-JUAN).json`, `... (1).json`) o un
+  archivo que la sincronización revive es el mismo mensaje otra vez: se descarta sin ruido.
+  Cada mensaje lleva un número de orden firmado, y cada número se entrega una sola vez.
+- **Llegan desordenados**: se entregan igual. `buzon` muestra los números que faltan
+  (`Faltan números de Proveedor: 14`): un mensaje perdido o borrado en el camino se nota.
+- **La carpeta no está** (el pendrive afuera, sin conexión): lo que había para mandar
+  queda anotado, con aviso, y sale en la próxima corrida.
+- **Lo que no es un mensaje de Mate** (otro archivo, una carpeta, un acceso directo, algo
+  de más de 2 MB) no se abre, no se sigue y no se borra.
+- **Un archivo que en ese momento no se puede abrir** (lo tiene tomado el programa que
+  sincroniza, o el antivirus) se deja, con aviso, y se mira en la corrida siguiente. No lo
+  borres: puede ser un mensaje bueno.
+- **Un mensaje de tu socio firmado con otra clave** (uno de los dos renovó y el otro todavía
+  no aceptó) se deja donde está, con aviso: ver más arriba.
+- **Lo que no trae la firma de tu socio** (un byte cambiado, un mensaje tuyo devuelto, un
+  sobre del buzón común, algo sin firma) va a `rechazados`, en la carpeta de **tu**
+  programa, y no se le contesta a nadie. Con cupo: hasta 50 archivos o 20 MB por socio;
+  después solo se cuenta (y el resumen lo dice: cuántos quedaron y de cuántos no se guardó
+  copia). Los rechazados de un socio (`socio-...json`) **no se reintentan a mano**: si
+  alguno hacía falta, se le pide al socio que lo mande de nuevo.
+
+Mate se niega a trabajar si la carpeta compartida es la del programa, la contiene o está
+adentro, o si adentro (o en `de-a` o `de-b`) hay un `.mate`, un archivo de claves o una
+invitación: la clave vive al lado del programa y no puede quedar en lo que se sincroniza. Por lo mismo, **la carpeta del programa
+no va adentro de OneDrive** ni de ninguna otra carpeta que se suba sola (en Windows,
+"Documentos" suele estar adentro de OneDrive: Mate avisa si lo nota).
+
+#### Límites de los socios
+
+- **Sin cifrado.** Quien ve la carpeta compartida lee todos los mensajes, sabe quién habla
+  con quién y puede guardarse copias para siempre. No mandes por acá lo que no pondrías en
+  un mail.
+- **Quien puede escribir en la carpeta compartida** puede borrar mensajes, demorarlos,
+  desordenarlos y llenarla de basura hasta frenar el intercambio. **No puede** falsificar un
+  mensaje ni hacer que se entregue dos veces. Los huecos se ven en `buzon`.
+- **No hay reenvío.** Un mensaje que se pierde en el camino (alguien lo borró de la carpeta
+  compartida, o se cambió la clave con el mensaje viajando) no se manda solo de nuevo. Si
+  después llegó otro con un número más alto, `buzon` muestra el hueco; **si era el último, no
+  se ve**: del lado que lo mandó, `buzon` dice `el último que mandé fue el número N`, y eso
+  se compara por teléfono con lo que recibió el otro. En el ejemplo 14 un pedido cuyo mensaje
+  se perdió queda trabado (el mismo pedido no se manda dos veces): hay que hacerlo de nuevo
+  con otro número de pedido.
+- **La clave es una sola para los dos.** Cualquiera de los dos podría firmar como el otro:
+  un mensaje firmado no sirve de prueba ante un tercero.
+- **Si la clave se filtra** (alguien copió la invitación, el pendrive o el archivo
+  `.socios.json`), puede firmar como cualquiera de los dos y no se nota: el número de
+  control no lo detecta. Borrar un archivo de un pendrive no lo destruye. Ante la duda,
+  `socio renovar`.
+- **Una copia vieja o duplicada de la carpeta del programa** rompe la protección contra
+  repetidos: puede volver a preguntar por mensajes ya entregados, o repetir números. Hay que
+  renovar la clave. Mate se da cuenta solo cuando la memoria falta, no cuando es vieja.
+- **El `si` aprueba la entrega, no el negocio**, y un socio puede cansarte con hasta 200
+  mensajes pendientes. La segunda barrera es el control de tu agente.
+- **Los avisos de "no acepto ese tipo" y "no cumple el contrato" salen sin tu `si`**, y le
+  dicen a un socio (uno que tiene la clave) qué mensajes y qué campos aceptás.
+- **Texto de un socio y la IA.** Lo que escribe otro negocio es texto ajeno aunque le
+  hayas dicho que `si`. No se lo pases tal cual a `consultar_ia`: `verificar` avisa si un
+  agente que recibe mensajes de un socio consulta a la IA, o si nombra (le manda o le
+  pregunta) a otro agente que la consulta, directo o pasando por otros. Es un aviso por lo
+  que el programa **nombra**, no por lo que hace con cada texto: no ve un texto guardado en
+  el estado que otro agente lee después, ni lo que pasa por `usar python`. Los frenos lo
+  limitan, no lo vuelven confiable. El ejemplo 14 no usa la IA.
+- **En tu propia PC** la firma no protege: quien tiene acceso a la máquina, o un archivo
+  de `usar python`, puede leer la clave y cambiar la memoria. La firma es para lo que cruza
+  entre negocios.
+- **Dos negocios por carpeta y nada más**: no hay grupos, ni reenvío de un socio a otro, ni
+  `preguntar` entre negocios, ni entrega automática sin `si`. Cada lado manda cuando
+  termina y recibe cuando lo corren: nadie se queda escuchando.
+- **Windows.** El archivo de la clave queda con los permisos de su carpeta (en Linux nace
+  legible solo para vos). Tipear la clave sin que se vea, los permisos y las "uniones" de
+  carpetas **no se probaron en una Windows de verdad**.
+- **Nubes de verdad sin probar.** Las copias en conflicto y las demoras están simuladas en
+  las pruebas: no se probó con un OneDrive, un Google Drive o un Dropbox reales. Un archivo
+  que OneDrive deja "solo en la nube" puede demorar la lectura.
+- **Una clave tipeada a mano** tiene que ser la que generó Mate: `socio aceptar` no carga
+  una "fácil" (todos ceros, por ejemplo) aunque traiga bien sus cifras de control.
+- La carpeta `rechazados` no se limpia sola.
 
 ### Funciones escritas en Python: `usar python`
 
@@ -3282,6 +3630,34 @@ python mate\pruebas\velocidad.py
 Si igual algo queda lento, la salida es escribir esa parte en Python y llamarla con
 [`usar python`](#funciones-escritas-en-python-usar-python): ahí corre a la velocidad de Python.
 
+## Qué cambió en la 0.8
+
+La 0.8 es para que se hablen los agentes de **negocios distintos, en máquinas distintas**:
+tu programa con el de tu proveedor o el de tu cliente. No agrega una palabra ni una función
+incluida (`socio` y `acepta` solo significan algo después de `usar`), y Mate sigue sin abrir
+conexiones de red: los mensajes viajan como archivos por una carpeta que comparten los dos.
+
+| Qué hay de nuevo | Dónde se explica |
+|---|---|
+| `usar socio Proveedor acepta Cotizacion`: otro negocio queda como destino de `enviar` y como `remitente`. Solo se le reciben los mensajes de su `acepta` | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| Cada mensaje entre negocios viaja **firmado** con una clave que acuerdan los dos, y numerado: no se puede falsificar, ni devolver, ni entregar dos veces. Lo que no trae la firma de ese socio va a `rechazados` y no se contesta | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| **Nada de otro negocio se entrega sin tu `si`**: Mate muestra el mensaje entero y pregunta `¿Lo entrego? (si / no / despues)`, uno por uno | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| La orden `socio` (`invitar`, `aceptar`, `renovar`, `quitar`): la clave vive en un archivo aparte, nunca en el programa, y se le pasa al otro negocio en un pendrive o dictada. Los dos comparan un **número de control** | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| Los ejemplos `14_comprador.mate`, `14_proveedor.mate` y `14_trato.mate`: pedido, cotización con precio y disponibilidad, y confirmación | [Primeros pasos en Windows](#primeros-pasos-en-windows) |
+| `nuevo socio`: arma el ensayo completo en **una sola PC** (dos carpetas que hacen de dos negocios y una tercera que hace de carpeta compartida), con los pasos para copiar | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| `buzon programa.mate` muestra también lo de cada socio: el número de control, si se ve la carpeta, lo que está por salir, lo que espera tu `si` y los números que faltan | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| El buzón entre programas de la misma carpeta entrega **solo lo que viene de un programa conocido**, y un aviso de falla solo vale si nombra un mensaje enviado de verdad | [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón) |
+| Lo que viene en un sobre (de otro programa o de otro negocio) se muestra y se anota con los caracteres que no se ven o engañan al ojo escritos con su número | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+
+El detalle está en `MEJORAS.md`, mejora 128. Lo que todavía no hace (no cifra, no se probó
+en una Windows de verdad ni con una nube real) está en
+[Límites de los socios](#límites-de-los-socios).
+
+Tres cosas de la 0.8 pueden frenar algo viejo: el buzón ya no entrega un sobre de un
+programa desconocido, un aviso de falla tiene que nombrar un mensaje enviado, y `socio` pasó
+a ser una orden (ver
+[Qué cambió y puede frenar un programa viejo](#qué-cambió-y-puede-frenar-un-programa-viejo)).
+
 ## Qué cambió en la 0.7
 
 La 0.7 es para que los agentes **hablen entre sí**, no solo con una persona. Nada de lo que
@@ -3302,7 +3678,7 @@ El detalle está en `MEJORAS.md`, mejoras 124, 125 y 126.
 
 Una sola cosa de la 0.7 puede frenar algo viejo: `buzon` pasó a ser una orden (ver
 [Qué cambió y puede frenar un programa viejo](#qué-cambió-y-puede-frenar-un-programa-viejo)).
-Lo que todavía no hace está en [Límites de la versión 0.7](#límites-de-la-versión-07).
+Lo que todavía no hace está en [Límites de la versión 0.8](#límites-de-la-versión-08).
 
 ### La 0.7.1: los datos del negocio no se inventan
 
@@ -3400,11 +3776,15 @@ y entonces los comandos que Mate sugiere en pantalla se escriben `mate ...` en v
 ## Qué cambió y puede frenar un programa viejo
 
 Varias mejoras vuelven error cosas que antes corrían. Esta tabla junta todo lo que cambió
-desde la versión 0.2 hasta la 0.7 (`python mate\mate.py --version` dice cuál tenés). Si un
+desde la versión 0.2 hasta la 0.8 (`python mate\mate.py --version` dice cuál tenés). Si un
 archivo viejo deja de andar, casi seguro es por una de estas:
 
 | Qué pasa ahora | Cómo se arregla |
 |---|---|
+| El buzón entre programas entrega solo lo que viene de un programa **conocido** (0.8): uno que este programa nombra con `usar buzon`, o uno de la misma carpeta que lo nombra a él. Un sobre puesto a mano, o por otra herramienta, a nombre de un programa que no está en la carpeta (o que no tiene esa relación) va a `rechazados` con `no conozco a '...'`, y no se le contesta. Los programas que se hablaban con `usar buzon` siguen andando igual | Que el programa que manda tenga `usar buzon "el_que_recibe.mate"` (o el que recibe, el `usar buzon` del que manda) |
+| Un aviso de falla del buzón solo se toma si nombra un mensaje que este programa envió de verdad (0.8): los recuerda desde la 0.8. El aviso de un mensaje enviado con la 0.7, antes de actualizar, va a `rechazados` | Nada: pasa una sola vez, con lo que estaba en viaje al actualizar. El motivo queda al lado, en el `.motivo.txt` |
+| `socio` es una orden (0.8): `python mate\mate.py socio invitar comprador.mate Proveedor` carga la clave de un socio. `socio` sola sigue corriendo un `socio.mate` que esté en la carpeta, pero `nuevo socio` ya no puede ser el nombre de un mostrador o un equipo. Dentro de un programa `socio` y `acepta` siguen sirviendo como nombres: solo significan otra cosa después de `usar` | Escribir la orden entera: `correr socio.mate` |
+| `leer_archivo`, `leer_tabla`, `escribir_archivo`, `agregar_a_archivo`, `usar`, `correr`, `--traza=` y `--guardar=` se niegan sobre un archivo llamado `*.socios.json` o `invitacion-mate*.txt` (0.8): ahí vive la clave de un socio | Elegir otro nombre para ese archivo |
 | `corregir`, `proponer`, `lecciones --borrar` y aprobar o descartar una propuesta no se pueden usar mientras el programa está abierto en otra ventana, si tiene `estado recordado` (0.7): esperan unos segundos, avisan `está abierto en otra ventana` y terminan con código 2 sin tocar nada. Antes escribían igual, y podían pisar una venta que la caja guardaba justo en ese momento | Terminar la charla de la otra ventana (`chau`) y repetir la orden |
 | Un programa con `estado recordado` no se puede `correr` en dos ventanas a la vez (0.7): la segunda avisa `ya hay otra ventana abierta con ...` y termina con código 2. Antes corrían las dos y la que cerraba última pisaba lo que guardó la otra | Terminar la charla de la otra ventana y correrlo de nuevo |
 | En el equipo (ejemplo 13 y `nuevo equipo`), `ConsultaDeCliente` lleva un campo más, `cliente`, y `DejarDeEsperar` también (0.7): el pedido que espera el `si` es de ese cliente. Un equipo creado antes es una copia fija y sigue como estaba | Crear el equipo de nuevo; si armabas `ConsultaDeCliente` a mano, agregarle `cliente: "..."` |
@@ -3512,7 +3892,9 @@ pruebas del intérprete no dejan pasarse:
   nombre), sus reglas tampoco, y lo demás son órdenes de la línea de comandos (`propuestas`
   y `proponer`) y dos datos más en lo que ya devolvía `consultas_ia()`. El buzón entre
   programas de la 0.7 **tampoco gastó nada**: `buzon` solo significa algo después de `usar`
-  (como `python`), y mirar un buzón es una orden de la línea de comandos.
+  (como `python`), y mirar un buzón es una orden de la línea de comandos. Los socios de la
+  0.8 **tampoco**: `socio` y `acepta` solo significan algo después de `usar`, y la clave se
+  maneja con una orden de la línea de comandos (`socio`).
 - **Cada agregado trae lo suyo**: su renglón en este README (en la tabla de funciones o en la
   referencia), su explicación en `ayuda <palabra>` y al menos una prueba que lo use.
 - **Una sola forma de escribir cada cosa.** Nada de sinónimos (`función` con tilde, comillas
@@ -3546,18 +3928,29 @@ antes, y un programa sin frenos no crea ningún archivo nuevo. `propuestas` y `p
 órdenes nuevas: si tenías un programa llamado `propuestas.mate`, se corre con
 `correr propuestas.mate`.
 
-## Límites de la versión 0.7
+## Límites de la versión 0.8
 
 - Los agentes corren todos dentro del mismo programa, de a uno y en orden (por eso el resultado
   es siempre el mismo). Un agente puede consultarle a una IA de verdad con `consultar_ia`,
   pero cada consulta es suelta (la IA no recuerda la anterior: lo que tenga que saber va en
-  la pregunta) y los programas todavía no se conectan entre máquinas. Con el buzón dos
+  la pregunta) y los programas no se conectan entre máquinas por red: se pasan archivos por
+  una carpeta compartida (los [socios](#dos-negocios-que-se-hablan-los-socios)). Con el buzón dos
   programas de la misma carpeta se mandan mensajes, pero ninguno se queda escuchando: cada
   uno recibe cuando lo corren y manda cuando termina (ver los límites en
   [Dos programas que se hablan](#dos-programas-que-se-hablan-el-buzón)).
 - El buzón es para programas de la **misma carpeta** de una misma computadora, sin red. Un
-  programa atiende cualquier sobre bien armado que encuentre en su buzón, aunque no conozca al
-  que lo manda: la carpeta tiene que ser de confianza. No se probó en una Windows de verdad.
+  programa entrega solo lo que viene de un programa que conoce (0.8), pero el buzón local no
+  va firmado: la carpeta tiene que ser de confianza. No se probó en una Windows de verdad.
+- Los socios (0.8) conectan dos negocios por una **carpeta compartida**, sin red propia y
+  sin servidor: Mate solo lee y escribe archivos, cada lado manda cuando termina y recibe
+  cuando lo corren. Los mensajes van firmados pero **no cifrados**: quien ve la carpeta
+  compartida los lee. La clave es una sola por par de negocios (no sirve de prueba ante un
+  tercero), nada se entrega sin un `si` (no hay entrega automática), son dos negocios por
+  carpeta, y no hay `preguntar` entre negocios. **No se probó en una Windows de verdad**
+  (los permisos del archivo de la clave, tipear la clave sin que se vea) **ni con un
+  OneDrive, un Google Drive o un Dropbox reales**: las copias en conflicto y las demoras
+  están simuladas. La lista completa está en
+  [Límites de los socios](#límites-de-los-socios).
 - Los datos del negocio (0.7.1) se reconocen **por palabras**: una pregunta por el horario
   dicha sin ninguna de las palabras de `temas_del_negocio()` va a la IA, y una frase con un
   "dónde" que hablaba de otra cosa recibe lo de la dirección. La revisión de lo que contesta

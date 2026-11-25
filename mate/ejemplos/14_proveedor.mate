@@ -1,0 +1,148 @@
+# El otro negocio del ejemplo de los socios (ver 14_comprador.mate): el proveedor. Corre
+# en OTRA máquina, con su copia de 14_trato.mate, y no tiene renglones propios: cuando lo
+# corren, Mate le muestra lo que mandó su cliente, pregunta "¿Lo entrego?" y, con tu si,
+# lo atiende y contesta.
+#
+#   python mate.py nuevo socio      (arma los dos negocios en una PC, para ensayar)
+
+usar "14_trato.mate"
+
+# Cliente es cómo llamo yo al comprador. Solo le recibo estos dos mensajes.
+usar socio Cliente acepta Pedido, Confirmacion
+
+agente Ventas {
+    # La lista de precios y el stock de este negocio. (Acá van escritos a mano para que el
+    # ejemplo sea corto: en un negocio de verdad salen de la planilla, como en el 12.)
+    estado precios = { yerba: 3500, azucar: 1200 }
+    estado recordado stock = { yerba: 40, azucar: 100 }
+    # Lo cotizado (pedido -> qué y por cuánto) y los pedidos ya confirmados.
+    estado recordado cotizados = {}
+    estado recordado confirmados = []
+
+    # Cotizar no reserva ni descuenta nada: dice precio y si hay.
+    al recibir Pedido como p {
+        # Un producto que no está en la lista vale 0: no se cotiza.
+        sea precio = obtener(precios, p.producto, 0)
+        sea hay = precio > 0 y obtener(stock, p.producto, 0) >= p.cantidad
+        sea total = precio * p.cantidad
+        # Se anota lo cotizado: contra esto se controla después la confirmación.
+        si hay {
+            cotizados[p.pedido] = { producto: p.producto, cantidad: p.cantidad, total: total }
+        }
+        responder Cotizacion {
+            pedido: p.pedido, producto: p.producto, cantidad: p.cantidad,
+            precio_unitario: precio, total: total, hay: hay, vale_hasta: "fin de mes"
+        }
+    }
+
+    # La confirmación es lo único que mueve stock. Además de tu si, tiene el control del
+    # negocio: el pedido tiene que estar cotizado, por ese total, y sin confirmar.
+    al recibir Confirmacion como c {
+        si tiene(confirmados, c.pedido) {
+            mostrar("El pedido {c.pedido} ya estaba confirmado: no descuento de nuevo.")
+            devolver
+        }
+        sea cotizado = obtener(cotizados, c.pedido, nada)
+        si cotizado == nada {
+            mostrar("Confirmaron el pedido {c.pedido}, que no está cotizado: no descuento nada.")
+            devolver
+        }
+        si c.total != cotizado.total {
+            mostrar("Confirmaron el pedido {c.pedido} por {pesos(c.total)} y está cotizado en {pesos(cotizado.total)}: no descuento nada.")
+            devolver
+        }
+        sea quedan = obtener(stock, cotizado.producto, 0) - cotizado.cantidad
+        si quedan < 0 {
+            mostrar("Confirmaron el pedido {c.pedido} y ya no alcanza el stock: no descuento nada.")
+            devolver
+        }
+        # Pasó todos los controles: recién acá se mueve el stock.
+        stock[cotizado.producto] = quedan
+        confirmados = agregar(confirmados, c.pedido)
+        mostrar("Pedido {c.pedido} confirmado: {cotizado.cantidad} de {cotizado.producto}, {pesos(cotizado.total)}. Quedan {quedan}.")
+        responder Confirmado { pedido: c.pedido }
+    }
+
+    # (de entrecasa: cuánto queda de un producto)
+    al recibir Stock como s {
+        responder obtener(stock, s.producto, 0)
+    }
+}
+
+# Mensaje de entrecasa (no cruza al otro negocio).
+mensaje Stock { producto: texto }
+
+# ── Las pruebas ──
+# En una prueba no hay otro negocio: este agente hace de cliente y le manda a Ventas lo
+# mismo que mandaría el socio.
+
+mensaje Probar { que: texto, pedido: texto, cantidad: numero, total: numero }
+agente ClienteDePrueba {
+    # Según lo que le pidan, manda un Pedido o una Confirmacion, como haría el comprador.
+    al recibir Probar como p {
+        si p.que == "pedido" {
+            enviar Pedido { pedido: p.pedido, producto: "yerba", cantidad: p.cantidad } a Ventas
+        } sino {
+            enviar Confirmacion { pedido: p.pedido, total: p.total } a Ventas
+        }
+    }
+    # Lo que Ventas le contesta vuelve acá (las pruebas lo miran con mensajes_enviados).
+    al recibir Cotizacion como c { }
+    al recibir Confirmado como c { }
+}
+
+# Cotizar: 10 de yerba a $ 3.500 son $ 35.000, y el stock sigue en 40.
+prueba "cotiza con precio y disponibilidad, y no descuenta" {
+    enviar Probar { que: "pedido", pedido: "P-1", cantidad: 10, total: 0 } a ClienteDePrueba
+    sea vueltas = mensajes_enviados("Cotizacion")
+    asegurar largo(vueltas) == 1
+    asegurar vueltas[0].mensaje.hay
+    asegurar vueltas[0].mensaje.total == 35000
+    asegurar (preguntar Stock { producto: "yerba" } a Ventas) == 40
+}
+
+# Piden 500 y hay 40: la cotización vuelve con hay: falso.
+prueba "si no alcanza el stock, lo dice y no cotiza" {
+    enviar Probar { que: "pedido", pedido: "P-2", cantidad: 500, total: 0 } a ClienteDePrueba
+    asegurar no mensajes_enviados("Cotizacion")[0].mensaje.hay
+}
+
+# El camino feliz: pedido, cotización y confirmación por el mismo total.
+prueba "la confirmación con el total cotizado descuenta y avisa" {
+    enviar Probar { que: "pedido", pedido: "P-3", cantidad: 10, total: 0 } a ClienteDePrueba
+    enviar Probar { que: "confirmacion", pedido: "P-3", cantidad: 0, total: 35000 } a ClienteDePrueba
+    asegurar largo(mensajes_enviados("Confirmado")) == 1
+    asegurar (preguntar Stock { producto: "yerba" } a Ventas) == 30
+}
+
+# El control del negocio, primera parte: el total tiene que ser el cotizado.
+# (Esto es lo que frena a un socio que confirma "por $ 100" algo cotizado en $ 35.000.)
+prueba "una confirmación con otro total no descuenta" {
+    enviar Probar { que: "pedido", pedido: "P-4", cantidad: 10, total: 0 } a ClienteDePrueba
+    enviar Probar { que: "confirmacion", pedido: "P-4", cantidad: 0, total: 100 } a ClienteDePrueba
+    asegurar largo(mensajes_enviados("Confirmado")) == 0
+    asegurar (preguntar Stock { producto: "yerba" } a Ventas) == 40
+}
+
+# Segunda parte: sin cotización previa no hay nada que confirmar.
+prueba "una confirmación sin cotización no descuenta" {
+    enviar Probar { que: "confirmacion", pedido: "P-5", cantidad: 0, total: 35000 } a ClienteDePrueba
+    asegurar largo(mensajes_enviados("Confirmado")) == 0
+    asegurar (preguntar Stock { producto: "yerba" } a Ventas) == 40
+}
+
+# Tercera parte: un pedido se confirma una sola vez.
+# (Mate ya no entrega dos veces el mismo mensaje; esto cubre que el socio lo mande dos veces.)
+prueba "la misma confirmación dos veces descuenta una sola" {
+    enviar Probar { que: "pedido", pedido: "P-6", cantidad: 10, total: 0 } a ClienteDePrueba
+    enviar Probar { que: "confirmacion", pedido: "P-6", cantidad: 0, total: 35000 } a ClienteDePrueba
+    enviar Probar { que: "confirmacion", pedido: "P-6", cantidad: 0, total: 35000 } a ClienteDePrueba
+    asegurar largo(mensajes_enviados("Confirmado")) == 1
+    asegurar (preguntar Stock { producto: "yerba" } a Ventas) == 30
+}
+
+# El contrato del trato (cantidad desde 1 hasta 1000) frena antes que el agente.
+# Si llega de un socio un Pedido así, Mate lo rechaza solo y ni siquiera pregunta.
+prueba "el contrato frena un pedido de 5000" {
+    asegurar falla { Pedido { pedido: "P-7", producto: "yerba", cantidad: 5000 } }
+}

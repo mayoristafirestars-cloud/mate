@@ -13,6 +13,8 @@ Uso:
     python3 mate.py corregir  archivo.mate Agente "la lección"   (y: lecciones, bitacora)
     python3 mate.py informe   (los errores de uso anotados; --para-mejorar, --borrar)
     python3 mate.py curso     (las clases para aprender Mate; curso 1 muestra la primera)
+    python3 mate.py socio     invitar|aceptar|renovar|quitar programa.mate Socio
+                              (la clave para hablarse con el programa de otro negocio)
 """
 
 import sys
@@ -30,6 +32,8 @@ import datetime
 import decimal
 import difflib
 import errno
+import hashlib
+import hmac
 import io
 import json
 import math
@@ -43,7 +47,7 @@ import types
 import unicodedata
 from collections import deque
 
-VERSION = "0.7.1"
+VERSION = "0.8"
 
 # El tope para que Mate siga siendo chico (mejora 90): no puede haber más palabras propias
 # ni más funciones incluidas que estas. Para agregar una hay que sacar otra, o discutir el
@@ -248,6 +252,11 @@ EN_EL_CONTRATO = ("{n} está en el contrato de conversación, que pide 'pregunta
 def no_se_le_pregunta(agente, archivo, responde=None):
     """El error de un 'preguntar' a un agente de otro programa."""
     como = f"'al recibir {responde}' en un agente" if responde else "un 'al recibir'"
+    if archivo == SOCIO:
+        return (f"{agente} es un socio (otro negocio): no se le puede 'preguntar', porque "
+                "su programa corre en otra máquina y en otro momento. Mandale con 'enviar' "
+                f"y recibí la contestación con {como} (y nombrala en el 'acepta' de ese "
+                "socio)")
     return (f"{agente} es de otro programa ({archivo}): no se le puede 'preguntar', porque "
             "ese programa puede no estar corriendo. Mandale con 'enviar' y recibí la "
             f"contestación con {como}")
@@ -255,6 +264,10 @@ def no_se_le_pregunta(agente, archivo, responde=None):
 
 def de_otro_programa(agente, archivo, que):
     """El error de lo que no se puede hacer con un agente de otro programa."""
+    if archivo == SOCIO:
+        return (f"{agente} es un socio (otro negocio): acá solo se le puede mandar un mensaje "
+                f"con 'enviar', no {que}. Sus agentes, sus lecciones y su estado los lleva "
+                "ese negocio")
     return (f"{agente} es de otro programa ({archivo}): acá solo se le puede mandar un "
             f"mensaje con 'enviar', no {que}. Sus copias, sus lecciones y su estado los "
             "lleva ese programa")
@@ -988,6 +1001,11 @@ class Parser:
                     return ("usar_buzon", ln, self.espera(
                         "str", que="el nombre del otro programa entre comillas (usar "
                                    'buzon "deposito.mate")')[1])
+                # usar socio Proveedor acepta Cotizacion, SinStock: otro NEGOCIO, en otra
+                # máquina (0.8). 'socio' y 'acepta' tampoco son palabras reservadas: solo
+                # significan algo acá, y 'socio' solo si lo que sigue no es un texto.
+                if self.es("id", "socio") and not self.es("str", d=1):
+                    return self.usar_socio(ln)
                 return ("usar", ln, self.espera("str", que="el nombre de un archivo")[1])
             if val == "mensaje":
                 return self.mensaje()
@@ -1247,6 +1265,37 @@ class Parser:
         if not tk[1][0].isupper():
             raise ErrorMate(f"el nombre de un {que} empieza con mayúscula: '{tk[1]}'", tk[2])
         return tk[1]
+
+    def usar_socio(self, ln):
+        """usar socio Proveedor [acepta Tipo, Tipo...]: todo en un renglón."""
+        self.tomar()
+        como = ("'usar socio' lleva el nombre que le das al otro negocio, con mayúscula "
+                "adelante, y los mensajes que le aceptás: usar socio Proveedor acepta "
+                "Cotizacion, SinStock")
+        tk = self.ver()
+        if tk[0] != "id" or tk[2] != ln or not tk[1][:1].isupper():
+            raise ErrorMate(como, ln)
+        nombre = self.tomar()[1]
+        tipos = []
+        if self.es("id", "acepta") and self.ver()[2] == ln:
+            self.tomar()
+            while True:
+                tk = self.ver()
+                if tk[0] != "id" or tk[2] != ln:
+                    raise ErrorMate("después de 'acepta' van los mensajes que le recibís a "
+                                    f"{nombre}, separados por coma: usar socio {nombre} "
+                                    "acepta Cotizacion, SinStock", ln)
+                tipo = self.tomar()[1]
+                if tipo in tipos:
+                    raise ErrorMate(f"'{tipo}' está dos veces en el 'acepta' de {nombre}", ln)
+                tipos.append(tipo)
+                if not (self.es("op", ",") and self.ver()[2] == ln):
+                    break
+                self.tomar()
+        tk = self.ver()
+        if tk[0] != "eof" and tk[2] == ln:
+            raise ErrorMate(como, ln)
+        return ("usar_socio", ln, nombre, tipos)
 
     def agente(self):
         ln = self.tomar()[2]
@@ -1636,6 +1685,9 @@ def es_de_excel(ruta):
 def leer_fuente(ruta):
     """Lee un archivo .mate en cualquiera de las codificaciones que usa el Bloc de notas:
     UTF-8 (con o sin marca), "Unicode" (UTF-16) o ANSI (Windows-1252)."""
+    if es_archivo_de_clave(ruta):  # (0.8) ni correr, ni verificar, ni 'usar', ni mostrarlo
+        raise ErrorMate(NO_SE_LEE_LA_CLAVE.format(n=os.path.basename(str(ruta))),
+                        familia="archivo")
     with open(ruta, "rb") as f:
         datos = f.read()
     if datos[:2] in (b"\xff\xfe", b"\xfe\xff"):
@@ -1711,10 +1763,19 @@ def analizar(fuente, ruta=None, _vistos=None, en_consola=False, _raiz=None, _aje
     revisar_cierres(tokens, fuente)
     for s in Parser(tokens, en_consola).programa():
         if s[0] == "usar_buzon":
-            if not _ajeno:
+            if not _ajeno or _ajeno == "con buzones":
                 programa.append(s)  # se resuelve al final, con el programa entero a la vista
             continue
         if s[0] == "usar_python" and _ajeno:
+            continue
+        if s[0] == "usar_socio":
+            if _ajeno:
+                continue
+            if not arriba:
+                raise ErrorMate("'usar socio' va en el programa que se corre, no en un "
+                                f"archivo traído con 'usar' ({os.path.basename(ruta or '')}): "
+                                "la clave de ese socio es de un programa solo", s[1])
+            programa.append(s)
             continue
         if s[0] == "usar_python":
             try:
@@ -1776,7 +1837,73 @@ def analizar(fuente, ruta=None, _vistos=None, en_consola=False, _raiz=None, _aje
         programa.extend(x for x in traido
                         if x[0] in ("mensaje", "agente", "funcion", "sea", "usar_python",
                                     "usar_buzon"))
-    return traer_buzones(programa, ruta, raiz) if arriba else programa
+    return traer_socios(traer_buzones(programa, ruta, raiz)) if arriba else programa
+
+
+SOCIO = "otro negocio"  # así figura, donde va el archivo, un socio de 'usar socio' (0.8)
+
+
+def traer_socios(programa):
+    """Resuelve los 'usar socio Proveedor acepta ...' (0.8). Cada socio queda como un
+    "agente de otro programa": sirve de destino de 'enviar' y aparece como 'remitente', con
+    las mismas prohibiciones (no se le pregunta, no se crea, no se le mira el estado). Se
+    le manda al NEGOCIO: de este lado no se sabe qué agentes tiene, así que se le puede
+    enviar cualquier mensaje declarado, y el otro decide qué acepta."""
+    pedidos = [s for s in programa if s[0] == "usar_socio"]
+    if not pedidos:
+        return programa
+    mensajes = list(dict.fromkeys(s[2] for s in programa if s[0] == "mensaje"))
+    ocupados = {s[2]: s[0] for s in programa if s[0] in ("agente", "agente_ajeno", "mensaje")}
+    vistos, nuevos = {}, []
+    for _, ln, nombre, _tipos in pedidos:
+        if nombre in vistos:
+            raise ErrorMate(f"el socio {nombre} ya está declarado (línea {int(vistos[nombre])}"
+                            "): va un solo 'usar socio' por cada socio, con todo lo que le "
+                            "aceptás en ese renglón", ln)
+        if nombre in ocupados:
+            que = "un mensaje" if ocupados[nombre] == "mensaje" else "un agente"
+            raise ErrorMate(f"ya hay {que} {nombre} en este programa: al socio ponele otro "
+                            f"nombre (es solo cómo lo llamás vos), por ejemplo: usar socio "
+                            f"Socio{nombre}", ln)
+        vistos[nombre] = ln
+        nuevos.append(("agente_ajeno", ln, nombre, mensajes, SOCIO, None, None, 0))
+    return programa + nuevos
+
+
+def lo_que_declara(ruta, _vistos=None, _junto=None):
+    """Lo que se sabe de un programa leyéndolo por arriba, sin ejecutarlo y sin exigirle
+    que esté entero: {"buzones": los programas que nombra con 'usar buzon', "agentes": los
+    nombres de sus agentes, "crea": si usa 'crear'}. Mira también los archivos que trae con
+    'usar' (los que estén y se entiendan). None si el archivo principal no se entiende."""
+    arriba = _vistos is None
+    vistos = _vistos if _vistos is not None else set()
+    junto = _junto if _junto is not None else {"buzones": [], "agentes": set(), "crea": False}
+    real = os.path.realpath(ruta)
+    if real in vistos or len(vistos) > 200:
+        return junto
+    vistos.add(real)
+    try:
+        sentencias = Parser(tokenizar(leer_fuente(ruta), ruta)).programa()
+    except (OSError, ErrorMate, RecursionError):
+        return None if arriba else junto
+    for s in sentencias:
+        if s[0] == "usar_buzon":
+            junto["buzones"].append(s[2])
+        elif s[0] == "agente":
+            junto["agentes"].add(s[2])
+        elif s[0] == "usar":
+            otra = os.path.join(os.path.dirname(os.path.abspath(ruta)), s[2])
+            if not os.path.isfile(otra) and os.path.isfile(otra + ".mate"):
+                otra += ".mate"
+            if os.path.isfile(otra):
+                lo_que_declara(otra, vistos, junto)
+    junto["crea"] = junto["crea"] or _contiene(sentencias, "crear", 5)
+    return junto
+
+
+def socios_declarados(programa):
+    """{socio: [los mensajes que se le aceptan]} de los 'usar socio' del programa."""
+    return {s[2]: list(s[3]) for s in programa if s[0] == "usar_socio"}
 
 
 def nombre_de_programa(ruta):
@@ -2489,6 +2616,26 @@ def verificar(programa, en_consola=False):
             agentes[s[2]] = list(s[3])
             estados[s[2]] = {}
             ajenos[s[2]] = s[4]
+    for s in programa:  # (0.8) lo que se le acepta a cada socio
+        if s[0] != "usar_socio":
+            continue
+        for tipo in s[3]:
+            reciben = [a for a, d in declarados.items() if any(m[1] == tipo for m in d[4])]
+            if tipo not in mensajes:
+                errores.append((s[1], con_sugerencia(
+                    f"'{tipo}' está en el 'acepta' de {s[2]} y no es un mensaje declarado "
+                    "en este programa", tipo, mensajes)))
+            elif not reciben:
+                errores.append((s[1], (
+                    f"'{tipo}' está en el 'acepta' de {s[2]} y ningún agente tiene 'al "
+                    f"recibir {tipo}': lo que manda un socio se le entrega al único agente "
+                    "de este programa que recibe ese mensaje")))
+            elif len(reciben) > 1:
+                errores.append((s[1], (
+                    f"'{tipo}' está en el 'acepta' de {s[2]} y lo reciben "
+                    f"{' y '.join(reciben)}: lo que manda un socio se le entrega a un solo "
+                    f"agente. Dejá un solo 'al recibir {tipo}' (ese agente se lo puede "
+                    "pasar a los demás)")))
     try:  # (los mensajes del contrato de conversación no pueden ir a otro programa)
         del_contrato = ContratoConversacion.del_programa(
             programa, {nombre: s[3] for nombre, s in mensajes.items()}, agentes)
@@ -2826,6 +2973,7 @@ class Agente:
         self.programa = None  # cómo se llama ese programa en el buzón ("deposito")
         self.carpeta_buzon = None  # la carpeta de su buzón ("deposito.buzon"), si se conoce
         self.solo_responde = False  # llegó como remitente y no hay 'usar buzon' de su programa
+        self.socio = None  # si es un socio de 'usar socio' (0.8): su nombre
         self.propios = {}  # lo que sabe recibir, sin lo que se haya simulado en una prueba
 
 
@@ -4109,14 +4257,16 @@ def escribir_memoria(ruta, candado, texto=None, mover_a=None):
         escribir_entero(ruta, texto)
 
 
-def guardar_memoria(ruta, programa, agentes, buzon=None, candado=None):
+def guardar_memoria(ruta, programa, agentes, buzon=None, candado=None, correo=None):
     """Deja la memoria en su archivo (o lo saca, si ya no hay nada que recordar). Devuelve
     None si salió bien o la explicación de por qué no se pudo.
     candado: el de esa memoria, TOMADO (ver escribir_memoria): sin él no se escribe, y lo
     que se guarda tiene que salir de lo que se leyó con el candado ya tomado.
     buzon: la parte del buzón entre programas (ver leer_buzon_de_memoria). Con None se
     CONSERVA la que haya en el archivo: así 'corregir', 'lecciones', 'proponer' y la cuenta
-    de consultas guardan como siempre y no la pierden."""
+    de consultas guardan como siempre y no la pierden.
+    correo: la parte de lo enviado y de los socios (0.8; ver leer_correo_de_memoria). Con
+    None también se conserva la que haya."""
     if not tengo_el_candado(ruta, candado):
         escribir_memoria(ruta, candado)  # (se niega: MemoriaSinCandado)
     agentes = {a: f for a, f in agentes.items() if any(f.values())}
@@ -4124,7 +4274,10 @@ def guardar_memoria(ruta, programa, agentes, buzon=None, candado=None):
         if buzon is None and os.path.lexists(ruta):
             buzon = leer_buzon_de_memoria(ruta)[0]
         buzon = {k: list(v) for k, v in (buzon or {}).items() if v}
-        if not agentes and not buzon:
+        if correo is None and os.path.lexists(ruta):
+            correo = leer_correo_de_memoria(ruta)
+        correo = {k: v for k, v in (correo or {}).items() if v}
+        if not agentes and not buzon and not correo:
             escribir_memoria(ruta, candado)
             return None
         datos = {
@@ -4136,6 +4289,8 @@ def guardar_memoria(ruta, programa, agentes, buzon=None, candado=None):
         if buzon:  # (un programa sin buzón guarda lo mismo que antes, letra por letra)
             datos["buzon"] = {"recibidos": buzon.get("recibidos", []),
                               "por_salir": buzon.get("por_salir", [])}
+        if correo:  # (lo mismo: solo si este programa manda por el buzón o tiene socios)
+            datos["correo"] = correo
         escribir_memoria(ruta, candado, json.dumps(datos, ensure_ascii=False, indent=2,
                                                    allow_nan=False) + "\n")
     except (OSError, ValueError, RecursionError):
@@ -4247,9 +4402,11 @@ def revisar_lo_de_afuera(v, nivel=0):
         raise NoSeEntrega("trae un número que no es válido")
 
 
-def revisar_sobre(datos):
+def revisar_sobre(datos, hasta=None):
     """Controla que eso tenga la forma de un sobre del buzón. Lo que no conoce lo deja
-    pasar (puede ser de una versión siguiente)."""
+    pasar (puede ser de una versión siguiente). hasta: la versión más nueva que vale ahí
+    (en el buzón local, la 1; un sobre firmado entre negocios es de la 2)."""
+    hasta = hasta or VERSION_DE_BUZON
     no_es = ("no es un sobre de Mate (le falta 'mate_buzon', 'id', 'clase', 'de', 'para' o "
              "'mensaje', o alguno no tiene la forma de siempre)")
     if not isinstance(datos, dict):
@@ -4257,9 +4414,9 @@ def revisar_sobre(datos):
     version = datos.get("mate_buzon")
     if type(version) is not int or version < 1:
         raise NoSeEntrega(no_es)
-    if version > VERSION_DE_BUZON:
+    if version > hasta:
         raise NoSeEntrega(f"lo escribió una versión más nueva de Mate (dice mate_buzon: "
-                          f"{version} y esta entiende hasta {VERSION_DE_BUZON})")
+                          f"{version} y esta entiende hasta {hasta})")
     if not isinstance(datos.get("id"), str) or not _ID_DE_SOBRE.fullmatch(datos["id"]):
         raise NoSeEntrega("su 'id' no tiene la forma permitida (letras sin tilde, cifras, "
                           "punto, guion y guion bajo; hasta 120)")
@@ -4655,6 +4812,77 @@ class Buzon:
         self.se_puede_guardar = lambda cuantos: True
         self.atendi, self.deje, self.no_entregados = {}, {}, 0  # para el resumen
         self._buscados = {}
+        # (0.8) Los socios de 'usar socio', si el programa tiene; los mensajes que este
+        # programa mandó por el buzón local ("programa/id": con eso reconoce un aviso de
+        # falla de verdad) y los programas que ya averiguó si conoce.
+        self.socios = None
+        self.enviados = set()
+        self.leer_correo = lambda: {"enviados": [], "socios": {}}  # (lo pone 'correr')
+        self._conocidos = {}
+
+    def conoce(self, de, ajenos, falla=False):
+        """¿El que manda ese sobre es un programa que este programa conoce? (P161) True, o
+        el motivo por el que no se entrega. Es conocido si este programa lo nombra con
+        'usar buzon', o si en esta carpeta está ese programa y nombra a ESTE con 'usar
+        buzon' (se lee sin ejecutarlo, una vez por corrida). Además el agente que dice
+        mandarlo tiene que existir ahí. El buzón local no va firmado: en una misma PC,
+        quien puede escribir en la carpeta puede editar los .mate."""
+        programa, agente = de["programa"], de["agente"]
+        clave = unicodedata.normalize("NFC", programa).casefold()
+        if clave not in self._conocidos:
+            self._conocidos[clave] = self._averiguar(programa, clave, ajenos)
+        agentes = self._conocidos[clave]
+        visto = texto_ajeno(programa, 60)
+        if agentes is None:
+            return (f"no conozco a '{visto}': para recibir de otro programa, ese programa "
+                    f'tiene que tener usar buzon "{self.archivo}" (o este, usar buzon '
+                    f'"{visto}.mate")')
+        if agentes is True or falla or agente == SUELTO_EN_EL_BUZON or agente in agentes:
+            return True  # (una falla viene a nombre del agente al que se le había escrito)
+        return (f"dice venir de {texto_ajeno(agente, 60)}, y {self.visible(programa)} no "
+                "tiene ningún agente con ese nombre")
+
+    def _averiguar(self, programa, clave, ajenos):
+        """None si ese programa no es conocido; si lo es, los nombres de sus agentes (o
+        True si crea copias con 'crear', que llevan otros nombres). El otro programa se
+        lee sin ejecutarlo y sin exigirle que esté entero: alcanza con lo que declara."""
+        nombrados = {a.nombre for a in ajenos.values()
+                     if a.socio is None and a.programa is not None
+                     and unicodedata.normalize("NFC", a.programa).casefold() == clave}
+        archivo = self.buscar(programa)[0]
+        suyo = lo_que_declara(os.path.join(self.raiz, archivo)) if archivo else None
+        me_nombra = False
+        for escrito in (suyo or {}).get("buzones", ()):
+            escrito = os.path.basename(escrito.strip().replace("\\", "/")).casefold()
+            for final in (".mate.txt", ".mate"):
+                if escrito.endswith(final):
+                    escrito = escrito[:-len(final)]
+                    break
+            me_nombra = me_nombra or unicodedata.normalize("NFC", escrito) \
+                == unicodedata.normalize("NFC", self.programa).casefold()
+        if not nombrados and not me_nombra:
+            return None
+        if suyo is None:
+            return nombrados
+        if suyo["crea"]:
+            return True
+        return nombrados | suyo["agentes"]
+
+    def correo_fundido(self, en_disco):
+        """La parte "correo" que hay que guardar: la del archivo, más los ids de lo que
+        esta corrida mandó por el buzón local, más lo de los socios (numerado y firmado)."""
+        correo = json.loads(json.dumps(en_disco))
+        ya = set(correo["enviados"])
+        for pendiente in self.por_salir:
+            sobre = pendiente["sobre"]
+            clave = f"{sobre['para']['programa'].casefold()}/{sobre['id']}"
+            if sobre["clase"] == "mensaje" and clave not in ya:
+                ya.add(clave)
+                correo["enviados"].append(clave)
+        correo["enviados"] = correo["enviados"][-MAX_IDS_ENVIADOS:]
+        if self.socios is not None:
+            self.socios.cerrar(correo)
+        return correo
 
     def buscar(self, programa):
         """(el archivo .mate, la carpeta del buzón) de ese programa, con los nombres tal
@@ -4910,7 +5138,8 @@ class Buzon:
     def cambio(self):
         """¿En esta corrida pasó algo con el buzón (para guardar, repartir, mover o borrar)?"""
         return bool(self.recibidos or self.por_salir or self.repartidos
-                    or self.rechazos or self.atendidos)
+                    or self.rechazos or self.atendidos
+                    or (self.socios is not None and self.socios.cambio()))
 
     def fundido(self, en_disco):
         """La parte "buzon" que hay que guardar: lo que dice el archivo ahora, más lo de
@@ -4985,7 +5214,1483 @@ class Buzon:
             renglones.append(f"Buzón: dejé {cuantos_mensajes(n)} para {programa}; "
                              f"{'le llega' if n == 1 else 'le llegan'} la próxima vez que "
                              "corra.")
+        if self.socios is not None:
+            renglones += self.socios.resumen()
         return renglones
+
+
+# ───────────────── Socios: agentes de negocios distintos (0.8) ─────────────────
+# 'usar socio Proveedor acepta Cotizacion' deja que este programa se hable con el de OTRO
+# negocio, en otra máquina. Mate no abre conexiones ni levanta servidores: los dos negocios
+# comparten una CARPETA (sincronizada, de red o un pendrive) y ahí viajan los sobres.
+# - Cada par de socios acuerda una clave. Vive en <programa>.socios.json, al lado del
+#   programa (nunca en el .mate, ni en la carpeta compartida, ni en pantalla, ni en la traza).
+# - Cada sobre va FIRMADO (hmac-sha256) con una clave derivada por sentido (lado A o B), y
+#   lleva un número de orden por socio: así no se falsifica, no se devuelve y no se repite.
+# - Lo que no trae la firma de ese socio no se entrega ni se contesta: va a 'rechazados'.
+# - Nada de otro negocio llega a un agente sin el si del dueño, mensaje por mensaje.
+# - El contenido NO va cifrado: quien ve la carpeta compartida lee los mensajes.
+VERSION_DE_SOBRE_DE_SOCIO = 2  # el "mate_buzon" de un sobre entre negocios
+MAX_MENSAJE_DE_SOCIO = 8000  # bytes de un mensaje entre negocios (entra entero en pantalla)
+MAX_TEXTO_DE_SOCIO = 500  # letras de un texto adentro de un mensaje entre negocios
+MAX_NIVELES_DE_SOCIO = 4  # cosas una adentro de otra en un mensaje entre negocios
+MAX_PENDIENTES_POR_SOCIO = 200  # mensajes de un socio esperando el si; el resto espera afuera
+MAX_EN_ESPERA = 200  # mensajes para un socio sin clave (o frenado) que quedan anotados
+MAX_VISTOS = 2000  # números de sobre ya vistos que se recuerdan por socio
+MAX_IDS_ENVIADOS = 2000  # ids de lo enviado que se recuerdan (para reconocer una falla)
+MAX_RECHAZADOS_DE_SOCIO = 50  # archivos de un socio en 'rechazados'; después solo se cuenta
+MAX_PESO_DE_RECHAZADOS = 20_000_000  # ...o estos bytes
+MAX_A_MEDIO_LLEGAR = 500  # archivos que no se entienden y se siguen mirando, por socio
+MAX_MIRADOS_POR_CORRIDA = 5000  # archivos de la carpeta compartida que se miran por socio
+ESPERA_DE_UN_ROTO = 86400  # segundos (de ESTA máquina) antes de dar por roto un archivo
+MAX_NUMERO_DE_SOBRE = 2 ** 53
+LARGO_DE_CLAVE = 44  # 40 cifras al azar y 4 de control
+MAX_CLAVES_DE_ANTES = 5  # huellas de claves anteriores que se recuerdan por socio
+CIFRAS_DISTINTAS_DE_CLAVE = 6  # menos cifras distintas que estas, no es una clave al azar
+# Los motivos de una falla entre negocios: viaja el código, y cada lado lo dice con su texto.
+MOTIVOS_DE_SOCIO = {
+    "contrato": "no cumple el contrato de tu socio",
+    "no_acepto": "tu socio no acepta ese tipo de mensaje",
+    "descartado": "el dueño lo descartó",
+    "fallo": "el programa de tu socio falló al atenderlo",
+}
+_FIRMA = re.compile(r"[0-9a-f]{64}")
+_HUELLA = re.compile(r"[0-9a-f]{8}")
+_SOBRE_EN_COMPARTIDA = re.compile(r"([0-9]{8,16})-[0-9a-f]{8}\.json")
+_PENDIENTE_DE_SOCIO = re.compile(r"s([0-9a-f]{8})-([0-9]{8,16})\.json")
+_NOMBRE_DE_CAMPO = re.compile(r"[^\W\d]\w{0,40}")
+LEEME_DE_COMPARTIDA = "LEEME-mate.txt"
+TEXTO_DEL_LEEME = (
+    "Esta carpeta la usan dos programas de Mate, de dos negocios, para mandarse mensajes.\n"
+    "- En de-a escribe uno y en de-b el otro. Cada archivo es un mensaje firmado.\n"
+    "- No edites, renombres ni copies acá adentro: Mate lee y borra lo que le toca.\n"
+    "- Los mensajes NO van cifrados: quien ve esta carpeta los puede leer.\n"
+    "- La clave de los socios NO va acá, nunca. Tampoco los programas (.mate).\n")
+
+
+def reloj_local():
+    """La hora de ESTA máquina, en segundos (aparte, para que las pruebas la adelanten)."""
+    return time.time()
+
+
+def texto_ajeno(texto, largo=200, entre_comillas=False):
+    """Un texto que viene de AFUERA (de un sobre, o el nombre de un archivo ajeno), listo
+    para mostrar o anotar: lo que no se ve o engaña al ojo va escrito con su número
+    (\\u202e): los caracteres de control, los de dirección de texto y demás de formato, los
+    saltos raros, las letras rotas (sustitutos sueltos) y lo que esta consola no sabe
+    escribir. Y con un largo máximo. entre_comillas: además escapa la comilla y la barra,
+    para que un valor no pueda cerrar su comilla y dibujar otro campo."""
+    texto = texto if isinstance(texto, str) else str(texto)
+    consola = getattr(sys.stdout, "encoding", None) or "utf-8"
+    partes = []
+    for c in texto[:largo]:
+        if entre_comillas and c in '"\\':
+            partes.append("\\" + c)
+            continue
+        visible = c == " " or c.isprintable()
+        if visible and not c.isascii():
+            try:
+                c.encode(consola)
+            except (UnicodeError, LookupError):
+                visible = False
+        partes.append(c if visible else (
+            f"\\u{ord(c):04x}" if ord(c) < 0x10000 else f"\\U{ord(c):08x}"))
+    return "".join(partes) + ("..." if len(texto) > largo else "")
+
+
+def valor_ajeno(v):
+    """Un valor que vino de otro negocio, como se le muestra al dueño antes del si: igual
+    que en la traza, pero con los textos entre comillas y limpios (ver texto_ajeno)."""
+    if isinstance(v, str):
+        return '"' + texto_ajeno(v, MAX_TEXTO_DE_SOCIO, True) + '"'
+    if isinstance(v, list):
+        return "[" + ", ".join(valor_ajeno(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{" + ", ".join(f"{texto_ajeno(k, 60)}: {valor_ajeno(x)}"
+                               for k, x in v.items()) + "}"
+    if isinstance(v, Registro):
+        return texto_ajeno(v.tipo, 60) + " { " + ", ".join(
+            f"{texto_ajeno(k, 60)}: {valor_ajeno(x)}" for k, x in v.campos.items()) + " }"
+    return texto_ajeno(formato(v, False), 60)
+
+
+# ── la clave ──
+def control_de_clave(cifras):
+    """Las 4 cifras de control de una clave (salen de las otras 40): si al dictarla se
+    cambia una cifra, no coinciden."""
+    resumen = hashlib.sha256(("mate-socio-1 clave " + cifras).encode("ascii")).hexdigest()
+    return f"{int(resumen, 16) % 10000:04d}"
+
+
+def nueva_clave_de_socio():
+    """40 cifras al azar (unos 133 bits), de a una, más las 4 de control. Van cifras y no
+    letras porque se dictan por teléfono sin confundir B con V."""
+    while True:
+        cifras = "".join(str(secrets.randbelow(10)) for _ in range(LARGO_DE_CLAVE - 4))
+        if len(set(cifras)) >= CIFRAS_DISTINTAS_DE_CLAVE:  # (al azar pasa siempre)
+            return cifras + control_de_clave(cifras)
+
+
+def clave_de_socio_valida(texto):
+    """La clave limpia (44 cifras) si eso es una clave bien escrita; si no, None. Se acepta
+    con espacios o guiones entre los grupos. Nada de frases elegidas a mano, ni una clave
+    "fácil" armada a mano (todos ceros con su control): una clave al azar nunca trae tan
+    pocas cifras distintas."""
+    if not isinstance(texto, str):
+        return None
+    cifras = re.sub(r"[\s\-]", "", texto)
+    if len(cifras) != LARGO_DE_CLAVE or not (cifras.isascii() and cifras.isdigit()):
+        return None
+    if len(set(cifras[:-4])) < CIFRAS_DISTINTAS_DE_CLAVE:
+        return None
+    return cifras if hmac.compare_digest(control_de_clave(cifras[:-4]), cifras[-4:]) else None
+
+
+def clave_en_grupos(clave):
+    return " ".join(clave[i:i + 4] for i in range(0, len(clave), 4))
+
+
+def _derivada(clave, que):
+    return hmac.new(clave.encode("ascii"), ("mate-socio-1 " + que).encode("ascii"),
+                    hashlib.sha256).digest()
+
+
+def huella_de_clave(clave):
+    """8 letras que identifican la clave sin decir nada de ella: van en cada sobre."""
+    return _derivada(clave, "huella").hex()[:8]
+
+
+def control_de_socio(clave):
+    """El "número de control": 6 cifras que los dos socios ven iguales si cargaron la misma
+    clave. Es lo único de la clave que se muestra."""
+    numero = f"{int.from_bytes(_derivada(clave, 'control'), 'big') % 1000000:06d}"
+    return f"{numero[:3]} {numero[3:]}"
+
+
+def bytes_canonicos(sobre):
+    """Los bytes que se firman: el sobre entero menos "firma", escrito de una sola manera.
+    ValueError o RecursionError si no se puede."""
+    sin_firma = {k: v for k, v in sobre.items() if k != "firma"}
+    return b"mate-sobre-2\n" + json.dumps(
+        sin_firma, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False).encode("ascii")
+
+
+def firma_de_sobre(sobre, clave, lado):
+    """La firma de ese sobre hecha por ese lado ("A" o "B"). Cada lado firma con una clave
+    derivada distinta: un sobre mío que me devuelven no verifica como del otro."""
+    return hmac.new(_derivada(clave, "firma " + lado), bytes_canonicos(sobre),
+                    hashlib.sha256).hexdigest()
+
+
+def huella_de_mensaje(mensaje):
+    try:
+        crudo = json.dumps(mensaje, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (ValueError, RecursionError, TypeError):
+        return ""
+    return hashlib.sha256(crudo.encode("ascii")).hexdigest()[:16]
+
+
+def demasiado_hondo(v, tope=MAX_NIVELES_DE_SOBRE):
+    """¿Trae más cosas una adentro de otra que el tope? (sin recursión)"""
+    pila = [(v, 0)]
+    while pila:
+        x, nivel = pila.pop()
+        if nivel > tope:
+            return True
+        if isinstance(x, dict):
+            pila.extend((y, nivel + 1) for y in x.values())
+        elif isinstance(x, list):
+            pila.extend((y, nivel + 1) for y in x)
+    return False
+
+
+def json_de_sobre(crudo):
+    """Lo que dice ese archivo, y si trae claves repetidas (en JSON valen, y cada programa
+    se queda con una distinta: en un sobre firmado no se aceptan). ValueError si no es JSON
+    (UnicodeError y JSONDecodeError lo son) y RecursionError si es demasiado hondo."""
+    repetidas = []
+
+    def pares(lista):
+        mapa = {}
+        for k, v in lista:
+            if k in mapa:
+                repetidas.append(k)
+            mapa[k] = v
+        return mapa
+
+    def raro(_):
+        raise ArithmeticError
+
+    def decimal(t):
+        return float(t) if math.isfinite(float(t)) else raro(t)
+
+    try:
+        datos = json.loads(crudo.decode("utf-8-sig"), object_pairs_hook=pares,
+                           parse_constant=raro, parse_float=decimal)
+    except ArithmeticError:
+        return None, False  # (un número imposible: es JSON, pero no un sobre)
+    return datos, bool(repetidas)
+
+
+TEXTO_QUE_NO_SE_VE = (
+    "trae un texto con algo que en pantalla no se ve o engaña al ojo (un salto de renglón, "
+    "un tabulador, un carácter de control o de dirección de texto): entre negocios los "
+    "textos van en un solo renglón y sin esos caracteres")
+
+
+def no_se_ve_o_engana(texto):
+    """¿Ese texto trae algo que texto_ajeno escribiría con su número? (sin mirar la consola:
+    lo mismo en las dos máquinas). Eso no viaja entre negocios, ni de ida ni de vuelta: un
+    texto así, una vez entregado, lo imprime un 'mostrar' del agente tal cual, y con un
+    retorno de carro y un color se dibuja una pregunta falsa en la pantalla del dueño."""
+    return any(not (c == " " or c.isprintable()) for c in texto)
+
+
+def no_entra_de_socio(mensaje):
+    """Por qué ese mensaje ({"tipo", "campos"}) no puede viajar entre negocios, o None. Los
+    topes son mucho más chicos que los del buzón local: lo que llega de otro negocio se le
+    muestra ENTERO al dueño antes del si, y lo que no entra en pantalla no se recorta: se
+    rechaza. Tampoco viajan los textos con caracteres que no se ven o engañan al ojo."""
+    try:
+        pesa = len(json.dumps(mensaje, ensure_ascii=False, allow_nan=False)
+                   .encode("utf-8", "replace"))
+    except (ValueError, RecursionError, TypeError):
+        return "trae algo que no se puede revisar"
+    if pesa > MAX_MENSAJE_DE_SOCIO:
+        return (f"pesa más de {MAX_MENSAJE_DE_SOCIO // 1000} KB, que es el tope de un "
+                "mensaje entre negocios")
+    if isinstance(mensaje.get("tipo"), str) and no_se_ve_o_engana(mensaje["tipo"]):
+        return TEXTO_QUE_NO_SE_VE
+    pila = [(mensaje.get("campos"), 1)]
+    while pila:
+        x, nivel = pila.pop()
+        if nivel > MAX_NIVELES_DE_SOCIO:
+            return (f"trae más de {MAX_NIVELES_DE_SOCIO} cosas una adentro de otra, que es "
+                    "el tope entre negocios")
+        if isinstance(x, str) and len(x) > MAX_TEXTO_DE_SOCIO:
+            return (f"trae un texto de más de {MAX_TEXTO_DE_SOCIO} letras, que es el tope "
+                    "entre negocios")
+        if isinstance(x, str) and no_se_ve_o_engana(x):
+            return TEXTO_QUE_NO_SE_VE
+        if isinstance(x, dict):
+            if any(not isinstance(k, str) or len(k) > 60 for k in x):
+                return "trae un nombre de campo demasiado largo"
+            if any(no_se_ve_o_engana(k) for k in x):
+                return TEXTO_QUE_NO_SE_VE
+            pila.extend((y, nivel + 1) for y in x.values())
+        elif isinstance(x, list):
+            pila.extend((y, nivel + 1) for y in x)
+    return None
+
+
+# ── el archivo de las claves ──
+def es_archivo_de_clave(ruta):
+    """¿Ese archivo es de los que guardan la clave de un socio (<programa>.socios.json, su
+    provisorio o una invitación)? Se mira el nombre escrito y el del archivo de verdad (si
+    es un acceso directo), sin distinguir mayúsculas, y como lo ve Windows: sin los puntos
+    y espacios del final y sin el "::$DATA"."""
+    nombres = {os.path.basename(str(ruta).replace("\\", "/"))}
+    try:
+        nombres.add(os.path.basename(os.path.realpath(ruta)))
+    except (OSError, ValueError):
+        pass
+    for nombre in nombres:
+        nombre = nombre.split(":", 1)[0].rstrip(". ").casefold()
+        if ".socios.json" in nombre or re.fullmatch(r"invitacion-mate.*\.txt.*", nombre):
+            return True
+    return False
+
+
+NO_SE_LEE_LA_CLAVE = ("'{n}' guarda la clave de un socio y Mate no lo abre, no lo muestra ni "
+                      "lo escribe desde un programa: lo maneja solo la orden 'socio'")
+
+
+def leer_socios(ruta_programa):
+    """Las claves cargadas de ese programa: ({socio: {"clave", "lado", "carpeta",
+    "estrenado", "ensayo", "antes"}}, problema o None). Sin archivo, ninguna. "antes" son
+    las HUELLAS (no las claves) de las últimas claves que hubo con ese socio, y el lado que
+    este programa tenía con cada una: con eso reconoce lo suyo que quedó viajando firmado
+    con una clave que ya no vale (ver Socios.sacar_lo_mio_que_no_vale)."""
+    archivo = archivo_de(ruta_programa, "socios.json")
+    nombre = os.path.basename(archivo)
+    try:
+        with abrir_sin_seguir(archivo) as f:
+            crudo = f.read(1_000_001)
+    except FileNotFoundError:
+        return {}, None
+    except OSError:
+        return {}, (f"no pude abrir {nombre} (las claves de los socios): fijate que sea un "
+                    "archivo común y que tengas permiso para leerlo")
+    roto = (f"no entiendo {nombre} (las claves de los socios). No se arregla a mano: "
+            "movelo a otro lado y cargá las claves de nuevo con 'socio renovar' de un lado y "
+            "'socio aceptar' del otro")
+    try:
+        datos = json.loads(crudo.decode("utf-8-sig"))
+    except (ValueError, RecursionError):
+        return {}, roto
+    socios = datos.get("socios") if isinstance(datos, dict) else None
+    if not isinstance(socios, dict):
+        return {}, roto
+    fichas, mal = {}, False
+    for socio, ficha in socios.items():
+        clave = clave_de_socio_valida(ficha.get("clave")) if isinstance(ficha, dict) else None
+        if clave is None or ficha.get("lado") not in ("A", "B") \
+                or not isinstance(ficha.get("carpeta"), str) or not ficha["carpeta"]:
+            mal = True
+            continue
+        fichas[socio] = {"clave": clave, "lado": ficha["lado"], "carpeta": ficha["carpeta"],
+                         "estrenado": ficha.get("estrenado") is True}
+        if ficha.get("ensayo") is True:
+            fichas[socio]["ensayo"] = True
+        antes = [{"huella": a["huella"], "lado": a["lado"]}
+                 for a in (ficha.get("antes") if isinstance(ficha.get("antes"), list) else ())
+                 if isinstance(a, dict) and isinstance(a.get("huella"), str)
+                 and _HUELLA.fullmatch(a["huella"]) and a.get("lado") in ("A", "B")]
+        if antes:
+            fichas[socio]["antes"] = antes[:MAX_CLAVES_DE_ANTES]
+    return fichas, roto if mal else None
+
+
+def guardar_socios(ruta_programa, fichas):
+    """Escribe el archivo de las claves (o lo saca, si no queda ninguna). Nace con los
+    permisos cerrados (solo el dueño lo lee) donde el sistema lo permite; en Windows queda
+    con los de la carpeta. También el provisorio, que nace al lado y sin pisar nada."""
+    archivo = archivo_de(ruta_programa, "socios.json")
+    if not fichas:
+        if os.path.lexists(archivo):
+            os.remove(archivo)
+        return
+    texto = json.dumps({
+        "que_es": f"Las claves de los socios de {os.path.basename(ruta_programa)}. NO lo "
+                  "copies, no lo mandes y no lo subas a ningún lado: quien lo tenga puede "
+                  "firmar mensajes como vos o como tu socio. No se edita a mano: lo lleva "
+                  "la orden 'socio' de Mate.",
+        "socios": fichas}, ensure_ascii=False, indent=2) + "\n"
+    provisorio = f"{archivo}.{os.getpid()}-{secrets.token_hex(4)}.tmp"
+    fd = os.open(provisorio, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0), 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(texto.encode("utf-8"))
+        insistir(lambda: os.replace(provisorio, archivo))
+    except BaseException:
+        try:
+            os.remove(provisorio)
+        except OSError:
+            pass
+        raise
+
+
+# ── la carpeta compartida ──
+def es_union(ruta):
+    """¿Es una unión o un enlace de Windows (una carpeta que en realidad lleva a otra)? Una
+    carpeta de OneDrive también trae una marca de "punto de reanálisis", pero de otra
+    clase: esa es una carpeta de verdad. (Sin probar en una Windows real.)"""
+    try:
+        if getattr(os.path, "isjunction", lambda _: False)(ruta):
+            return True
+        datos = os.lstat(ruta)
+    except (OSError, ValueError):
+        return False
+    return getattr(datos, "st_reparse_tag", 0) in (0xA0000003, 0xA000000C)
+
+
+def es_carpeta_real(ruta):
+    return es_carpeta_de_verdad(ruta) and not es_union(ruta)
+
+
+def _ruta_real(ruta):
+    return os.path.normcase(os.path.realpath(ruta)).casefold()
+
+
+def una_adentro_de_otra(a, b):
+    """¿Alguna de las dos carpetas es la otra, o está adentro? (por la ruta de verdad y sin
+    distinguir mayúsculas)"""
+    a, b = _ruta_real(a), _ruta_real(b)
+    try:
+        comun = os.path.commonpath([a, b])
+    except ValueError:  # en Windows, si están en discos distintos
+        return False
+    return comun in (a, b)
+
+
+def esta_adentro(ruta, carpeta):
+    """¿Esa ruta es esa carpeta, o está adentro? (por la ruta de verdad, sin distinguir
+    mayúsculas)"""
+    ruta, carpeta = _ruta_real(ruta), _ruta_real(carpeta)
+    try:
+        return os.path.commonpath([ruta, carpeta]) == carpeta
+    except ValueError:
+        return False
+
+
+_INVITACION_SUELTA = re.compile(r"invitacion-mate.*\.txt.*")  # (como es_archivo_de_clave)
+
+
+def problema_de_compartida(raiz, carpeta):
+    """Por qué Mate no trabaja con esa carpeta compartida, o None. La clave del socio vive
+    al lado del programa: la carpeta que se sincroniza con el otro negocio no puede ser la
+    del programa, ni contenerla, ni estar adentro; y adentro no puede haber un programa ni
+    un archivo de claves."""
+    if una_adentro_de_otra(raiz, carpeta):
+        return (f"la carpeta compartida ({carpeta}) es la del programa, la contiene o está "
+                "adentro, y ahí al lado vive la clave del socio: lo que se comparte con otro "
+                "negocio tiene que ser una carpeta aparte")
+    for sub in ("", "de-a", "de-b"):  # (también donde viajan los sobres)
+        donde = os.path.join(carpeta, sub) if sub else carpeta
+        try:
+            if sub and not es_carpeta_real(donde):
+                continue
+            with os.scandir(donde) as hay:
+                for n, entrada in enumerate(hay):
+                    if n >= MAX_MIRADOS_POR_CORRIDA:
+                        break
+                    bajo = entrada.name.split(":", 1)[0].rstrip(". ").casefold()
+                    if _INVITACION_SUELTA.fullmatch(bajo):
+                        return (f"en la carpeta compartida ({donde}) hay una invitación "
+                                f"({texto_ajeno(entrada.name, 80)}), y la invitación lleva la "
+                                "clave ENTERA: quien ve esa carpeta ya la pudo copiar, y "
+                                "queda en la papelera y en el historial de la nube. Borrala "
+                                "de ahí y cambiá la clave con 'socio renovar' (la invitación "
+                                "nueva va en un pendrive, nunca en la carpeta compartida)")
+                    if ".socios.json" in bajo or bajo.endswith((".mate", ".mate.txt")):
+                        return (f"en la carpeta compartida ({donde}) hay un archivo que no "
+                                f"tiene que estar ahí ({texto_ajeno(entrada.name, 80)}): ni "
+                                "los programas ni las claves se comparten con el otro "
+                                "negocio. Sacalo de ahí")
+        except OSError:
+            pass  # (no se ve ahora: eso se avisa aparte)
+    return None
+
+
+def estado_nuevo_de_socio(huella, en_espera=()):
+    return {"huella": huella, "enviado": 0, "piso": 0, "vistos": {}, "traidos": [],
+            "ids": {}, "por_salir": [], "en_espera": list(en_espera), "rotos": {}}
+
+
+def estado_de_socio_limpio(est):
+    """Lo que la memoria guarda de un socio, controlado (o None si no tiene la forma de
+    siempre: ahí vale como si no estuviera)."""
+    def entero(v):
+        return type(v) is int and 0 <= v <= MAX_NUMERO_DE_SOBRE
+
+    if not isinstance(est, dict):
+        return None
+    en_espera = est.get("en_espera", [])
+    if not isinstance(en_espera, list) or not all(isinstance(b, dict) for b in en_espera):
+        return None
+    if est.get("huella") is None:
+        return {"en_espera": en_espera} if en_espera else None
+    vistos, traidos, ids = est.get("vistos", {}), est.get("traidos", []), est.get("ids", {})
+    por_salir, rotos = est.get("por_salir", []), est.get("rotos", {})
+    if not (isinstance(est["huella"], str) and entero(est.get("enviado"))
+            and entero(est.get("piso")) and isinstance(vistos, dict)
+            and all(k.isascii() and k.isdigit() and isinstance(v, str)
+                    for k, v in vistos.items())
+            and isinstance(traidos, list) and all(entero(n) for n in traidos)
+            and isinstance(ids, dict)
+            and all(isinstance(v, list) and len(v) in (2, 3) for v in ids.values())
+            and isinstance(por_salir, list) and all(
+                isinstance(s, dict) and isinstance(s.get("socio"), dict)
+                and entero(s["socio"].get("numero")) and isinstance(s.get("id"), str)
+                for s in por_salir)
+            and isinstance(rotos, dict)
+            and all(type(v) is int for v in rotos.values())):
+        return None
+    return {"huella": est["huella"], "enviado": est["enviado"], "piso": est["piso"],
+            "vistos": dict(vistos), "traidos": list(traidos), "ids": dict(ids),
+            "por_salir": list(por_salir), "en_espera": en_espera, "rotos": dict(rotos)}
+
+
+def leer_correo_de_memoria(ruta):
+    """La parte "correo" del archivo de memoria (0.8): {"enviados": [...], "socios": {...}}.
+    enviados son los últimos mensajes que este programa mandó por el buzón local
+    ("programa/id"): con eso reconoce un aviso de falla de verdad. socios es lo que lleva de
+    cada socio: su contador de envíos, los números ya vistos, lo que espera el si y lo que
+    tiene por salir. Si no está o no se entiende, vale como vacía."""
+    vacio = {"enviados": [], "socios": {}}
+    try:
+        datos = json.loads(leer_archivo_de_memoria(ruta))
+    except (OSError, ErrorMate, ValueError, RecursionError):
+        return vacio
+    parte = datos.get("correo") if isinstance(datos, dict) else None
+    if not isinstance(parte, dict):
+        return vacio
+    enviados = parte.get("enviados", [])
+    enviados = [e for e in enviados if isinstance(e, str)] if isinstance(enviados, list) else []
+    socios = {}
+    for nombre, est in (parte.get("socios") if isinstance(parte.get("socios"), dict)
+                        else {}).items():
+        limpio = estado_de_socio_limpio(est)
+        if limpio is not None:
+            socios[nombre] = limpio
+    return {"enviados": enviados[-MAX_IDS_ENVIADOS:], "socios": socios}
+
+
+class Socios:
+    """Los socios del programa que se corre con 'correr' (los de sus 'usar socio'): las
+    claves, lo que sale firmado hacia la carpeta compartida y lo que llega. 'probar',
+    'verificar', 'ensayar' y la consola no arman ninguno: no leen ni escriben nada de esto."""
+
+    def __init__(self, ruta, declarados, buzon, avisar=lambda texto: None, ahora=None):
+        self.ruta = os.path.abspath(ruta)
+        self.raiz = os.path.dirname(self.ruta)
+        self.archivo = os.path.basename(ruta)
+        self.declarados = declarados  # socio -> los mensajes que se le aceptan
+        self.buzon = buzon
+        self.avisar = avisar
+        self.ahora = ahora or (lambda: reloj_local())  # (el reloj de ESTA máquina)
+        self.fichas = {}  # los socios con clave cargada y carpeta que sirve
+        self.listos = set()  # ...y con la cuenta en orden: con ellos se manda y se recibe
+        self.estado = {}  # lo que la memoria lleva de cada socio
+        self.leer_estado = lambda: {}  # (lo pone 'correr': lee la memoria de nuevo)
+        self.borradores = []  # (socio, sobre todavía sin número ni firma) de esta corrida
+        self.tocado = False  # ¿hay algo para guardar?
+        self.recibio = False  # ¿esta corrida miró lo que llegó? (con el candado tomado)
+        self.por_borrar = []  # archivos de la carpeta compartida ya atendidos
+        self.locales_por_borrar = []  # pendientes ya entregados
+        self.rechazos = []  # (socio, bytes o None, archivo local o None, motivo)
+        self.atendi, self.deje, self.no_entregados = {}, {}, 0
+        self.sin_copia = 0  # rechazados que no se guardaron (el cupo estaba lleno)
+        self.miro = False  # ¿esta corrida llegó a mirar lo de los socios?
+        self.con_novedad = set()  # los socios de los que hubo algo para contar
+        self.limpios = set()  # los socios a los que ya les saqué lo mío de otra clave
+        self.avisados = set()
+        self._carpetas = {}
+        self._rechazos_avisados = {}
+
+    def avisar_una_vez(self, cual, texto):
+        if cual not in self.avisados:
+            self.avisados.add(cual)
+            self.avisar(texto)
+
+    def orden_de(self, que, socio):
+        return f"{orden_para_esta_carpeta()} socio {que} {para_pegar(self.archivo)} {socio}"
+
+    def cargar_claves(self):
+        """Lee el archivo de claves y deja en 'fichas' los socios con los que se puede
+        trabajar. Avisa de los demás: no es un error, pero con ellos no se manda ni se
+        recibe (lo que se les envíe queda anotado, sin salir)."""
+        fichas, problema = leer_socios(self.ruta)
+        if problema:
+            self.avisar(problema)
+        for socio in self.declarados:
+            ficha = fichas.get(socio)
+            if ficha is None:
+                self.avisar(
+                    f"falta cargar la clave del socio {socio}: con él no se manda ni se "
+                    "recibe nada (lo que se le envíe queda anotado y sale cuando la clave "
+                    f"esté). Si la clave la generás vos:  {self.orden_de('invitar', socio)}"
+                    f"   Si te la pasa tu socio:  {self.orden_de('aceptar', socio)}")
+                continue
+            problema = problema_de_compartida(self.raiz, ficha["carpeta"])
+            if problema:
+                self.avisar(f"con el socio {socio} no mando ni recibo nada: {problema}. "
+                            "Para cambiar la clave o elegir otra carpeta:  "
+                            f"{self.orden_de('renovar', socio)}")
+                continue
+            if ficha.get("ensayo"):
+                # (corto: sale en cada corrida del ensayo, y no tiene que tapar lo demás)
+                self.avisar(f"la clave con {socio} es de ENSAYO: sirve para probar en esta "
+                            "PC, no para un socio de verdad (para eso, 'socio renovar': lo "
+                            "cuentan 'nuevo socio' y el manual)")
+            self.fichas[socio] = ficha
+        try:
+            de_onedrive = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer")
+            if self.fichas and de_onedrive and una_adentro_de_otra(de_onedrive, self.raiz) \
+                    and _ruta_real(self.raiz).startswith(_ruta_real(de_onedrive)):
+                self.avisar(
+                    f"la carpeta del programa ({self.raiz}) está adentro de OneDrive: el "
+                    "archivo con las claves de los socios se sube a la nube junto con lo "
+                    "demás. Conviene mover la carpeta del programa a un lugar que no se "
+                    "sincronice (por ejemplo C:\\mate)")
+        except (OSError, ValueError):
+            pass
+
+    def huella(self, socio):
+        ficha = self.fichas.get(socio)
+        return huella_de_clave(ficha["clave"]) if ficha else None
+
+    def control(self, socio):
+        ficha = self.fichas.get(socio)
+        return control_de_socio(ficha["clave"]) if ficha else "sin clave"
+
+    def preparar(self, correo):
+        """Con el candado de la memoria tomado, al arrancar: compara cada clave con lo que
+        la memoria lleva de ese socio. Devuelve (si hay que guardar la memoria, los socios
+        que hay que marcar como estrenados DESPUÉS de guardarla).
+        - La memoria lleva la cuenta de esa clave: listo.
+        - La clave es nueva (nunca se usó): la cuenta arranca de cero.
+        - La clave ya se usó y la memoria no tiene su cuenta (se borró, o se restauró una
+          copia): no se manda ni se entrega nada con ese socio. Mandar sería repetir
+          números, y recibir sería aceptar de nuevo lo ya entregado. Hay que renovar."""
+        estados = correo["socios"]
+        cambio, por_estrenar = False, []
+        for socio, ficha in self.fichas.items():
+            huella = huella_de_clave(ficha["clave"])
+            est = estados.get(socio) or {}
+            if est.get("huella") == huella:
+                self.listos.add(socio)
+                if not ficha.get("estrenado"):
+                    por_estrenar.append(socio)
+                if est.get("en_espera"):
+                    self.tocado = True  # (lo anotado sin salir se numera al guardar)
+                continue
+            if ficha.get("estrenado"):
+                self.avisar(
+                    f"se perdió la cuenta de los mensajes con {socio}: la clave ya se usó y "
+                    f"{os.path.basename(archivo_de(self.ruta, 'memoria.json'))} no tiene "
+                    "los números de lo enviado y lo recibido (se borró la memoria, o se "
+                    "restauró una copia). Con ese socio no mando ni entrego nada hasta "
+                    f"renovar la clave:  {self.orden_de('renovar', socio)}   (y que tu "
+                    "socio la acepte de nuevo)")
+                continue
+            viejos = len(est.get("por_salir") or []) + len(est.get("traidos") or [])
+            if viejos:
+                self.avisar(
+                    f"la clave con {socio} es nueva: {cuantos_mensajes(viejos)} que "
+                    "quedaban por salir o esperando tu si con la clave anterior se "
+                    "descartan (con la clave nueva ya no valen)")
+            estados[socio] = estado_nuevo_de_socio(huella, est.get("en_espera") or [])
+            self.tocado = self.tocado or bool(est.get("en_espera"))
+            self.listos.add(socio)
+            por_estrenar.append(socio)
+            cambio = True
+        self.estado = estados
+        return cambio, por_estrenar
+
+    def estrenar(self, cuales):
+        """Marca esas claves como ya usadas (después de que la memoria guardó su cuenta)."""
+        if not cuales:
+            return
+        fichas, _ = leer_socios(self.ruta)
+        cambio = False
+        for socio in cuales:
+            ficha = fichas.get(socio)
+            if ficha and ficha["clave"] == self.fichas[socio]["clave"] \
+                    and not ficha["estrenado"]:
+                ficha["estrenado"] = cambio = True
+                self.fichas[socio]["estrenado"] = True
+        if cambio:
+            try:
+                guardar_socios(self.ruta, fichas)
+            except OSError:
+                self.avisar(f"no pude escribir en {os.path.basename(archivo_de(self.ruta, 'socios.json'))}"
+                            ": fijate que se pueda escribir en la carpeta del programa")
+
+    def frenar_todos(self):
+        self.listos = set()
+
+    def carpetas(self, socio):
+        """(la carpeta donde escribo, la carpeta donde leo) dentro de la compartida con ese
+        socio, o None si ahora no se ve o no sirve (avisa una vez). En cada corrida las
+        tres tienen que ser carpetas de verdad: Mate no sigue un acceso directo ni una
+        unión, que lo harían leer y borrar en otro lado."""
+        if socio in self._carpetas:
+            return self._carpetas[socio]
+        ficha = self.fichas[socio]
+        base = ficha["carpeta"]
+        mia, suya = ("de-a", "de-b") if ficha["lado"] == "A" else ("de-b", "de-a")
+        problema = None
+        if not es_carpeta_real(base):
+            problema = (f"no veo la carpeta compartida con {socio} ({base}): ¿está el "
+                        "pendrive puesto, o la conexión?")
+        else:
+            for sub in (mia, suya):
+                completa = os.path.join(base, sub)
+                try:
+                    if not os.path.lexists(completa):
+                        os.mkdir(completa)
+                except OSError:
+                    problema = (f"no pude crear {sub} en la carpeta compartida con {socio} "
+                                f"({base}): ¿hay permiso para escribir ahí?")
+                    break
+                if not es_carpeta_real(completa):
+                    problema = (f"en la carpeta compartida con {socio}, {sub} no es una "
+                                "carpeta de verdad (es un acceso directo, una unión u otra "
+                                "cosa): no la sigo. Borrala y corré de nuevo")
+                    break
+        if problema:
+            self.avisar(f"{problema}. En esta corrida no mando ni recibo nada de {socio}; lo "
+                        "que haya para mandarle queda anotado y sale la próxima vez")
+            self._carpetas[socio] = None
+        else:
+            self._carpetas[socio] = (os.path.join(base, mia), os.path.join(base, suya))
+        return self._carpetas[socio]
+
+    # ── lo que sale ──
+    def borrador(self, de_agente, mensaje, conversacion=None, en_respuesta_a=None,
+                 falla=None, campo=None):
+        """Un sobre para un socio, todavía sin número ni firma (eso se le pone al guardar,
+        con el candado de la memoria tomado). falla: el CÓDIGO del motivo (lista cerrada)."""
+        id = self.buzon.nuevo_id()
+        sobre = {"id": id, "clase": "mensaje" if falla is None else "falla",
+                 "de": {"programa": self.buzon.programa, "agente": de_agente},
+                 "para": {"programa": "(socio)", "agente": "(socio)"},
+                 "conversacion": conversacion or id, "en_respuesta_a": en_respuesta_a,
+                 "cuando": datetime.datetime.now().isoformat(timespec="seconds"),
+                 "mensaje": mensaje}
+        if falla is not None:
+            sobre["motivo"] = falla
+            if campo:
+                sobre["campo"] = campo
+        return sobre
+
+    def sale(self, socio, borrador):
+        self.borradores.append((socio, borrador))
+        self.tocado = True
+
+    def numerar(self, socio, est, borrador):
+        """Le pone el número que sigue y la firma, y lo deja "por salir"."""
+        ficha = self.fichas[socio]
+        est["enviado"] += 1
+        sobre = dict(borrador, mate_buzon=VERSION_DE_SOBRE_DE_SOCIO,
+                     socio={"huella": est["huella"], "lado": ficha["lado"],
+                            "numero": est["enviado"]})
+        sobre["firma"] = firma_de_sobre(sobre, ficha["clave"], ficha["lado"])
+        est["por_salir"].append(sobre)
+        if sobre["clase"] == "mensaje":
+            ids = est["ids"]
+            ids[sobre["id"]] = [huella_de_mensaje(sobre["mensaje"]), sobre["de"]["agente"]]
+            while len(ids) > MAX_IDS_ENVIADOS:
+                del ids[next(iter(ids))]
+
+    def cerrar(self, correo):
+        """Con el candado de la memoria tomado, justo antes de guardarla: numera y firma lo
+        que esta corrida mandó (y lo que esperaba una clave), y deja en 'correo' lo que hay
+        que guardar de los socios."""
+        estados = self.estado if self.recibio else correo["socios"]
+        correo["socios"] = estados
+        nuevos = {}
+        for socio, borrador in self.borradores:
+            nuevos.setdefault(socio, []).append(borrador)
+        self.borradores = []
+        for socio in sorted(set(nuevos) | self.listos):
+            est = estados.get(socio)
+            cola = list((est or {}).get("en_espera") or []) + nuevos.get(socio, [])
+            if not cola:
+                continue
+            if socio in self.listos and est and est.get("huella") == self.huella(socio):
+                est["en_espera"] = []
+                for borrador in cola:
+                    try:
+                        self.numerar(socio, est, borrador)
+                    except (ValueError, RecursionError, TypeError, KeyError):
+                        self.avisar(f"un mensaje para {socio} no se pudo firmar y no sale")
+                continue
+            if est is None:
+                est = estados[socio] = {"en_espera": []}
+            if len(cola) > MAX_EN_ESPERA:
+                self.avisar(
+                    f"OJO: hay más de {MAX_EN_ESPERA} mensajes para {socio} anotados sin "
+                    f"salir: los últimos {len(cola) - MAX_EN_ESPERA} NO se anotaron y se "
+                    "perdieron")
+                cola = cola[:MAX_EN_ESPERA]
+            est["en_espera"] = cola
+            self.avisar(
+                f"{cuantos_mensajes(len(cola))} para {socio} "
+                f"{'queda anotado' if len(cola) == 1 else 'quedan anotados'} y NO "
+                f"{'salió' if len(cola) == 1 else 'salieron'}: con ese socio todavía no se "
+                "puede mandar (lo dice el aviso de más arriba). "
+                f"{'Sale' if len(cola) == 1 else 'Salen'} cuando eso esté resuelto")
+
+    def dejar(self, carpeta, sobre):
+        """Escribe un sobre firmado en mi carpeta de la compartida: primero en un
+        provisorio y después con su nombre. Se escribe una sola vez y nunca se cambia."""
+        corto = hashlib.sha256(sobre["id"].encode("utf-8", "replace")).hexdigest()[:8]
+        final = os.path.join(carpeta, f"{sobre['socio']['numero']:08d}-{corto}.json")
+        provisorio = f"{final[:-len('.json')]}.{os.getpid()}-{secrets.token_hex(4)}.json.tmp"
+        try:
+            crudo = json.dumps(sobre, ensure_ascii=True, indent=1,
+                               allow_nan=False).encode("ascii")
+            with abrir_provisorio(provisorio, "xb") as f:
+                f.write(crudo)
+            # (en una carpeta sincronizada, el sincronizador o el antivirus pueden tener
+            # tomado el provisorio un instante: se insiste, como al guardar las claves)
+            insistir(lambda: os.replace(provisorio, final))
+        except (OSError, ValueError, RecursionError):
+            try:
+                insistir(lambda: os.remove(provisorio))
+            except OSError:
+                pass  # (si quedó, lo saca sacar_lo_mio_que_no_vale cuando tenga un día)
+            return False
+        return True
+
+    def es_de_otra_clave(self, socio, datos, lado, repetidas=False, huella=None):
+        """¿Eso tiene toda la forma de un sobre entre negocios de ese lado ("A" o "B"),
+        pero firmado con OTRA clave que la cargada (con esa huella, si se dice cuál)? Pasa
+        entre un 'socio renovar' de un lado y el 'socio aceptar' del otro. No dice nada de
+        quién lo escribió."""
+        if repetidas or not isinstance(datos, dict):
+            return False
+        version, firma, de_quien = datos.get("mate_buzon"), datos.get("firma"), \
+            datos.get("socio")
+        if type(version) is not int or version != VERSION_DE_SOBRE_DE_SOCIO \
+                or not (isinstance(firma, str) and _FIRMA.fullmatch(firma)) \
+                or not isinstance(de_quien, dict) \
+                or set(de_quien) != {"huella", "lado", "numero"}:
+            return False
+        suya, numero = de_quien["huella"], de_quien["numero"]
+        return (isinstance(suya, str) and bool(_HUELLA.fullmatch(suya))
+                and suya != self.huella(socio) and huella in (None, suya)
+                and de_quien["lado"] == lado
+                and type(numero) is int and 1 <= numero <= MAX_NUMERO_DE_SOBRE)
+
+    def sacar_lo_mio_que_no_vale(self, socio):
+        """Una vez por corrida: saca de la carpeta compartida los sobres que ESTE programa
+        dejó firmados con una clave anterior (las de 'antes' en su ficha: la huella de esa
+        clave y el lado que este programa tenía con ella, que dice en qué carpeta
+        escribía). Son los que quedaron viajando cuando se cambió la clave: el socio no los
+        llegó a traer, y con la clave nueva no los va a poder comprobar nunca. Se avisa
+        fuerte, porque para el que los mandó "ya habían salido". De paso, saca de la
+        carpeta donde escribe ahora los provisorios (.json.tmp) huérfanos de más de un día."""
+        if socio in self.limpios:
+            return
+        self.limpios.add(socio)
+        ficha = self.fichas[socio]
+        base, ahora, viejos = ficha["carpeta"], self.ahora(), []
+        if not es_carpeta_real(base):
+            return
+        lugares = [(f"de-{ficha['lado'].lower()}", None, None)] + [
+            (f"de-{a['lado'].lower()}", a["huella"], a["lado"]) for a in ficha.get("antes", ())]
+        for sub, huella, lado in lugares:
+            carpeta = os.path.join(base, sub)
+            if not es_carpeta_real(carpeta):
+                continue
+            try:
+                with os.scandir(carpeta) as hay:
+                    for n, entrada in enumerate(hay):
+                        if n >= MAX_MIRADOS_POR_CORRIDA:
+                            break
+                        bajo = entrada.name.lower()
+                        try:
+                            if huella is None:  # (mi carpeta de ahora: solo provisorios)
+                                if bajo.endswith(".json.tmp") \
+                                        and entrada.is_file(follow_symlinks=False) and ahora \
+                                        - entrada.stat(follow_symlinks=False).st_mtime \
+                                        >= ESPERA_DE_UN_ROTO:
+                                    os.remove(entrada.path)
+                                continue
+                            if not _SOBRE_EN_COMPARTIDA.fullmatch(bajo):
+                                continue
+                            with abrir_sin_seguir(entrada.path) as f:
+                                crudo = f.read(MAX_SOBRE + 1)
+                            if len(crudo) > MAX_SOBRE:
+                                continue
+                            datos, repetidas = json_de_sobre(crudo)
+                        except (OSError, ValueError, RecursionError):
+                            continue
+                        if self.es_de_otra_clave(socio, datos, lado, repetidas, huella):
+                            viejos.append(entrada.path)
+            except OSError:
+                continue
+        sacados = 0
+        for ruta in viejos:
+            try:
+                if es_carpeta_real(os.path.dirname(ruta)):
+                    os.remove(ruta)
+                    sacados += 1
+            except OSError:
+                pass
+        if sacados:
+            self.con_novedad.add(socio)
+            uno = sacados == 1
+            self.avisar(
+                f"OJO: {cuantos_mensajes(sacados)} que le habías mandado a {socio} "
+                f"{'seguía' if uno else 'seguían'} en la carpeta compartida "
+                f"{'firmado' if uno else 'firmados'} con la clave anterior: tu socio NO "
+                f"{'lo' if uno else 'los'} recibió, y con la clave nueva ya no "
+                f"{'vale' if uno else 'valen'}. {'Lo' if uno else 'Los'} saqué de ahí. Si "
+                f"{'hacía' if uno else 'hacían'} falta, hay que "
+                f"{'mandarlo' if uno else 'mandarlos'} de nuevo")
+
+    def repartir(self, correo):
+        """Deja en la carpeta compartida lo que está "por salir" de cada socio listo. Lo
+        que no se pudo dejar sigue anotado. Devuelve si salió algo (hay que guardar)."""
+        salio = False
+        for socio in sorted(self.listos):
+            est = correo["socios"].get(socio) or {}
+            pendientes = est.get("por_salir") or []
+            self.sacar_lo_mio_que_no_vale(socio)
+            if not pendientes:
+                continue
+            carpetas = self.carpetas(socio)
+            if carpetas is None:
+                continue
+            quedan = []
+            for sobre in pendientes:
+                if self.dejar(carpetas[0], sobre):
+                    self.con_novedad.add(socio)
+                    salio = True
+                    self.deje[socio] = self.deje.get(socio, 0) + 1
+                else:
+                    quedan.append(sobre)
+            est["por_salir"] = quedan
+            if quedan:
+                self.con_novedad.add(socio)
+                self.avisar_una_vez(("no pude", socio), (
+                    f"no pude dejar {cuantos_mensajes(len(quedan))} para {socio} en la "
+                    f"carpeta compartida ({self.fichas[socio]['carpeta']}): ¿hay permiso "
+                    "para escribir ahí? Queda anotado y sale la próxima vez que corra "
+                    f"{self.archivo}"))
+        return salio
+
+    # ── lo que llega ──
+    def recargar(self):
+        """Con el candado de la memoria tomado (y sin soltarlo hasta guardar): lee de nuevo
+        lo que la memoria lleva de los socios. Desde acá, esta corrida es la dueña."""
+        self.estado = self.leer_estado()
+        self.recibio = True
+        for socio in list(self.listos):
+            if (self.estado.get(socio) or {}).get("huella") != self.huella(socio):
+                self.listos.discard(socio)
+
+    def carpeta_de_pendientes(self):
+        return os.path.join(self.buzon.carpeta, "pendientes")
+
+    def hay_algo(self):
+        """¿Hay algo de algún socio para mirar (en la compartida o esperando el si)?"""
+        try:
+            if any(_PENDIENTE_DE_SOCIO.fullmatch(n.lower())
+                   for n in os.listdir(self.carpeta_de_pendientes())):
+                return True
+        except OSError:
+            pass
+        for socio in sorted(self.listos):
+            if (self.estado.get(socio) or {}).get("traidos"):
+                return True
+            carpetas = self.carpetas(socio)
+            if carpetas is None:
+                continue
+            try:
+                with os.scandir(carpetas[1]) as hay:
+                    if any(e.name.lower().endswith(".json") for e in hay):
+                        return True
+            except OSError:
+                pass
+        return False
+
+    def autenticar(self, socio, datos, repetidas=False):
+        """Por qué eso NO es un sobre firmado por ese socio, o None si lo es. No usa ningún
+        dato del sobre antes de comprobar la firma, y el socio lo da la carpeta donde
+        apareció el archivo: la huella tiene que ser la suya."""
+        ficha = self.fichas[socio]
+        if repetidas:
+            return "trae claves repetidas (un sobre firmado no puede)"
+        if not isinstance(datos, dict):
+            return "no es un sobre de Mate"
+        version = datos.get("mate_buzon")
+        if type(version) is not int or version != VERSION_DE_SOBRE_DE_SOCIO:
+            return ("no es un sobre entre negocios (dice mate_buzon: "
+                    f"{texto_ajeno(version, 20)} y acá solo valen los firmados, que dicen "
+                    f"{VERSION_DE_SOBRE_DE_SOCIO})")
+        firma, de_quien = datos.get("firma"), datos.get("socio")
+        if not (isinstance(firma, str) and _FIRMA.fullmatch(firma)):
+            return "no trae firma"
+        if not isinstance(de_quien, dict) or set(de_quien) != {"huella", "lado", "numero"}:
+            return "no dice de qué socio es"
+        if de_quien["huella"] != huella_de_clave(ficha["clave"]):
+            return "está firmado con otra clave (no es la de este socio)"
+        if de_quien["lado"] != ("B" if ficha["lado"] == "A" else "A"):
+            return ("dice venir de mi propio lado: es un sobre de este programa que alguien "
+                    "devolvió")
+        numero = de_quien["numero"]
+        if type(numero) is not int or not 1 <= numero <= MAX_NUMERO_DE_SOBRE:
+            return "trae un número de orden imposible"
+        if demasiado_hondo(datos):
+            return "trae demasiadas cosas una adentro de otra"
+        try:
+            esperada = firma_de_sobre(datos, ficha["clave"], de_quien["lado"])
+        except (ValueError, RecursionError, TypeError):
+            return "no se puede comprobar su firma"
+        if not hmac.compare_digest(esperada, firma):
+            return "la firma no es válida (no lo escribió tu socio, o alguien lo cambió)"
+        return None
+
+    def rechazar(self, socio, crudo, motivo, local=None, avisar=True):
+        """Algo de ese socio que no se entrega: va a 'rechazados' (la carpeta LOCAL del
+        programa, nunca la compartida) con su motivo, cuando la corrida guarda."""
+        motivo = texto_ajeno(motivo, LARGO_DE_MOTIVO)
+        cuantos = sum(1 for r in self.rechazos if r[0] == socio)
+        if cuantos >= MAX_RECHAZADOS_DE_SOCIO:
+            crudo = None  # (no se guarda en la mano más de lo que se va a poder copiar)
+        self.rechazos.append((socio, crudo, local, motivo))
+        self.con_novedad.add(socio)
+        self.no_entregados += 1
+        self.tocado = True
+        n = self._rechazos_avisados[socio] = self._rechazos_avisados.get(socio, 0) + 1
+        if avisar and n <= 5:
+            self.avisar(f"no entregué un mensaje de {socio}: {motivo}. Quedó en "
+                        f"{self.buzon.donde_van_los_rechazados()}")
+
+    def mirar(self, socio):
+        """Recorre lo que hay en la carpeta donde escribe ese socio y da (archivo, bytes,
+        sobre) por cada sobre NUEVO con su firma en regla. Lo demás lo resuelve acá:
+        - lo que no es un .json, un provisorio, una carpeta, un acceso directo o algo de más
+          de 2 MB: no se abre, no se sigue y no se toca (se cuenta);
+        - lo que no se entiende como JSON puede estar a medio llegar: se deja, y recién si
+          sigue así un día entero (del reloj de esta máquina) va a rechazados;
+        - un JSON sin firma válida de ESTE socio: a rechazados, sin contestarle a nadie;
+        - salvo el que tiene toda la forma de un sobre del socio pero firmado con OTRA
+          clave: uno de los dos renovó la clave y el otro todavía no la aceptó. Ese no se
+          entrega, no se rechaza y NO se borra de la compartida: se avisa. Si el que renovó
+          es el socio, se entrega cuando acá se cargue la clave nueva; si fue este lado, lo
+          saca el programa del socio cuando la acepte (y le avisa que no llegó);
+        - un número ya visto con el mismo contenido (una copia en conflicto, un archivo
+          que la sincronización revivió): se borra sin ruido; con otro contenido, o por
+          debajo de lo que ya se dejó de recordar: a rechazados, con aviso."""
+        est = self.estado[socio]
+        carpetas = self.carpetas(socio)
+        if carpetas is None:
+            return
+        candidatos, otros, ocupados, de_otra_clave = [], 0, 0, 0
+        su_lado = "B" if self.fichas[socio]["lado"] == "A" else "A"
+        try:
+            with os.scandir(carpetas[1]) as hay:
+                for n, entrada in enumerate(hay):
+                    if n >= MAX_MIRADOS_POR_CORRIDA:
+                        self.avisar(
+                            f"en la carpeta compartida con {socio} hay más de "
+                            f"{MAX_MIRADOS_POR_CORRIDA} archivos: miro esos y el resto "
+                            "queda para la próxima corrida")
+                        break
+                    bajo = entrada.name.lower()
+                    if bajo.endswith(".tmp"):
+                        continue
+                    if not bajo.endswith(".json"):
+                        otros += 1
+                        continue
+                    forma = _SOBRE_EN_COMPARTIDA.fullmatch(bajo)
+                    try:
+                        comun = entrada.is_file(follow_symlinks=False)
+                    except OSError:
+                        comun = False
+                    candidatos.append(((0, int(forma.group(1)), bajo) if forma
+                                       else (1, 0, bajo), entrada.path, comun))
+        except OSError:
+            self.avisar(f"no pude mirar la carpeta compartida con {socio}: lo que haya "
+                        "llegado queda para la próxima corrida")
+            return
+        candidatos.sort()  # primero los que tienen la forma esperada, por número
+        ahora, rotos, siguen = int(self.ahora()), est.setdefault("rotos", {}), set()
+        esperando = 0
+        for _, ruta, comun in candidatos:
+            base = os.path.basename(ruta)
+            try:
+                with abrir_sin_seguir(ruta) as f:
+                    crudo = f.read(MAX_SOBRE + 1)
+            except OSError:
+                if comun:
+                    ocupados += 1  # un archivo común que AHORA no se puede abrir
+                else:
+                    otros += 1  # una carpeta, un acceso directo u otra cosa
+                continue
+            if len(crudo) > MAX_SOBRE:
+                otros += 1
+                continue
+            try:
+                datos, repetidas = json_de_sobre(crudo)
+            except RecursionError:
+                otros += 1
+                continue
+            except ValueError:
+                clave = hashlib.sha256(base.encode("utf-8", "replace")).hexdigest()[:16]
+                siguen.add(clave)
+                desde = rotos.get(clave)
+                if desde is None:
+                    if len(rotos) < MAX_A_MEDIO_LLEGAR:
+                        rotos[clave] = ahora
+                        self.tocado = True
+                    esperando += 1
+                elif desde < 0:
+                    otros += 1  # (ya se rechazó: sigue ahí hasta que alguien lo saque)
+                elif ahora - desde >= ESPERA_DE_UN_ROTO:
+                    rotos[clave] = -1
+                    self.rechazar(socio, crudo, (
+                        f"el archivo {base} no se entiende, y lleva más de un día así en "
+                        "la carpeta compartida (no es un mensaje a medio llegar). Mate no "
+                        "lo borra de ahí: sacalo a mano"))
+                else:
+                    esperando += 1
+                continue
+            if not isinstance(datos, dict) or "mate_buzon" not in datos:
+                otros += 1
+                continue
+            motivo = self.autenticar(socio, datos, repetidas)
+            if motivo and self.es_de_otra_clave(socio, datos, su_lado, repetidas):
+                de_otra_clave += 1  # (se deja donde está: ver arriba)
+                continue
+            if motivo:
+                # (no cuenta como visto, y a quien no se autenticó no se le contesta)
+                self.rechazar(socio, crudo, f"el archivo {base}: {motivo}")
+                self.por_borrar.append(ruta)
+                continue
+            numero, marca = datos["socio"]["numero"], datos["firma"][:16]
+            visto = est["vistos"].get(str(numero))
+            if visto == marca:
+                self.por_borrar.append(ruta)  # repetido: el mismo sobre, otra vez
+                self.tocado = True
+                continue
+            if visto is not None:
+                self.rechazar(socio, crudo, (
+                    f"OJO: llegó el número {numero} de {socio} por segunda vez y con OTRO "
+                    "contenido. Tu socio repitió un número (puede haber restaurado una "
+                    "copia vieja de su programa): renueven la clave"))
+                self.por_borrar.append(ruta)
+                continue
+            if numero <= est["piso"]:
+                self.rechazar(socio, crudo, (
+                    f"llegó tarde el {numero} de {socio} y ya no se acepta (es más viejo "
+                    "que lo que este programa recuerda haber visto)"))
+                self.por_borrar.append(ruta)
+                continue
+            yield ruta, crudo, datos
+        for clave in list(rotos):  # lo que ya no está, o ya se entiende, se olvida
+            if clave not in siguen:
+                del rotos[clave]
+                self.tocado = True
+        if esperando or otros or ocupados or de_otra_clave:
+            self.con_novedad.add(socio)
+        if de_otra_clave:
+            uno = de_otra_clave == 1
+            self.avisar_una_vez(("otra clave", socio), (
+                f"OJO: en la carpeta compartida con {socio} hay "
+                f"{cuantos_mensajes(de_otra_clave)} {'firmado' if uno else 'firmados'} con "
+                f"otra clave que la que tenés cargada (control {self.control(socio)}): no "
+                f"{'lo' if uno else 'los'} entrego, no {'lo' if uno else 'los'} borro y no "
+                "contesto. Si tu socio RENOVÓ la clave, cargá la nueva y "
+                f"{'se entrega' if uno else 'se entregan'} en la corrida siguiente:  "
+                f"{self.orden_de('aceptar', socio)}   Si la renovaste VOS, tu socio "
+                f"todavía no la aceptó: lo que mandó con la clave vieja no vale (lo saca su "
+                "programa cuando la acepte, y le avisa)"))
+        if ocupados:
+            self.avisar_una_vez(("ocupados", socio), (
+                f"en la carpeta compartida con {socio} hay "
+                f"{'1 archivo que ahora no se puede abrir' if ocupados == 1 else f'{ocupados} archivos que ahora no se pueden abrir'}"
+                " (lo puede tener tomado el programa que sincroniza la carpeta, o el "
+                "antivirus): no lo toco, y lo miro de nuevo en la próxima corrida. No lo "
+                "borres"))
+        if esperando:
+            self.avisar(
+                f"en la carpeta compartida con {socio} hay "
+                f"{'1 archivo que todavía no se entiende' if esperando == 1 else f'{esperando} archivos que todavía no se entienden'}"
+                " (puede estar a medio llegar): lo dejo y lo miro de nuevo en la próxima "
+                "corrida")
+        if otros:
+            self.avisar_una_vez(("otros", socio), (
+                f"en la carpeta compartida con {socio} hay {otros} "
+                f"{'cosa que no es un sobre' if otros == 1 else 'cosas que no son sobres'} "
+                "de Mate (otro archivo, una carpeta, un acceso directo o algo demasiado "
+                "pesado): no lo abro, no lo sigo y no lo borro. Sacalo a mano"))
+
+    def visto(self, socio, sobre, pendiente=False):
+        """Anota ese número como visto (con la marca de su firma, para distinguir un
+        repetido de un número usado dos veces). pendiente: además queda esperando el si."""
+        est = self.estado[socio]
+        numero = sobre["socio"]["numero"]
+        self.con_novedad.add(socio)
+        est["vistos"][str(numero)] = sobre["firma"][:16]
+        if pendiente and numero not in est["traidos"]:
+            est["traidos"].append(numero)
+        if len(est["vistos"]) > MAX_VISTOS:  # se olvidan los más viejos, y sube el piso
+            numeros = sorted(int(n) for n in est["vistos"])
+            for n in numeros[:len(numeros) - MAX_VISTOS]:
+                del est["vistos"][str(n)]
+                est["piso"] = max(est["piso"], n)
+        self.tocado = True
+
+    def cuantos_esperan(self, socio):
+        return len(self.estado[socio]["traidos"])
+
+    def a_pendientes(self, socio, sobre, crudo, ruta):
+        """Un sobre firmado y bien formado: se copia a la carpeta LOCAL 'pendientes' (con
+        un nombre que arma Mate: la huella de la clave y el número), se anota su número y
+        recién después de guardar se borra de la compartida. Devuelve si se pudo."""
+        if self.cuantos_esperan(socio) >= MAX_PENDIENTES_POR_SOCIO:
+            self.avisar_una_vez(("tope", socio), (
+                f"ya hay {MAX_PENDIENTES_POR_SOCIO} mensajes de {socio} esperando tu si, "
+                "que es el tope: lo demás que mandó queda en la carpeta compartida hasta "
+                "que contestes esos"))
+            return False
+        carpeta = self.carpeta_de_pendientes()
+        numero = sobre["socio"]["numero"]
+        final = os.path.join(carpeta, f"s{self.huella(socio)}-{numero:08d}.json")
+        provisorio = None
+        try:
+            if os.path.lexists(carpeta) and not es_carpeta_de_verdad(carpeta):
+                raise OSError
+            os.makedirs(carpeta, exist_ok=True)
+            provisorio = nombre_provisorio(final)
+            with abrir_provisorio(provisorio, "xb") as f:
+                f.write(crudo)
+            os.replace(provisorio, final)
+        except OSError:
+            try:
+                if provisorio is not None:
+                    os.remove(provisorio)
+            except OSError:
+                pass
+            self.avisar_una_vez(("pendientes", socio), (
+                f"no pude guardar lo que llegó de {socio} en "
+                f"{os.path.join(os.path.basename(self.buzon.carpeta), 'pendientes')}: queda "
+                "en la carpeta compartida para la próxima corrida"))
+            return False
+        self.visto(socio, sobre, pendiente=True)
+        self.con_novedad.add(socio)
+        self.por_borrar.append(ruta)
+        return True
+
+    def pendientes(self):
+        """[(socio, número, archivo)] de lo que espera el si, en orden. De paso:
+        - un archivo de 'pendientes' cuyo número no figura como "traído y sin entregar" (ya
+          se entregó y la corrida se cortó antes de borrarlo, o alguien lo puso a mano) se
+          borra sin preguntar: nunca se entrega dos veces;
+        - lo que es de una clave que ya no se usa (se renovó, o se quitó el socio) se
+          descarta con aviso."""
+        carpeta = self.carpeta_de_pendientes()
+        if not es_carpeta_de_verdad(carpeta):
+            return []
+        de_quien = {huella_de_clave(f["clave"]): s for s, f in self.fichas.items()}
+        try:
+            nombres = sorted(os.listdir(carpeta))
+        except OSError:
+            return []
+        esperan, viejos = [], 0
+        for nombre in nombres:
+            forma = _PENDIENTE_DE_SOCIO.fullmatch(nombre)
+            if not forma:
+                continue
+            ruta = os.path.join(carpeta, nombre)
+            socio, numero = de_quien.get(forma.group(1)), int(forma.group(2))
+            if socio is None:
+                viejos += 1
+                self.rechazos.append((None, None, ruta, (
+                    "esperaba el si con una clave que ya no se usa (se renovó la clave o se "
+                    "quitó el socio): se descarta")))
+                self.tocado = True
+                continue
+            if socio not in self.listos:
+                continue  # (ese socio está frenado: no se toca hasta que se resuelva)
+            if numero not in self.estado[socio]["traidos"]:
+                self.locales_por_borrar.append(ruta)
+                self.tocado = True
+                continue
+            esperan.append((socio, numero, ruta))
+        if viejos:
+            self.avisar(f"{cuantos_mensajes(viejos)} que "
+                        f"{'esperaba' if viejos == 1 else 'esperaban'} tu si "
+                        f"{'era' if viejos == 1 else 'eran'} de una clave que ya no se usa: "
+                        f"se {'descarta' if viejos == 1 else 'descartan'} (quedan en "
+                        f"{self.buzon.donde_van_los_rechazados()})")
+        return esperan
+
+    def releer(self, socio, numero, ruta):
+        """El sobre de ese pendiente, con la firma comprobada DE NUEVO: lo que está en
+        'pendientes' es un archivo de esta máquina, y alguien lo pudo cambiar. NoSeEntrega
+        si no es el mismo que llegó; OSError si ahora no se puede abrir."""
+        with abrir_sin_seguir(ruta) as f:
+            crudo = f.read(MAX_SOBRE + 1)
+        try:
+            if len(crudo) > MAX_SOBRE:
+                raise ValueError
+            datos, repetidas = json_de_sobre(crudo)
+        except (ValueError, RecursionError):
+            raise NoSeEntrega("ya no se entiende")
+        motivo = self.autenticar(socio, datos, repetidas)
+        if motivo:
+            raise NoSeEntrega(motivo)
+        marca = self.estado[socio]["vistos"].get(str(numero))
+        if datos["socio"]["numero"] != numero or marca not in (None, datos["firma"][:16]):
+            raise NoSeEntrega("no es el mismo sobre que llegó con ese número")
+        return datos
+
+    def resuelto(self, socio, numero, ruta, entregado=True):
+        """Ese pendiente ya no espera: se entregó (o se resolvió sin entregar). El número
+        deja de figurar "sin entregar" en la MISMA escritura de memoria que guarda el
+        estado del agente; el archivo se borra después."""
+        est = self.estado[socio]
+        if numero in est["traidos"]:
+            est["traidos"].remove(numero)
+        self.locales_por_borrar.append(ruta)
+        self.tocado = True
+        if entregado:
+            self.atendi[socio] = self.atendi.get(socio, 0) + 1
+
+    def descartar(self, socio, numero, ruta, motivo, avisar=True):
+        """Un pendiente que no se entrega: sale de la cuenta y va a 'rechazados'."""
+        est = self.estado[socio]
+        if numero in est["traidos"]:
+            est["traidos"].remove(numero)
+        self.rechazar(socio, None, motivo, local=ruta, avisar=avisar)
+
+    def anotar_falla(self, socio, id, numero):
+        """De ese mensaje enviado ya se aceptó un aviso de falla (el de ese número): no se
+        acepta otro."""
+        anotado = self.estado[socio]["ids"].get(id)
+        if anotado is not None:
+            self.estado[socio]["ids"][id] = anotado[:2] + [numero]
+            self.tocado = True
+
+    def cambio(self):
+        return bool(self.tocado or self.borradores or self.deje)
+
+    def acomodar(self):
+        """Después de guardar la memoria: copia lo rechazado a 'rechazados', y borra de la
+        compartida lo ya atendido y de 'pendientes' lo ya resuelto. De la compartida solo
+        se borra lo que se abrió sin seguir accesos directos y era un sobre (o decía
+        serlo), y solo si su carpeta sigue siendo una carpeta de verdad."""
+        sin_lugar = {}
+        for socio, crudo, local, motivo in self.rechazos:
+            if not self.guardar_rechazo(socio, crudo, local, motivo):
+                sin_lugar[socio] = sin_lugar.get(socio, 0) + 1
+        self.sin_copia += sum(sin_lugar.values())
+        for socio, cuantos in sin_lugar.items():
+            self.avisar(
+                f"en {self.buzon.donde_van_los_rechazados()} ya hay "
+                f"{MAX_RECHAZADOS_DE_SOCIO} rechazados de {socio or 'socios'} (o más de "
+                f"{MAX_PESO_DE_RECHAZADOS // 1_000_000} MB): {cuantos} más no se "
+                "guardaron. Revisá esa carpeta y vaciala")
+        reales = {}
+        for ruta in self.por_borrar:
+            carpeta = os.path.dirname(ruta)
+            if carpeta not in reales:
+                reales[carpeta] = es_carpeta_real(carpeta)
+            if not reales[carpeta]:
+                continue
+            try:
+                os.remove(ruta)
+            except OSError:
+                pass
+        for ruta in self.locales_por_borrar:
+            try:
+                os.remove(ruta)
+            except OSError:
+                pass
+        self.rechazos, self.por_borrar, self.locales_por_borrar = [], [], []
+        self.tocado = False
+
+    def guardar_rechazo(self, socio, crudo, local, motivo):
+        """Deja en 'rechazados' ese archivo (con un nombre que arma Mate, nunca con el
+        nombre ni el id ajenos) y su motivo al lado. Con cupo por socio: lo que llega de
+        afuera sin firma no puede llenar el disco. Devuelve False si no había lugar."""
+        carpeta = os.path.join(self.buzon.carpeta, "rechazados")
+        prefijo = f"socio-{self.huella(socio) or 'viejo'}-"
+        try:
+            if os.path.lexists(carpeta) and not es_carpeta_de_verdad(carpeta):
+                raise OSError
+            os.makedirs(carpeta, exist_ok=True)
+            hay = [n for n in os.listdir(carpeta)
+                   if n.startswith(prefijo) and n.endswith(".json")]
+            pesan = sum(os.path.getsize(os.path.join(carpeta, n)) for n in hay)
+            if len(hay) >= MAX_RECHAZADOS_DE_SOCIO or crudo is None and local is None \
+                    or pesan + len(crudo or b"") > MAX_PESO_DE_RECHAZADOS:
+                if local is not None:
+                    os.remove(local)
+                return False
+            nombre = (f"{prefijo}{datetime.datetime.now():%Y%m%d-%H%M%S}-"
+                      f"{secrets.token_hex(3)}")
+            destino = os.path.join(carpeta, nombre + ".json")
+            if local is not None:
+                os.replace(local, destino)
+            else:
+                with open(destino, "xb") as f:
+                    f.write(crudo)
+            escribir_entero(os.path.join(carpeta, nombre + ".motivo.txt"), (
+                f"Mate no entregó este mensaje"
+                + (f" de tu socio {socio}" if socio else "")
+                + f" ({datetime.datetime.now():%d/%m/%Y %H:%M}).\n"
+                f"Motivo: {motivo}\n"
+                "Los mensajes de otro negocio no se reintentan a mano: si hacía falta, "
+                "pedile a tu socio que lo mande de nuevo.\n"))
+        except (OSError, ValueError):
+            return True  # (no se pudo escribir: no es falta de lugar, y ya se avisó arriba)
+        return True
+
+    def resumen(self):
+        renglones = []
+        for socio, n in self.atendi.items():
+            renglones.append(f"Socios: entregué {cuantos_mensajes(n)} de {socio}.")
+        if self.no_entregados:
+            guardados = max(0, self.no_entregados - self.sin_copia)
+            donde = self.buzon.donde_van_los_rechazados()
+            renglones.append(
+                f"Socios: {self.no_entregados} no se "
+                f"{'entregó' if self.no_entregados == 1 else 'entregaron'}: "
+                + (f"{'está' if self.no_entregados == 1 else 'están'} en {donde}."
+                   if not self.sin_copia else
+                   f"{guardados} {'quedó' if guardados == 1 else 'quedaron'} en {donde} y "
+                   f"de {'el otro' if self.sin_copia == 1 else f'los otros {self.sin_copia}'}"
+                   " no se guardó copia (el cupo de rechazados estaba lleno)."))
+        for socio, n in self.deje.items():
+            renglones.append(f"Socios: dejé {cuantos_mensajes(n)} para {socio} en la carpeta "
+                             f"compartida; {'le llega' if n == 1 else 'le llegan'} cuando "
+                             "corra su programa (y diga que si).")
+        if self.miro:
+            # Una corrida sin nada que mandar ni recibir también lo dice: el dueño que
+            # corre los pasos en otro orden tiene que saber que anduvo.
+            for socio in sorted(self.listos):
+                if socio in self.con_novedad or socio in self.atendi or socio in self.deje \
+                        or (self.estado.get(socio) or {}).get("traidos") \
+                        or not self._carpetas.get(socio):
+                    continue
+                renglones.append(f"Socios: no llegó nada nuevo de {socio}.")
+        return renglones
+
+
+def avisos_de_socios(programa):
+    """Lo que conviene saber antes de correr un programa con socios (avisos, no errores):
+    un agente que recibe mensajes de otro negocio y además consulta a la IA le pasa a la IA
+    texto ajeno. Los frenos siguen valiendo, pero ese texto no es de confianza."""
+    avisos = []
+    agentes = {s[2]: s for s in programa if s[0] == "agente"}
+    con_ia = {nombre for nombre, s in agentes.items() if _nombra(s, {"consultar_ia"})}
+
+    def les_puede_pasar(nombre):
+        """Los agentes que consultan a la IA y a los que ese agente nombra (les manda o
+        les pregunta), directo o a través de otros: a esos les puede pasar el texto."""
+        vistos, por_ver = {nombre}, [nombre]
+        while por_ver:
+            actual = agentes[por_ver.pop()]
+            for otro in agentes:
+                if otro not in vistos and _nombra(actual, {otro}):
+                    vistos.add(otro)
+                    por_ver.append(otro)
+        return sorted((vistos - {nombre}) & con_ia)
+
+    for socio, tipos in socios_declarados(programa).items():
+        for tipo in tipos:
+            for nombre, s in agentes.items():
+                if not any(m[1] == tipo for m in s[4]):
+                    continue
+                if nombre in con_ia:
+                    avisos.append(
+                        f"{nombre} recibe {tipo} del socio {socio} y además consulta a la "
+                        "IA: lo que escribe otro negocio es texto ajeno aunque le hayas "
+                        "dicho que si. No se lo pases a consultar_ia() tal cual (los "
+                        "'frenos' lo limitan, no lo vuelven confiable)")
+                for otro in les_puede_pasar(nombre):
+                    avisos.append(
+                        f"{nombre} recibe {tipo} del socio {socio} y nombra a {otro}, que "
+                        "consulta a la IA: lo que escribe otro negocio es texto ajeno "
+                        "aunque le hayas dicho que si. Que no le llegue a consultar_ia() "
+                        "tal cual, tampoco pasando por otro agente (los 'frenos' lo "
+                        "limitan, no lo vuelven confiable)")
+    return list(dict.fromkeys(avisos))
+
+
+def huecos_de_socio(est, tope=5):
+    """Los números de ese socio que faltan entre los ya vistos, como rangos ("14", "20 a
+    25") y con tope: un sobre perdido o borrado en el camino se nota. Nunca se recorre
+    número por número: un socio que manda el 10^15 no cuelga nada."""
+    vistos = sorted(int(n) for n in est.get("vistos", {}))
+    rangos, anterior = [], est.get("piso", 0)
+    for n in vistos:
+        if n > anterior + 1:
+            rangos.append(str(anterior + 1) if n == anterior + 2
+                          else f"{anterior + 1} a {n - 1}")
+        anterior = max(anterior, n)
+    return rangos[:tope] + (["..."] if len(rangos) > tope else [])
 
 
 def leccion_limpia(texto):
@@ -5932,6 +7637,8 @@ class Interprete:
         self.remitentes = {}  # los que llegaron como remitente: (programa, agente) -> agente
         self.charla_de_buzon = {}  # número de conversación de acá -> su id entre programas
         self.id_de_buzon = {}  # número del mensaje que llegó del buzón -> el id de su sobre
+        self.charla_de_socio = {}  # número de conversación de acá -> el socio con quien es
+        self.sin_dueno = False  # ya no hay quién conteste el "¿Lo entrego?" (0.8)
         self._armados = {}  # lo que ya está armado para correr (ver 'armar_bloque')
         self._nativas()
 
@@ -6249,6 +7956,9 @@ class Interprete:
             if not nombre.strip():
                 raise ErrorMate(f'{donde}: falta el nombre del archivo, por ejemplo "notas.txt"',
                                 familia="archivo")
+            if es_archivo_de_clave(os.path.join(carpeta, nombre)) or es_archivo_de_clave(ruta):
+                raise ErrorMate(f"{donde}: " + NO_SE_LEE_LA_CLAVE.format(
+                    n=os.path.basename(nombre.replace("\\", "/"))), familia="archivo")
             if not adentro:
                 suelto = os.path.basename(nombre.replace("\\", "/").rstrip("/")) or "notas.txt"
                 raise ErrorMate(
@@ -7215,6 +8925,8 @@ class Interprete:
                 elif s[0] == "agente_ajeno":
                     ag = self.agente_de_otro(s[2], s[4], nombre_de_programa(s[4]), s[5],
                                              s[3])
+                    if s[4] == SOCIO:
+                        ag.socio = s[2]
                     self.ajenos[s[2]] = ag
                     self.glob.definir(s[2], ag, origen="agente")
             except ErrorMate as e:
@@ -7447,7 +9159,7 @@ class Interprete:
                 if self.agentes[s[2]].env is None:
                     self.instanciar(self.agentes[s[2]])
             elif s[0] not in ("mensaje", "funcion", "prueba", "usar_python",
-                              "contrato_conversacion", "agente_ajeno"):
+                              "contrato_conversacion", "agente_ajeno", "usar_socio"):
                 self.ejecutar(s, self.glob)
         self.vaciar_cola()
         if not pruebas:
@@ -7649,8 +9361,10 @@ class Interprete:
             and not isinstance(dest.manejadores.get(msg.tipo), tuple)
         if traza and aviso:
             self.trazar(f"{dest.nombre} se entera de que {self.con_programa(rem)} no pudo "
-                        f"atender {msg.campos['mensaje'].tipo}: {msg.campos['motivo']}",
-                        None, hondo)
+                        f"atender {msg.campos['mensaje'].tipo}: "
+                        + (texto_ajeno(msg.campos['motivo'], MAX_LARGO)
+                           if rem is not None and rem.ajeno is not None
+                           else str(msg.campos['motivo'])), None, hondo)
         elif traza:
             flecha = "pregunta a" if pregunta else "→"
             # El sobre se anota en los renglones sin sangría: lo de más adentro es de la
@@ -7659,7 +9373,8 @@ class Interprete:
             if not hondo:
                 anotado = f"   (conversación {conversacion - conversacion0}"
                 if al_buzon:
-                    anotado += ", al buzón: " + (
+                    anotado += (", a otro negocio: " if dest.socio is not None
+                                else ", al buzón: ") + (
                         "sale al terminar" if self.buzon is not None else
                         "en una prueba no se escribe" if self.probando else
                         "acá no se escribe")
@@ -7668,8 +9383,14 @@ class Interprete:
                 anotado += (
                     f", en respuesta al {self.vistos.get(respuesta_a, respuesta_a - numero0)})"
                     if respuesta_a else ")")
+            escrito = formato(msg)
+            if numero in self.id_de_buzon or (rem is not None and rem.ajeno is not None) \
+                    or dest.socio is not None:
+                # (vino de otro programa o de otro negocio, o va a otro negocio y puede
+                # repetir lo que vino: lo que no se ve, escapado)
+                escrito = texto_ajeno(escrito, MAX_LARGO)
             self.trazar(f"{self.con_programa(rem)} {flecha} {self.con_programa(dest)}: "
-                        f"{formato(msg)}{anotado}", visto, hondo)
+                        f"{escrito}{anotado}", visto, hondo)
         if al_buzon:
             self.sale_al_buzon(rem, dest, msg, conversacion, respuesta_a)
             return None
@@ -7751,7 +9472,20 @@ class Interprete:
         if pesa > MAX_MENSAJE_AL_BUZON:
             raise ErrorMate(f"el mensaje para {dest.nombre} pesa más de 1 MB: mandá menos "
                             "datos por vez", linea, clase="falla", familia="contrato")
+        if dest.socio is not None:  # (entre negocios los topes son mucho más chicos)
+            problema = no_entra_de_socio(datos)
+            if problema:
+                raise ErrorMate(f"{msg.tipo} no puede ir a {dest.nombre} (otro negocio): "
+                                f"{problema}. " + (
+                                    "Sacalos antes de mandarlo" if problema is TEXTO_QUE_NO_SE_VE
+                                    else "Mandá menos datos por vez"), linea,
+                                clase="falla", familia="contrato")
         return datos
+
+    def va_a_un_socio(self, dest, msg):
+        """A un socio se le puede mandar cualquier mensaje declarado (también uno declarado
+        después del 'usar socio', como pasa en la consola): qué acepta lo decide él."""
+        return dest.socio is not None and msg.tipo in self.mensajes
 
     def revisar_envio(self, dest, msg, linea):
         """Los controles de un 'enviar' a un agente de otro programa, en ese renglón."""
@@ -7761,7 +9495,7 @@ class Interprete:
             raise ErrorMate(
                 f"para mandarle a {dest.nombre} ({dest.ajeno}) algo que no sea la "
                 f'contestación, agregá arriba: usar buzon "{otro}"', linea)
-        if msg.tipo not in dest.manejadores:
+        if msg.tipo not in dest.manejadores and not self.va_a_un_socio(dest, msg):
             raise ErrorMate(f"{dest.nombre} no sabe recibir '{msg.tipo}'", linea,
                             familia="agente")
         contrato = self.contrato_conversacion
@@ -7779,6 +9513,17 @@ class Interprete:
                     f"aviso: desde la consola no sale nada para otro programa: el mensaje "
                     f"para {dest.nombre} ({dest.ajeno}) no se escribió en ningún buzón. "
                     "Para mandarlo de verdad, ponelo en un archivo y usá 'correr'")
+            return
+        if dest.socio is not None:
+            # A otro negocio: queda como borrador; el número y la firma se le ponen al
+            # guardar. La conversación y el "en respuesta a" solo se anotan si son de ESE
+            # socio: nunca se le cuenta a un socio un id de otro lado.
+            socios = buzon.socios
+            mismo = self.charla_de_socio.get(conversacion) == dest.socio
+            socios.sale(dest.socio, socios.borrador(
+                rem.nombre if rem else SUELTO_EN_EL_BUZON, self.para_el_buzon(msg, dest),
+                self.charla_de_buzon.get(conversacion) if mismo else None,
+                self.id_de_buzon.get(respuesta_a) if mismo else None))
             return
         if dest.carpeta_buzon is None:
             self.avisar_una_vez(("sin remitente", dest.programa), (
@@ -7832,14 +9577,270 @@ class Interprete:
         if self.buzon is None:
             return
         self.buzon.atendio = True
-        for ruta in self.buzon.abrir():
+        archivos = self.buzon.abrir()
+        if archivos:
+            self.buzon.enviados = set(self.buzon.leer_correo()["enviados"])
+        for ruta in archivos:
             self.atender_sobre(ruta)
+        self.atender_socios()
+
+    # ── los socios: lo que llega de otro negocio (0.8) ──
+    def atender_socios(self):
+        """Después del buzón local: trae lo que los socios dejaron en la carpeta compartida
+        (lo que trae su firma en regla) y le pregunta al dueño, mensaje por mensaje, si lo
+        entrega. Nada de otro negocio llega a un agente sin ese si."""
+        buzon = self.buzon
+        socios = buzon.socios
+        if socios is None or not socios.listos:
+            return
+        if not socios.hay_algo():
+            socios.miro = True  # (se miró, y no había nada)
+            return
+        puede = buzon.se_puede_guardar(1)
+        if puede is not True:
+            if puede is None:
+                self.avisar(f"otra ventana de {buzon.archivo} tiene tomado el candado de la "
+                            "memoria: lo que mandaron los socios queda para la próxima "
+                            "corrida")
+            return
+        if buzon.cambio_la_memoria()[0]:
+            self.avisar(f"otra ventana de {buzon.archivo} guardó cambios mientras esta "
+                        "estaba abierta; lo que mandaron los socios queda para la próxima "
+                        "corrida")
+            return
+        socios.recargar()
+        for socio in sorted(socios.listos):
+            for ruta, crudo, sobre in socios.mirar(socio):
+                self.traer_de_socio(socio, ruta, crudo, sobre)
+        quedan = 0
+        for socio, numero, ruta in socios.pendientes():
+            quedan += not self.resolver_pendiente(socio, numero, ruta)
+        socios.miro = True
+        if quedan:
+            self.avisar(
+                f"{cuantos_mensajes(quedan)} de socios "
+                f"{'espera' if quedan == 1 else 'esperan'} tu si: no se "
+                f"{'entregó' if quedan == 1 else 'entregaron'} a ningún agente. Para verlos:"
+                f"  {orden_para_esta_carpeta()} buzon {para_pegar(buzon.archivo)}   Para "
+                f"contestar, corré {buzon.archivo} de nuevo")
+
+    def revisar_de_socio(self, socio, sobre, al_entregar=False):
+        """Un sobre de ese socio, ya con la firma comprobada: lo que se le va a mostrar al
+        dueño y a entregar. Se valida ANTES de preguntar (el 'acepta' de ese socio, el
+        contrato de este programa y los topes entre negocios): el dueño aprueba lo mismo
+        que recibe el agente, entero. NoSeEntrega si no va; su .codigo es el motivo que
+        vuelve al socio (de la lista cerrada), o None si no se le contesta.
+        'de' y 'para' del sobre no deciden nada: el remitente es el socio, y el
+        destinatario es el único agente de acá que recibe ese tipo."""
+        socios = self.buzon.socios
+
+        def no(texto, codigo=None, campo=None):
+            e = NoSeEntrega(texto)
+            e.codigo, e.campo = codigo, campo
+            return e
+
+        try:
+            revisar_sobre(sobre, hasta=VERSION_DE_SOBRE_DE_SOCIO)
+        except NoSeEntrega as e:
+            raise no(f"lo que mandó {socio}: {e}")
+        falla, mensaje = sobre["clase"] == "falla", sobre["mensaje"]
+        if not (isinstance(mensaje, dict) and set(mensaje) == {"tipo", "campos"}
+                and isinstance(mensaje["tipo"], str) and isinstance(mensaje["campos"], dict)):
+            raise no(f"lo que mandó {socio} no trae un mensaje con la forma de siempre")
+        tipo = mensaje["tipo"]
+        visto = texto_ajeno(tipo, 60)
+        problema = no_entra_de_socio(mensaje)
+        if problema:
+            raise no(f"{visto} de {socio}: {problema}", None if falla else "contrato")
+        if falla:
+            # Solo vale el aviso de falla de un mensaje que este programa le mandó de
+            # verdad a ESE socio, y uno solo por mensaje.
+            numero = sobre["socio"]["numero"]
+            anotado = socios.estado[socio]["ids"].get(sobre.get("en_respuesta_a"))
+            if anotado is None or (len(anotado) == 2) == al_entregar \
+                    or (len(anotado) > 2 and anotado[2] != numero):
+                raise no(f"el aviso de {socio} de que no pudo con {visto} nombra un mensaje "
+                         "que este programa no le mandó (o del que ya avisó): no lo tomo")
+            codigo = sobre.get("motivo")
+            motivo = MOTIVOS_DE_SOCIO.get(codigo if isinstance(codigo, str) else "",
+                                          "motivo desconocido")
+            campo = sobre.get("campo")
+            if codigo == "contrato" and isinstance(campo, str) \
+                    and _NOMBRE_DE_CAMPO.fullmatch(campo):
+                motivo += f" (campo '{campo}')"
+            msg = None
+            if huella_de_mensaje(mensaje) == anotado[0]:  # (es lo mismo que yo mandé)
+                try:
+                    msg = self.mensaje_de_afuera(mensaje)
+                except (ErrorMate, TypeError, KeyError):
+                    msg = None
+            dest = self.agentes.get(anotado[1]) if isinstance(anotado[1], str) else None
+            if msg is None or dest is None or AL_FALLAR not in dest.manejadores:
+                dest = None  # (no hay 'al fallar' que lo atienda: es solo un aviso)
+            return {"falla": True, "tipo": visto, "msg": msg, "dest": dest,
+                    "motivo": motivo}
+        if tipo not in socios.declarados.get(socio, ()):
+            raise no(f"no acepto '{visto}' de {socio} (no está en el 'acepta' de ese "
+                     "socio)", "no_acepto")
+        quienes = [a for a in self.agentes.values()
+                   if any(m[1] == tipo for m in a.decl[4])]
+        if len(quienes) != 1:
+            raise no(f"{visto} de {socio}: acá no hay un único agente que lo reciba",
+                     "no_acepto")
+        try:
+            msg = self.mensaje_de_afuera(mensaje)
+        except (ErrorMate, TypeError, KeyError) as e:
+            dicho = getattr(e, "mensaje", "no se entiende")
+            campo = next((c for c, _, _ in self.mensajes.get(tipo, ())
+                          if f"{tipo}.{c} " in dicho or f"'{c}'" in dicho), None)
+            raise no(f"{visto} de {socio} no cumple el contrato: {dicho}", "contrato", campo)
+        return {"falla": False, "tipo": tipo, "msg": msg, "dest": quienes[0]}
+
+    def falla_a_socio(self, socio, sobre, codigo, campo=None, de_agente=None):
+        """Le avisa a ese socio que su mensaje no se atendió. Viaja firmado, y el motivo es
+        un CÓDIGO de una lista cerrada: nunca el texto de un error de este programa. No se
+        contesta una falla con otra, ni lo que no pasó la firma (eso ni llega acá)."""
+        if codigo is None or not isinstance(sobre, dict) or sobre.get("clase") != "mensaje":
+            return
+        socios = self.buzon.socios
+        mensaje = sobre.get("mensaje")
+        if not isinstance(mensaje, dict) or no_entra_de_socio(mensaje) is not None:
+            mensaje = {"tipo": "?", "campos": {}}  # (no se le devuelve lo que no entra)
+        socios.sale(socio, socios.borrador(
+            de_agente or SUELTO_EN_EL_BUZON, mensaje, None, sobre["id"], falla=codigo,
+            campo=campo if isinstance(campo, str) and _NOMBRE_DE_CAMPO.fullmatch(campo)
+            else None))
+
+    def traer_de_socio(self, socio, ruta, crudo, sobre):
+        """Un sobre nuevo de ese socio, con la firma en regla: si además cumple lo que este
+        programa le acepta, queda en 'pendientes' esperando el si. Si no, se rechaza ya (y
+        ahí sí se le avisa: se autenticó)."""
+        socios = self.buzon.socios
+        try:
+            que = self.revisar_de_socio(socio, sobre)
+        except NoSeEntrega as e:
+            socios.visto(socio, sobre)
+            socios.rechazar(socio, crudo, str(e))
+            socios.por_borrar.append(ruta)
+            self.falla_a_socio(socio, sobre, e.codigo, e.campo)
+            if self.traza:
+                self.trazar(f"socios: no se entregó {texto_ajeno(str(e), LARGO_DE_MOTIVO)}")
+            return
+        if que["falla"] and que["dest"] is None:
+            # Un aviso de falla que ningún 'al fallar' atiende no toca nada: se muestra.
+            socios.visto(socio, sobre)
+            socios.anotar_falla(socio, sobre["en_respuesta_a"], sobre["socio"]["numero"])
+            socios.por_borrar.append(ruta)
+            self.avisar(f"tu socio {socio} avisa que no atendió {que['tipo']}: "
+                        f"{que['motivo']}")
+            return
+        if socios.a_pendientes(socio, sobre, crudo, ruta) and que["falla"]:
+            socios.anotar_falla(socio, sobre["en_respuesta_a"], sobre["socio"]["numero"])
+
+    def preguntar_al_dueno(self, socio, sobre, que):
+        """Muestra lo que mandó el socio, ENTERO y tal como lo va a recibir el agente, y
+        pregunta. Devuelve "si", "no" o "despues": solo "si" entrega; con Enter, con otra
+        cosa, sin teclado o con Ctrl+C queda pendiente. No hay "si a todos"."""
+        socios = self.buzon.socios
+        cuando = sobre.get("cuando")
+        try:
+            cuando = f"{datetime.datetime.fromisoformat(cuando):%d/%m/%Y %H:%M}"
+        except (TypeError, ValueError):
+            cuando = texto_ajeno(cuando, 30) if isinstance(cuando, str) else "sin fecha"
+        quien = f"{socio} (control {socios.control(socio)})"
+        if que["falla"]:
+            self.salida(f"{quien} avisa que NO atendió {valor_ajeno(que['msg'])}")
+            self.salida(f"  Motivo: {que['motivo']}.")
+        else:
+            self.salida(f"{quien} te manda {valor_ajeno(que['msg'])}")
+        self.salida(f"  escrito el {cuando} según el reloj de tu socio. Lo recibe: "
+                    f"{que['dest'].nombre}.")
+        if self.sin_dueno:
+            return "despues"
+        try:
+            dicho = self.entrada("¿Lo entrego? (si / no / despues)")
+        except (EOFError, OSError, UnicodeError, KeyboardInterrupt):
+            self.sin_dueno = True  # no hay quién conteste: lo que falta queda pendiente
+            self.salida("  (nadie contestó: queda pendiente)")
+            return "despues"
+        dicho = dicho.replace("\ufeff", "").strip().lower()
+        return "si" if dicho in ("si", "sí") else "no" if dicho == "no" else "despues"
+
+    def resolver_pendiente(self, socio, numero, ruta):
+        """Un mensaje de un socio que espera el si. Devuelve False si sigue esperando."""
+        socios = self.buzon.socios
+        try:
+            sobre = socios.releer(socio, numero, ruta)
+        except OSError:
+            return False  # ahora no se puede abrir: otra vez será
+        except NoSeEntrega as e:
+            # Lo cambiaron en 'pendientes' (o se rompió): no es lo que firmó el socio.
+            socios.descartar(socio, numero, ruta, (
+                f"el mensaje {numero} de {socio} que esperaba tu si: {e}. No se entrega"))
+            return True
+        try:
+            que = self.revisar_de_socio(socio, sobre, al_entregar=True)
+        except NoSeEntrega as e:
+            socios.descartar(socio, numero, ruta, str(e))
+            self.falla_a_socio(socio, sobre, e.codigo, e.campo)
+            return True
+        if que["dest"] is None:
+            socios.resuelto(socio, numero, ruta, entregado=False)
+            self.avisar(f"tu socio {socio} avisa que no atendió {que['tipo']}: "
+                        f"{que['motivo']}")
+            return True
+        dicho = self.preguntar_al_dueno(socio, sobre, que)
+        if dicho == "despues":
+            return False
+        dest, msg = que["dest"], que["msg"]
+        if dicho == "no":
+            socios.descartar(socio, numero, ruta, (
+                f"{que['tipo']} de {socio} (el número {numero}): el dueño lo descartó"),
+                avisar=False)
+            self.falla_a_socio(socio, sobre, "descartado", de_agente=dest.nombre)
+            self.salida("  No se entregó: queda en rechazados"
+                        + ("." if que["falla"] else ", y tu socio recibe el aviso."))
+            return True
+        rem = self.ajenos[socio]
+        self.conversaciones += 1
+        conversacion = self.conversaciones
+        # (la conversación solo sigue una que este programa empezó con ESE socio)
+        suya = sobre.get("conversacion")
+        self.charla_de_buzon[conversacion] = suya \
+            if suya in socios.estado[socio]["ids"] else sobre["id"]
+        self.charla_de_socio[conversacion] = socio
+        if que["falla"]:
+            msg = Registro(AL_FALLAR, {"motivo": que["motivo"], "mensaje": msg,
+                                       "destino": rem})
+        else:
+            self.id_de_buzon[self.cuenta["enviar"] + self.cuenta["preguntar"] + 1] \
+                = sobre["id"]
+        esperado = self.cuenta["enviar"] + self.cuenta["preguntar"]
+        try:
+            self.entregar(rem, dest, msg, pregunta=False, sobre=(conversacion, None))
+        except ErrorMate as e:
+            if self.cuenta["enviar"] + self.cuenta["preguntar"] == esperado:
+                self.id_de_buzon.pop(esperado + 1, None)
+            if e.clase != "limite":
+                self.anotar_error_de_agente(dest, msg, e)
+            # (el estado del agente volvió atrás; no se reintenta: va a rechazados, y al
+            # socio le vuelve el código, no el texto del error)
+            socios.descartar(socio, numero, ruta, (
+                f"{que['tipo']} de {socio}: {dest.nombre} falló al atenderlo: {e.mensaje}"))
+            self.falla_a_socio(socio, sobre, "fallo", de_agente=dest.nombre)
+            if e.clase == "limite":
+                raise
+            return True
+        socios.resuelto(socio, numero, ruta)
+        self.vaciar_cola()  # lo que el agente contestó o mandó a raíz de este mensaje
+        return True
 
     def no_entregar(self, ruta, motivo, sobre=None):
         """Un sobre que no se entrega: va a 'rechazados' con su motivo (cuando el programa
         termina y guarda), se avisa y, si era un mensaje de alguien que se reconoce, le
         vuelve el aviso de la falla. Nunca se contesta una falla con otra falla."""
         buzon = self.buzon
+        motivo = texto_ajeno(motivo, 2 * LARGO_DE_MOTIVO)  # (trae texto de afuera)
         buzon.rechazos.append((ruta, motivo))
         buzon.no_entregados += 1
         if self.traza:
@@ -7882,14 +9883,16 @@ class Interprete:
             self.no_entregar(ruta, f"el archivo {os.path.basename(ruta)}: {e}")
             return
         de, para, falla = sobre["de"], sobre["para"], sobre["clase"] == "falla"
-        # (el motivo de una falla viene de afuera: va en un renglón y recortado)
-        motivo = en_un_renglon(sobre["motivo"], LARGO_DE_MOTIVO) if falla else None
-        origen = buzon.visible(de["programa"])
+        # (el motivo de una falla viene de afuera: va en un renglón, recortado y limpio)
+        motivo = texto_ajeno(en_un_renglon(sobre["motivo"], LARGO_DE_MOTIVO),
+                             LARGO_DE_MOTIVO + 3) if falla else None
+        origen = texto_ajeno(buzon.visible(de["programa"]), 160)
         tipo = "un mensaje"
         if isinstance(sobre["mensaje"], dict) and isinstance(sobre["mensaje"].get("tipo"), str):
-            tipo = en_un_renglon(sobre["mensaje"]["tipo"], 60) or tipo
-        que = (f"el aviso de {de['agente']} ({origen}) de que no pudo atender {tipo}"
-               if falla else f"{tipo} de {de['agente']} ({origen})") + f" para {para['agente']}"
+            tipo = texto_ajeno(en_un_renglon(sobre["mensaje"]["tipo"], 60), 63) or tipo
+        de_quien, para_quien = texto_ajeno(de["agente"], 200), texto_ajeno(para["agente"], 200)
+        que = (f"el aviso de {de_quien} ({origen}) de que no pudo atender {tipo}"
+               if falla else f"{tipo} de {de_quien} ({origen})") + f" para {para_quien}"
         if para["programa"].casefold() != buzon.programa.casefold():
             return self.no_entregar(ruta, f"{que}: es para otro programa "
                                           f"({para['programa']}), no para {buzon.archivo}")
@@ -7897,10 +9900,23 @@ class Interprete:
             return self.no_entregar(ruta, f"{que}: dice venir de este mismo programa, y un "
                                           "programa no se manda mensajes por el buzón a sí "
                                           "mismo")
+        # (0.8, P161) Solo se entrega lo que viene de un programa que este conoce. A un
+        # desconocido no se le contesta: el aviso se escribiría en la carpeta de un nombre
+        # que eligió quien dejó el sobre.
+        conocido = buzon.conoce(de, self.ajenos, falla)
+        if conocido is not True:
+            return self.no_entregar(ruta, f"{que}: {conocido}")
         clave = f"{de['programa'].casefold()}/{sobre['id']}"
         if clave in buzon.ya_recibidos or clave in buzon.recibidos:
             buzon.atendidos.append(ruta)  # ya se había atendido: se borra sin entregar
             return None
+        if falla and f"{de['programa'].casefold()}/{sobre.get('en_respuesta_a')}" \
+                not in buzon.enviados:
+            # Un aviso de falla solo vale si nombra un mensaje que este programa le mandó
+            # de verdad a ese programa: si no, cualquiera inventa uno y repone stock.
+            return self.no_entregar(ruta, f"{que}: nombra un mensaje que este programa no "
+                                          f"le mandó a {origen} (un aviso de falla solo "
+                                          "vale por un mensaje enviado de verdad)")
         # (lo que mandó el programa suelto no tiene a quién contestarle, como siempre)
         rem = None if not falla and de["agente"] == SUELTO_EN_EL_BUZON \
             else self.remitente_de(de)
@@ -8035,7 +10051,8 @@ class Interprete:
                 if not isinstance(valor, Registro):
                     raise ErrorMate("a un 'enviar' solo se le responde con un mensaje",
                                     renglon_respuesta)
-                if valor.tipo not in rem.manejadores and not rem.solo_responde:
+                if valor.tipo not in rem.manejadores and not rem.solo_responde \
+                        and not self.va_a_un_socio(rem, valor):
                     raise ErrorMate(
                         f"{dest.nombre} respondió {valor.tipo} a {rem.nombre}, pero "
                         f"{rem.nombre} no tiene 'al recibir {valor.tipo}'", renglon_respuesta)
@@ -8473,7 +10490,7 @@ class Interprete:
             for dest in destinos:  # primero se revisan todos: sale para todos o para nadie
                 if dest.ajeno is not None:
                     it.revisar_envio(dest, msg, linea)
-                if msg.tipo not in dest.manejadores:
+                if msg.tipo not in dest.manejadores and not it.va_a_un_socio(dest, msg):
                     raise ErrorMate(f"{dest.nombre} no sabe recibir '{msg.tipo}'", linea,
                                     familia="agente")
             sobre = (it.en_conversacion(), None)  # (a varios: una sola conversación)
@@ -9401,6 +11418,18 @@ AGENTES Y MENSAJES
   entrega, validado con el contrato, cuando corre deposito.mate. La contestación vuelve
   igual y se recibe con un 'al recibir'. Lo mejor es declarar los mensajes en un solo
   archivo (mensajes.mate) y traerlo con 'usar' desde los dos programas.
+- usar socio Proveedor acepta Cotizacion, SinStock (0.8): Proveedor es OTRO NEGOCIO, que
+  corre su programa en otra máquina. Queda como destino de 'enviar' y como 'remitente' (no
+  se le puede 'preguntar' ni 'crear', ni va adentro de un mensaje). Se le manda al negocio,
+  no a un agente: del otro lado lo recibe el único agente que tiene 'al recibir' de ese
+  mensaje. Después de 'acepta' van los únicos mensajes que se le reciben, y cada uno
+  tiene que tener exactamente un agente que lo reciba. Los mensajes van en un archivo
+  aparte (trato.mate) que cada negocio trae con 'usar'. La clave del socio NO va en el
+  programa: la carga la persona con la orden 'socio'. Lo que llega de un socio no se
+  entrega solo: Mate lo muestra y pregunta "¿Lo entrego?". Por eso lo que mueve plata o
+  stock tiene que controlarlo además el agente (que el pedido exista, que el total
+  coincida, que no esté ya hecho). Los textos de un mensaje entre negocios son cortos
+  (hasta 500 letras, 8 KB en total) y no se le pasan tal cual a consultar_ia().
 - usar python "ayudas.py" trae las funciones escritas con 'def' en ese archivo de Python,
   que está en la carpeta del programa (nombre en minúsculas, sin espacios). Se llaman con el
   nombre del archivo adelante:  sea r = ayudas.raiz(144)
@@ -9689,6 +11718,28 @@ AYUDA = {
               "    }\n}\n"
               "# (para probarlo sin el otro programa)\n"
               'enviar Reservar { producto: "yerba", cantidad: 2 } a Deposito'),
+    "socio": ("después de 'usar': nombra OTRO NEGOCIO, que corre su programa en otra "
+              "máquina (0.8). Queda como destino de 'enviar' y como 'remitente' (no se le "
+              "puede 'preguntar'). Después de 'acepta' van los únicos mensajes que se le "
+              "reciben. Los dos negocios comparten una carpeta (de OneDrive, de red o un "
+              "pendrive) y una clave, que se carga con la orden 'socio invitar' de un lado "
+              "y 'socio aceptar' del otro y no va nunca en el programa. Cada mensaje viaja "
+              "firmado; lo que no trae la firma de ese socio no se entrega. Y lo que llega "
+              "no toca nada solo: Mate lo muestra y pregunta \"¿Lo entrego?\", mensaje "
+              "por mensaje. No va cifrado: quien ve la carpeta compartida lo puede leer. "
+              "Para ensayarlo en una sola PC: la orden 'nuevo socio'",
+              "# En comprador.mate iría, arriba:\n"
+              "#     usar socio Proveedor acepta Cotizacion\n"
+              "# y en un agente:\n"
+              '#     enviar Pedido { producto: "yerba", cantidad: 10 } a Proveedor\n'
+              "# Lo que contesta el proveedor llega, después de tu si, a este agente:\n"
+              "mensaje Cotizacion { producto: texto, total: numero }\n"
+              "agente Compras {\n"
+              "    al recibir Cotizacion como c {\n"
+              '        mostrar("Cotizaron {c.producto} en {c.total}")\n'
+              "    }\n}\n"
+              "# (para probarlo sin el otro negocio)\n"
+              'enviar Cotizacion { producto: "yerba", total: 35000 } a Compras'),
     "python": ("después de 'usar': trae las funciones de un archivo de Python que está al "
                "lado del programa, para sumar lo que Mate no trae. Se llaman con el nombre "
                "del archivo adelante. Cruzan números, textos, verdadero/falso, nada, listas "
@@ -11541,10 +13592,13 @@ def orden_nuevo(args, avisar, mostrar=print):
     orden = orden_para_esta_carpeta()
     que = sin_tildes(args[0].lower()) if args else ""
     que_falta = "al escribir la orden: 'nuevo' sin decir qué crear o con qué nombre"
+    if que == "socio":  # (0.8) el ensayo de dos negocios que se hablan
+        return nuevo_socio(args[1:], avisar, mostrar)
     if que not in _QUE_CREA_NUEVO:
         avisar("después de 'nuevo' va qué crear y con qué nombre. Crea un mostrador o un "
                f"equipo de agentes:  {orden} nuevo mostrador mi_negocio   o   "
-               f"{orden} nuevo equipo mi_negocio", que_falta, True)
+               f"{orden} nuevo equipo mi_negocio   (y el ensayo de dos negocios que se "
+               f"hablan:  {orden} nuevo socio)", que_falta, True)
         return 2
     armar, casos_de_muestra = _QUE_CREA_NUEVO[que]
     ejemplo = f"{orden} nuevo {que} mi_negocio"
@@ -12787,6 +14841,19 @@ def texto_de_ayuda():
         "  buzon deposito.mate      muestra qué hay en el buzón de ese programa: los mensajes",
         "                           que esperan, los que están por salir y los rechazados",
         "",
+        "Para que tu programa se hable con el de OTRO negocio, en otra máquina (mirá 'ayuda",
+        "socio'):",
+        "  usar socio Proveedor acepta Cotizacion   va en el programa: Proveedor queda como",
+        "                           destino de 'enviar', y solo se le reciben esos mensajes.",
+        "                           Viajan firmados por una carpeta que comparten los dos, y",
+        "                           lo que llega no se entrega sin tu si",
+        "  nuevo socio              arma el ensayo en esta PC: dos negocios, la carpeta que",
+        "                           comparten y los pasos para copiar",
+        "  socio invitar comprador.mate Proveedor   genera la clave de ese socio y dice cómo",
+        "                           pasársela (en un pendrive, o dictada). Del otro lado:",
+        "                           socio aceptar proveedor.mate Cliente. Para cambiarla,",
+        "                           socio renovar; para sacarla, socio quitar",
+        "",
         "Para sumar lo que Mate no trae (mirá 'ayuda python'):",
         '  usar python "ayudas.py"  va en el programa: trae las funciones de ese archivo de',
         "                           Python, que está al lado, y se llaman ayudas.nombre(...).",
@@ -13262,7 +15329,8 @@ def _orden_de_memoria(orden, args, borrar, avisar, opciones, respuestas, tomado)
         if agente is None and " ".join(args[1].split()).lower() in ajenos:
             otro = ajenos[" ".join(args[1].split()).lower()]
             avisar(de_otro_programa(otro[2], otro[4], f"usar '{orden}' con él")
-                   + f". Probá con:  {como_se_llama()} {orden} {otro[4]} {otro[2]} ...")
+                   + ("" if otro[4] == SOCIO else
+                      f". Probá con:  {como_se_llama()} {orden} {otro[4]} {otro[2]} ..."))
             return 2
         if agente is None:
             avisar(f"{programa} no tiene un agente '{args[1]}'.{sugerir(args[1], declarados)}"
@@ -13505,6 +15573,746 @@ def orden_propuestas(args, memoria, guardar, listar, avisar):
     return 0
 
 
+# ─────────────── La orden 'socio': la clave que comparten dos negocios (0.8) ───────────────
+# 'socio invitar' genera la clave y dice cómo pasársela al otro negocio POR FUERA (en un
+# pendrive, o dictada por teléfono); 'socio aceptar' la carga del otro lado; 'socio
+# renovar' la cambia y 'socio quitar' la saca. La clave nunca va como parte de la orden
+# (quedaría en el historial de PowerShell), ni en el .mate, ni en la carpeta compartida.
+# En pantalla se muestra solo su "número de control", que los dos socios comparan por
+# teléfono: es lo único que detecta un pendrive cambiado en el camino.
+ARCHIVO_DE_INVITACION = "invitacion-mate.txt"
+_NOMBRE_DE_INVITACION = re.compile(r"(?i)invitacion-mate[\w\-]*\.txt")
+AVISO_DE_INVITACION = (
+    "NO MANDES ESTE ARCHIVO POR MAIL NI POR WHATSAPP, y no lo copies a la carpeta "
+    "compartida: es la clave de un socio de Mate. Llevalo en un pendrive, cargalo con "
+    "'socio aceptar' y borralo.")
+
+
+def pedir_oculto(pregunta):
+    """Pide un texto SIN mostrarlo mientras se tipea (la clave que dictó el socio). Si acá
+    no se puede ocultar lo que se escribe, ErrorMate: la clave no se tipea a la vista."""
+    import getpass
+    import warnings
+    no_se_puede = ErrorMate(
+        "acá no puedo ocultar lo que se tipea, y la clave de un socio no se escribe a la "
+        "vista. Corré esta orden en una ventana de PowerShell común, o pedile a tu socio "
+        "el archivo de invitación y pasalo con --invitacion=...")
+    try:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            raise no_se_puede
+    except (AttributeError, ValueError):
+        raise no_se_puede
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # (getpass avisa, en vez de fallar, si no oculta)
+        try:
+            return getpass.getpass(pregunta)
+        except (Warning, EOFError, OSError):
+            raise no_se_puede
+
+
+def leer_invitacion(ruta):
+    """La clave que trae ese archivo de invitación. OSError si no es un archivo común o no
+    se puede abrir; ErrorMate si no es una invitación entera. Del archivo solo se usan la
+    versión y la clave: nada de rutas ni de otros datos."""
+    with abrir_sin_seguir(ruta) as f:
+        crudo = f.read(10_001)
+    version = clave = None
+    for renglon in crudo[:10_000].decode("utf-8-sig", "replace").splitlines():
+        partes = renglon.strip().split(":", 1)
+        if len(partes) == 2 and partes[0].strip() == "mate-invitacion":
+            version = partes[1].strip()
+        elif len(partes) == 2 and partes[0].strip() == "clave":
+            clave = clave_de_socio_valida(partes[1])
+    if version != "1" or clave is None:
+        raise ErrorMate(
+            f"{os.path.basename(ruta)} no es una invitación de Mate entera (o está dañada): "
+            "pedile a tu socio que la genere de nuevo con 'socio renovar'")
+    return clave
+
+
+def escribir_invitacion(destino, clave):
+    """Escribe la invitación sin pisar nada y, donde el sistema lo permite, legible solo
+    para el dueño. Trae nada más que el aviso, la versión y la clave."""
+    texto = f"{AVISO_DE_INVITACION}\nmate-invitacion: 1\nclave: {clave_en_grupos(clave)}\n"
+    fd = os.open(destino, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0), 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(texto.replace("\n", os.linesep).encode("utf-8"))
+
+
+def sobres_en_viaje(ficha):
+    """Cuántos sobres de ESTE lado siguen en la carpeta compartida con ese socio (los dejó
+    este programa y el otro todavía no los trajo). Solo cuenta: no abre ni toca nada."""
+    mia = os.path.join(ficha["carpeta"], "de-a" if ficha["lado"] == "A" else "de-b")
+    cuantos = 0
+    try:
+        if not es_carpeta_real(mia):
+            return 0
+        with os.scandir(mia) as hay:
+            for n, entrada in enumerate(hay):
+                if n >= MAX_MIRADOS_POR_CORRIDA:
+                    break
+                cuantos += bool(_SOBRE_EN_COMPARTIDA.fullmatch(entrada.name.lower()))
+    except OSError:
+        return 0
+    return cuantos
+
+
+def preparar_compartida(carpeta):
+    """Deja armada la carpeta compartida: de-a, de-b y el LEEME (sin pisar nada)."""
+    for sub in ("de-a", "de-b"):
+        completa = os.path.join(carpeta, sub)
+        if not os.path.lexists(completa):
+            os.mkdir(completa)
+    leeme = os.path.join(carpeta, LEEME_DE_COMPARTIDA)
+    if not os.path.lexists(leeme):
+        with open(leeme, "x", encoding="utf-8-sig") as f:
+            f.write(TEXTO_DEL_LEEME.replace("\n", os.linesep))
+
+
+def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_terminal=None):
+    """La orden 'socio invitar|aceptar|renovar|quitar programa.mate Socio'. Devuelve el
+    código de salida. entrada, oculto y es_terminal son para las pruebas: de dónde salen
+    las respuestas, la clave tipeada, y si la pantalla es una ventana de verdad."""
+    entrada = entrada or por_teclado
+    orden = orden_para_esta_carpeta()
+    opciones, resto = {}, []
+    for a in args:
+        bajo = sin_tildes(a.lower())
+        if bajo == "--dictar":
+            opciones["dictar"] = True
+        elif bajo.startswith("--carpeta=") or bajo.startswith("--invitacion="):
+            nombre, _, valor = a.partition("=")
+            opciones[sin_tildes(nombre.lower())[2:]] = valor.strip().strip('"').strip("'")
+        elif a.startswith("--"):
+            avisar(f"'socio' no conoce la opción {a}. Las que hay son --carpeta=..., "
+                   "--invitacion=... y --dictar. (La clave nunca va en la orden.)")
+            return 2
+        else:
+            resto.append(a)
+    que = sin_tildes(resto[0].lower()) if resto else ""
+    if que not in ("invitar", "aceptar", "renovar", "quitar") or len(resto) != 3:
+        avisar("'socio' lleva qué hacer, el programa y el nombre del socio (el de su 'usar "
+               f"socio'). Por ejemplo:\n  {orden} socio invitar comprador.mate Proveedor   "
+               "(genera la clave y dice cómo pasársela)\n"
+               f"  {orden} socio aceptar proveedor.mate Cliente     (carga la clave que te "
+               f"pasó tu socio)\n  {orden} socio renovar comprador.mate Proveedor   (cambia "
+               f"la clave)\n  {orden} socio quitar comprador.mate Proveedor    (la saca)")
+        return 2
+    ruta, problema = _ubicar(resto[1])
+    if problema:
+        avisar(problema)
+        return 2
+    if not ruta.lower().endswith((".mate", ".mate.txt")):
+        avisar(f"'socio' lleva un programa de Mate (un archivo .mate), y "
+               f"'{os.path.basename(ruta)}' no lo es")
+        return 2
+    programa, raiz = os.path.basename(ruta), os.path.dirname(os.path.abspath(ruta))
+    try:
+        declarados = socios_declarados(analizar(leer_fuente(ruta), ruta))
+    except OSError:
+        avisar(f"no pude abrir {ruta}")
+        return 2
+    except ErrorMate as e:
+        avisar(f"{programa} tiene un error y así no sé qué socios declara: {e.mensaje}. "
+               f"Miralo con:  {orden} verificar {para_pegar(resto[1])}")
+        return 2
+    socio = next((s for s in declarados if s == resto[2]), None) \
+        or next((s for s in declarados if s.lower() == resto[2].lower()), None)
+    if socio is None:
+        avisar(f"{programa} no declara ningún socio '{resto[2]}'."
+               + (" Sus socios son: " + ", ".join(declarados) + "." if declarados else "")
+               + " Para declararlo, agregá arriba en el programa un renglón como:  usar "
+               f"socio {resto[2][:1].upper() + resto[2][1:]} acepta Cotizacion   (después "
+               "de 'acepta' van los mensajes que le recibís)")
+        return 2
+    fichas, problema = leer_socios(ruta)
+    if problema:
+        avisar(problema)
+        return 1
+    existente = fichas.get(socio)
+    de_claves = os.path.basename(archivo_de(ruta, "socios.json"))
+
+    def preguntar(texto):
+        try:
+            return entrada(texto).replace("\ufeff", "").strip()
+        except (EOFError, OSError, UnicodeError):
+            return None
+
+    def dijo_si(texto):
+        return (preguntar(texto) or "").lower() in ("si", "sí")
+
+    def elegir_carpeta(previa=None):
+        carpeta = opciones.get("carpeta")
+        if carpeta is None and previa is not None:
+            return previa
+        if carpeta is None:
+            carpeta = (preguntar(
+                f"¿Cuál es la carpeta que compartís con {socio}? Tiene que ser una carpeta "
+                "aparte, solo para ustedes dos (de OneDrive, de Google Drive, de red o un "
+                "pendrive). Escribí la ruta completa: ") or "").strip('"').strip("'")
+        if not carpeta:
+            avisar("falta la carpeta compartida, y no hice nada. Por ejemplo:  "
+                   f"{orden} socio {que} {para_pegar(resto[1])} {socio} "
+                   "--carpeta=C:\\Compartida")
+            return None
+        carpeta = os.path.abspath(os.path.expanduser(carpeta))
+        if not es_carpeta_real(carpeta):
+            avisar(f"no encuentro la carpeta {carpeta} (o no es una carpeta de verdad). "
+                   "Creala primero, compartila con tu socio y corré esta orden de nuevo")
+            return None
+        problema = problema_de_compartida(raiz, carpeta)
+        if problema:
+            avisar(f"no uso esa carpeta: {problema}")
+            return None
+        for otro, ficha in fichas.items():
+            if otro != socio and una_adentro_de_otra(ficha["carpeta"], carpeta):
+                avisar(f"esa carpeta ya es la que compartís con {otro} (o está adentro): "
+                       "cada par de negocios usa una carpeta aparte, que solo ven ellos dos")
+                return None
+        return carpeta
+
+    def en_una_compartida(donde, carpeta):
+        """¿Ese lugar está adentro de la carpeta compartida con este socio o con otro?"""
+        return any(esta_adentro(donde, c) for c in
+                   [carpeta] + [f["carpeta"] for f in fichas.values()])
+
+    def terminal():
+        if es_terminal is not None:
+            return es_terminal()
+        try:
+            return sys.stdout.isatty()
+        except (AttributeError, ValueError):
+            return False
+
+    def como_pasarla(carpeta):
+        """Dónde escribir la invitación, "" si se dicta, o None si no se puede seguir."""
+        destino, dictar = opciones.get("invitacion"), opciones.get("dictar")
+        if destino is None and not dictar:
+            mostrar(f"¿Cómo le pasás la clave a {socio}? Nunca por mail ni por WhatsApp:")
+            mostrar("  1) En un pendrive o en mano (lo recomendado): Mate escribe un "
+                    "archivo de invitación.")
+            mostrar("  2) Dictada por teléfono: Mate la muestra UNA vez en pantalla.")
+            dicho = preguntar("Escribí 1 o 2: ")
+            if dicho == "2":
+                dictar = True
+            elif dicho == "1":
+                destino = (preguntar(
+                    "¿En qué carpeta dejo el archivo de invitación? (por ejemplo E:\\ si "
+                    "el pendrive es la unidad E): ") or "").strip('"').strip("'")
+            if not dictar and not destino:
+                avisar("no hice nada: faltó decir cómo le pasás la clave. Por ejemplo:  "
+                       f"{orden} socio {que} {para_pegar(resto[1])} {socio} "
+                       "--invitacion=E:\\")
+                return None
+        if dictar:
+            if not terminal():
+                avisar("--dictar muestra la clave en pantalla, y eso lo hago solo en una "
+                       "ventana de verdad: acá la salida va a un archivo o a otro programa, "
+                       "y la clave quedaría escrita ahí. No hice nada")
+                return None
+            return ""
+        destino = os.path.abspath(os.path.expanduser(destino))
+        if os.path.isdir(destino):
+            destino = os.path.join(destino, ARCHIVO_DE_INVITACION)
+        if not _NOMBRE_DE_INVITACION.fullmatch(os.path.basename(destino)):
+            avisar(f"el archivo de invitación se llama {ARCHIVO_DE_INVITACION} (o "
+                   "invitacion-mate-algo.txt): decime solo la carpeta donde lo dejo, por "
+                   "ejemplo --invitacion=E:\\")
+            return None
+        if not os.path.isdir(os.path.dirname(destino)):
+            avisar(f"no encuentro la carpeta {os.path.dirname(destino)} para dejar la "
+                   "invitación: ¿está puesto el pendrive?")
+            return None
+        if en_una_compartida(os.path.dirname(destino), carpeta):
+            avisar("la invitación lleva la clave: no va en la carpeta compartida, ni en la "
+                   "que compartís con otro socio (ahí la lee quien vea la carpeta). Dejala "
+                   "en un pendrive y llevásela a tu socio. No hice nada")
+            return None
+        if os.path.lexists(destino):
+            avisar(f"ya hay un {os.path.basename(destino)} en {os.path.dirname(destino)} y "
+                   "no piso archivos: borralo (si es una invitación vieja, ya no sirve) o "
+                   "elegí otra carpeta")
+            return None
+        return destino
+
+    def claves_de_antes(ficha, clave):
+        """Anota en la ficha nueva la huella (no la clave) de la que se va, y el lado."""
+        antes = list(existente.get("antes", ())) if existente else []
+        if existente and existente["clave"] != clave:
+            antes.insert(0, {"huella": huella_de_clave(existente["clave"]),
+                             "lado": existente["lado"]})
+        if antes:
+            ficha["antes"] = antes[:MAX_CLAVES_DE_ANTES]
+
+    def guardar(nuevas):
+        try:
+            guardar_socios(ruta, nuevas)
+        except OSError:
+            avisar(f"no pude escribir {de_claves} en {raiz}: fijate que se pueda escribir "
+                   "en esa carpeta. No cambié nada")
+            return False
+        return True
+
+    def comparar_control(clave):
+        control = control_de_socio(clave)
+        mostrar(f"Número de control: {control}")
+        mostrar(f"OBLIGATORIO: llamá a tu socio y comparen el número de control. Él tiene "
+                f"que ver {control} en su pantalla. Si ve otro número, alguien cambió la "
+                "clave en el camino: no la usen, y hagan 'socio renovar'.")
+
+    def limites():
+        mostrar("Para tener en cuenta: los mensajes viajan firmados pero NO cifrados (quien "
+                "ve la carpeta compartida los puede leer), y nada de lo que mande tu socio "
+                "llega a un agente sin tu si.")
+
+    if que == "quitar":
+        if existente is None:
+            avisar(f"no hay ninguna clave cargada con {socio}: no hay nada que quitar")
+            return 1
+        if not dijo_si(f"Vas a quitar la clave con {socio} (control "
+                       f"{control_de_socio(existente['clave'])}): con ese socio no se va a "
+                       "mandar ni recibir nada más. Escribí si para quitarla: "):
+            avisar("no quité nada (hacía falta contestar si)")
+            return 1
+        nuevas = {s: f for s, f in fichas.items() if s != socio}
+        if not guardar(nuevas):
+            return 1
+        mostrar(f"Listo: saqué la clave con {socio}. Avisale a tu socio: lo que mande ya no "
+                "se va a entregar.")
+        return 0
+
+    if que == "invitar" and existente is not None:
+        avisar(f"ya hay una clave cargada con {socio} (control "
+               f"{control_de_socio(existente['clave'])}) y no la piso. Para cambiarla por "
+               f"una nueva:  {orden} socio renovar {para_pegar(resto[1])} {socio}")
+        return 1
+    if que == "renovar" and existente is None:
+        avisar(f"no hay ninguna clave cargada con {socio} para renovar. Para generar la "
+               f"primera:  {orden} socio invitar {para_pegar(resto[1])} {socio}")
+        return 1
+
+    if que in ("invitar", "renovar"):
+        if que == "renovar":
+            est = leer_correo_de_memoria(archivo_de(ruta, "memoria.json"))["socios"].get(
+                socio) or {}
+            pierde = len(est.get("por_salir") or []) + len(est.get("traidos") or [])
+            viajando = sobres_en_viaje(existente)
+            if not dijo_si(
+                    f"Vas a cambiar la clave con {socio} por una nueva. Con la clave vieja "
+                    "ya no va a valer nada"
+                    + (f": {cuantos_mensajes(pierde)} que estaban por salir o esperando tu "
+                       "si se descartan" if pierde else "")
+                    + (f"; y {cuantos_mensajes(viajando)} "
+                       f"{'tuyo' if viajando == 1 else 'tuyos'} que tu socio todavía no "
+                       "trajo de la carpeta compartida "
+                       f"{'deja' if viajando == 1 else 'dejan'} de valer (si hacía falta, "
+                       "hay que mandarlo de nuevo)" if viajando else "")
+                    + f". Tu socio la tiene que cargar de nuevo con 'socio aceptar'. "
+                    "Escribí si para seguir: "):
+                avisar("no cambié nada (hacía falta contestar si)")
+                return 1
+        carpeta = elegir_carpeta(existente["carpeta"] if existente else None)
+        if carpeta is None:
+            return 2
+        destino = como_pasarla(carpeta)
+        if destino is None:
+            return 2
+        clave = nueva_clave_de_socio()
+        while any(huella_de_clave(f["clave"]) == huella_de_clave(clave)
+                  for f in fichas.values()):
+            clave = nueva_clave_de_socio()  # (dos socios nunca comparten la huella)
+        nuevas = dict(fichas)
+        nuevas[socio] = {"clave": clave, "lado": "A", "carpeta": carpeta, "estrenado": False}
+        claves_de_antes(nuevas[socio], clave)
+        if not guardar(nuevas):
+            return 1
+        try:
+            if destino:
+                escribir_invitacion(destino, clave)
+            preparar_compartida(carpeta)
+        except OSError:
+            guardar(fichas)  # (a medias no queda nada: vuelve lo que había)
+            avisar(f"no pude escribir {'la invitación en ' + destino if destino else 'en la carpeta compartida'}"
+                   ": fijate que se pueda escribir ahí. No cambié nada")
+            return 1
+        mostrar(f"Listo: la clave con {socio} quedó cargada en {de_claves}, al lado del "
+                "programa. Ese archivo no se copia, no se manda y no se sube a ningún lado.")
+        if destino:
+            mostrar(f"La invitación para tu socio quedó en {destino}")
+            mostrar("  Llevásela en el pendrive o en mano: NO por mail ni por WhatsApp.")
+            mostrar("  Tu socio, parado en la carpeta de su programa, la carga así (el "
+                    "nombre del final es cómo te llama él en su 'usar socio'; si en su PC "
+                    "Mate está en otro lugar, la primera parte es la suya):")
+            mostrar(f"       {orden} socio aceptar su_programa.mate Cliente")
+            mostrar("  Mate le pregunta por la carpeta compartida y por la invitación, y "
+                    "la borra al terminar.")
+        else:
+            mostrar("La clave, para dictársela a tu socio. Se muestra esta única vez: que "
+                    "no la vea nadie más, y no la copies a ningún lado.")
+            mostrar("")
+            mostrar(f"       {clave_en_grupos(clave)}")
+            mostrar("")
+            mostrar("  Son 11 grupos de 4 cifras. Tu socio la tipea (no se ve mientras "
+                    "escribe) con:")
+            mostrar(f"       {orden} socio aceptar su_programa.mate Cliente")
+            mostrar("  Si se equivoca en una cifra, Mate se da cuenta y no la carga.")
+        comparar_control(clave)
+        if que == "renovar":
+            mostrar("HASTA QUE TU SOCIO CARGUE LA CLAVE NUEVA conviene que ninguno de los dos "
+                    "corra su programa. Lo que mandes vos lo espera en la carpeta compartida "
+                    "y le llega cuando la acepte; lo que mande él, firmado con la clave "
+                    "vieja, ya no vale: Mate lo deja en la carpeta, te avisa, y a él le "
+                    "avisa cuando acepte (lo tiene que mandar de nuevo).")
+        limites()
+        return 0
+
+    # ── aceptar ──
+    if existente is not None and not dijo_si(
+            f"Ya hay una clave cargada con {socio} (control "
+            f"{control_de_socio(existente['clave'])}). ¿La cambio por la que te pasó tu "
+            "socio? Lo que estaba por salir o esperando tu si con la clave vieja se "
+            "descarta, y lo tuyo que tu socio no llegó a traer de la carpeta compartida "
+            "deja de valer (Mate te lo avisa en la corrida siguiente). Escribí si para "
+            "cambiarla: "):
+        avisar("no cambié nada (hacía falta contestar si)")
+        return 1
+    carpeta = elegir_carpeta(existente["carpeta"] if existente else None)
+    if carpeta is None:
+        return 2
+    invitacion = opciones.get("invitacion")
+    if opciones.get("dictar"):
+        invitacion = ""
+    elif invitacion is None:
+        invitacion = preguntar(
+            "Si tu socio te dio el archivo de invitación, escribí dónde está (por ejemplo "
+            "E:\\). Si te dictó la clave por teléfono, apretá Enter: ")
+        if invitacion is None:
+            avisar("no hice nada: faltó decir dónde está la invitación. Por ejemplo:  "
+                   f"{orden} socio aceptar {para_pegar(resto[1])} {socio} --invitacion=E:\\")
+            return 2
+        invitacion = invitacion.strip('"').strip("'")
+    if invitacion:
+        invitacion = os.path.abspath(os.path.expanduser(invitacion))
+        if os.path.isdir(invitacion):
+            invitacion = os.path.join(invitacion, ARCHIVO_DE_INVITACION)
+        if en_una_compartida(os.path.dirname(invitacion), carpeta):
+            avisar(f"no cargo esa invitación: está adentro de una carpeta compartida "
+                   f"({os.path.dirname(invitacion)}), y la invitación lleva la clave ENTERA. "
+                   "Quien ve esa carpeta ya la pudo copiar (y queda en la papelera y en el "
+                   "historial de la nube): esa clave no sirve más. Borrá el archivo de ahí "
+                   "y pedile a tu socio que haga 'socio renovar' y te lleve la invitación "
+                   "nueva en un pendrive, o te dicte la clave. No cargué nada")
+            return 2
+        try:
+            clave = leer_invitacion(invitacion)
+        except OSError:
+            avisar(f"no pude abrir la invitación ({invitacion}): fijate que esté ahí y que "
+                   "sea el archivo que te dio tu socio")
+            return 2
+        except ErrorMate as e:
+            avisar(e.mensaje)
+            return 2
+    else:
+        try:
+            tipeado = (oculto or pedir_oculto)(
+                "Tipeá la clave que te dictó tu socio (11 grupos de 4 cifras; no se ve "
+                "mientras escribís) y apretá Enter: ")
+        except ErrorMate as e:
+            avisar(e.mensaje)
+            return 2
+        clave = clave_de_socio_valida(tipeado)
+        if clave is None:
+            avisar("esa clave no cierra: tienen que ser 44 cifras, y alguna está mal o "
+                   "falta (las últimas 4 son de control). No cargué nada: pedile a tu socio "
+                   "que te la dicte de nuevo")
+            return 2
+    for otro, ficha in fichas.items():
+        if otro != socio and ficha["clave"] == clave:
+            avisar(f"esa clave ya está cargada con {otro}: cada socio tiene la suya, y una "
+                   "misma clave no va en dos socios ni en dos programas. No cargué nada")
+            return 2
+    if existente is not None and existente["clave"] == clave and existente["lado"] == "A":
+        avisar("esa es la clave que generó este mismo programa: la invitación es para tu "
+               "socio, no para vos. No cambié nada")
+        return 2
+    nuevas = dict(fichas)
+    nuevas[socio] = {"clave": clave, "lado": "B", "carpeta": carpeta,
+                     "estrenado": bool(existente and existente["clave"] == clave
+                                       and existente["estrenado"])}
+    claves_de_antes(nuevas[socio], clave)
+    if not guardar(nuevas):
+        return 1
+    try:
+        preparar_compartida(carpeta)
+    except OSError:
+        avisar(f"aviso: no pude terminar de armar la carpeta compartida ({carpeta}); se "
+               "arma sola la primera vez que corra el programa")
+    mostrar(f"Listo: la clave con {socio} quedó cargada en {de_claves}, al lado del "
+            "programa. Ese archivo no se copia, no se manda y no se sube a ningún lado.")
+    if invitacion:
+        try:
+            os.remove(invitacion)  # (ya se entendió, y era un archivo común)
+            mostrar(f"Borré la invitación ({invitacion}): ya no hace falta. (En un pendrive, "
+                    "borrar no es destruir: si lo perdés, renueven la clave.)")
+        except OSError:
+            avisar(f"aviso: no pude borrar la invitación ({invitacion}): borrala a mano, "
+                   "que adentro está la clave")
+    comparar_control(clave)
+    limites()
+    return 0
+
+
+# ── 'nuevo socio': el ensayo de dos negocios en una sola PC ──
+EJEMPLOS_DE_SOCIOS = (("14_comprador.mate", "comprador.mate"),
+                      ("14_proveedor.mate", "proveedor.mate"), ("14_trato.mate", "trato.mate"))
+CARPETA_DEL_ENSAYO = "ensayo_de_socios"
+
+
+def archivos_del_ensayo_de_socios(carpeta_de_mate=None, fin_de_renglon=None):
+    """{(negocio, archivo): bytes} de lo que crea 'nuevo socio': los programas del ejemplo
+    14, con los nombres cortos, y el trato en cada negocio."""
+    ejemplos = os.path.join(carpeta_de_mate or os.path.dirname(os.path.abspath(__file__)),
+                            CARPETA_DE_EJEMPLOS)
+    fin = os.linesep if fin_de_renglon is None else fin_de_renglon
+    textos = {}
+    for de_muestra, corto in EJEMPLOS_DE_SOCIOS:
+        try:
+            texto = leer_fuente(os.path.join(ejemplos, de_muestra))
+        except OSError:
+            raise ErrorMate(
+                f"no encuentro el ejemplo {de_muestra} (lo busqué en {ejemplos}): 'nuevo "
+                "socio' lo copia de ahí. Fijate que la carpeta 'ejemplos' esté al lado de "
+                "mate.py")
+        for largo, nombre in EJEMPLOS_DE_SOCIOS:
+            texto = texto.replace(largo, nombre)
+        textos[corto] = texto.replace("\n", fin).encode("utf-8-sig")
+    return {("comprador", "comprador.mate"): textos["comprador.mate"],
+            ("comprador", "trato.mate"): textos["trato.mate"],
+            ("proveedor", "proveedor.mate"): textos["proveedor.mate"],
+            ("proveedor", "trato.mate"): textos["trato.mate"]}
+
+
+def entre_comillas_simples(texto):
+    """Como va en PowerShell para que no lo cambie: entre comillas simples (adentro de las
+    dobles, PowerShell reemplaza $algo y el acento grave), con la comilla simple duplicada."""
+    return "'" + texto.replace("'", "''") + "'"
+
+
+def nuevo_socio(args, avisar, mostrar=print):
+    """La orden 'nuevo socio [carpeta]': arma el ENSAYO de dos negocios en una sola PC. Crea
+    una carpeta con tres adentro (comprador, proveedor y compartida), los programas del
+    ejemplo 14 y una clave de ensayo ya cargada en los dos lados (al azar, sin mostrarla),
+    y dice los pasos para copiar tal cual en PowerShell."""
+    orden = orden_para_esta_carpeta()
+    que_falta = "al escribir la orden: 'nuevo socio' con un nombre que no sirve"
+    if len(args) > 1:
+        avisar("'nuevo socio' lleva, como mucho, el nombre de la carpeta donde arma el "
+               f"ensayo (una palabra, sin espacios). Por ejemplo:  {orden} nuevo socio "
+               f"{'_'.join(args)}", que_falta, True)
+        return 2
+    nombre = args[0].strip() if args else CARPETA_DEL_ENSAYO
+    if re.search(r"[\\/:]", nombre) or not re.fullmatch(r"[^\W_][\w\-]{0,59}", nombre) \
+            or sin_tildes(nombre.lower()) in ORDENES_SABIDAS + _NOMBRES_DE_WINDOWS:
+        avisar(f"'{nombre}' no sirve como nombre de la carpeta del ensayo: va una palabra "
+               "(letras, números, guion o guion bajo), sin ruta, y se crea en la carpeta "
+               f"donde estás parado. Por ejemplo:  {orden} nuevo socio {CARPETA_DEL_ENSAYO}",
+               que_falta, True)
+        return 2
+    base = os.path.abspath(nombre)
+    if os.path.lexists(base):
+        avisar(f"no creé nada: en esta carpeta ya hay {nombre}, y no piso nada. Elegí otro "
+               f"nombre, por ejemplo:  {orden} nuevo socio {nombre}_2",
+               "al escribir la orden: 'nuevo socio' con un nombre que ya existe", True)
+        return 1
+    try:
+        archivos = archivos_del_ensayo_de_socios()
+    except ErrorMate as e:
+        avisar(e.mensaje, "al escribir la orden: 'nuevo socio' sin los ejemplos de Mate")
+        return 1
+    compartida = os.path.join(base, "compartida")
+    clave = nueva_clave_de_socio()
+    try:
+        os.mkdir(base)
+        for negocio in ("comprador", "proveedor", "compartida"):
+            os.mkdir(os.path.join(base, negocio))
+        for (negocio, archivo), contenido in archivos.items():
+            with open(os.path.join(base, negocio, archivo), "xb") as f:
+                f.write(contenido)
+        preparar_compartida(compartida)
+        for negocio, socio, lado in (("comprador", "Proveedor", "A"),
+                                     ("proveedor", "Cliente", "B")):
+            guardar_socios(os.path.join(base, negocio, negocio + ".mate"), {socio: {
+                "clave": clave, "lado": lado, "carpeta": compartida, "estrenado": False,
+                "ensayo": True}})
+    except OSError:
+        avisar(f"no pude crear el ensayo en {para_pegar(base)}: fijate que se pueda "
+               "escribir en esta carpeta (o parate en otra, por ejemplo Documentos). Si "
+               f"quedó la carpeta {nombre} a medias, borrala")
+        return 1
+    del clave
+    mate = entre_comillas_simples(os.path.abspath(__file__))
+    lanzador = como_se_llama()
+    lanzador = lanzador if lanzador == "mate" else f"{lanzador.split()[0]} {mate}"
+    comprador = entre_comillas_simples(os.path.join(base, "comprador"))
+    proveedor = entre_comillas_simples(os.path.join(base, "proveedor"))
+    renglones = (
+        f"Listo. Armé el ensayo de dos negocios en {para_pegar(base)}:",
+        "  comprador    el negocio que compra: comprador.mate y su copia de trato.mate",
+        "  proveedor    el negocio que vende: proveedor.mate y su copia de trato.mate",
+        "  compartida   la carpeta que comparten (con un socio de verdad: una de OneDrive,",
+        "               de Google Drive, de red o un pendrive)",
+        "Los dos ya tienen cargada una clave DE ENSAYO (no se muestra; cada corrida lo avisa).",
+        "",
+        "Los pasos que siguen (cada comando se puede copiar tal cual en PowerShell):",
+        "  1. Comprobar que quedó todo bien:",
+        f"       cd {comprador}",
+        f"       {lanzador} probar comprador.mate",
+        f"       cd {proveedor}",
+        f"       {lanzador} probar proveedor.mate",
+        "  2. El comprador manda el pedido (queda firmado en la carpeta compartida):",
+        f"       cd {comprador}",
+        f"       {lanzador} correr comprador.mate",
+        "  3. El proveedor lo recibe. Mate muestra el pedido y pregunta \"¿Lo entrego?\":",
+        "     contestá si. Ventas cotiza y la cotización sale para el comprador.",
+        f"       cd {proveedor}",
+        f"       {lanzador} correr proveedor.mate",
+        "  4. Al comprador le llega la cotización: contestá si. Queda anotada.",
+        f"       cd {comprador}",
+        f"       {lanzador} correr comprador.mate",
+        "  5. El comprador corre de nuevo: ahora el programa pregunta \"¿Confirmás...?\".",
+        "     Contestá si, y sale la confirmación.",
+        f"       {lanzador} correr comprador.mate",
+        "  6. Al proveedor le llega la confirmación: contestá si. Recién ahí descuenta",
+        "     stock, y avisa.",
+        f"       cd {proveedor}",
+        f"       {lanzador} correr proveedor.mate",
+        "  7. Al comprador le llega el aviso: contestá si. Pedido confirmado.",
+        f"       cd {comprador}",
+        f"       {lanzador} correr comprador.mate",
+        "  En cualquier momento, para ver qué espera y qué salió (sin tocar nada):",
+        f"       {lanzador} buzon comprador.mate",
+        "",
+        "Nada de otro negocio llega a un agente sin tu si, mensaje por mensaje: con no se",
+        "rechaza (y tu socio se entera), y con Enter queda esperando para otra corrida.",
+        "Los mensajes viajan firmados pero NO cifrados: quien ve la carpeta compartida los lee.",
+        "",
+        "PARA TRABAJAR CON UN SOCIO DE VERDAD esta carpeta no se le manda a nadie (adentro",
+        "está la clave de ensayo). Cada negocio se queda con SU carpeta (comprador o",
+        "proveedor) en SU máquina, eligen una carpeta compartida de verdad y generan una",
+        "clave nueva. Uno de los dos, parado en su carpeta:",
+        f"       {lanzador} socio renovar comprador.mate Proveedor --carpeta='C:\\ruta\\de\\la\\compartida'",
+        "y el otro, en la suya, con la invitación que le llevaron en un pendrive:",
+        f"       {lanzador} socio aceptar proveedor.mate Cliente --carpeta='C:\\ruta\\de\\la\\compartida'",
+        "Entre una orden y la otra conviene que ninguno corra su programa.",
+        "OJO: las carpetas se acuerdan del ensayo (el pedido A-17 ya figura hecho y el stock",
+        "ya está descontado), así que la primera corrida de verdad no mandaría nada. Antes,",
+        "cada uno cambia en su programa los datos de muestra por los suyos (el pedido A-17",
+        "está en el último renglón de comprador.mate) y corre UNA vez con --olvidar, que",
+        "arranca con la memoria limpia:",
+        f"       {lanzador} correr comprador.mate --olvidar",
+        "(el manual lo cuenta paso a paso, en \"Dos negocios que se hablan (los socios)\")")
+    for renglon in renglones:
+        mostrar(renglon)
+    return 0
+
+
+def renglones_de_socios(ruta, buzon):
+    """Para la orden 'buzon': lo que hay con cada socio del programa (0.8). Solo mira: no
+    trae, no entrega ni cambia nada. Nunca muestra la clave: solo su número de control."""
+    try:
+        declarados = socios_declarados(analizar(leer_fuente(ruta), ruta))
+    except (OSError, ErrorMate, RecursionError):
+        return []
+    if not declarados:
+        return []
+    fichas, problema = leer_socios(ruta)
+    estados = leer_correo_de_memoria(archivo_de(ruta, "memoria.json"))["socios"]
+    renglones = [f"  {problema}"] if problema else []
+    carpeta_de_pendientes = os.path.join(buzon.carpeta, "pendientes")
+    try:
+        en_pendientes = sorted(os.listdir(carpeta_de_pendientes)) \
+            if es_carpeta_de_verdad(carpeta_de_pendientes) else []
+    except OSError:
+        en_pendientes = []
+    orden = orden_para_esta_carpeta()
+    for socio in declarados:
+        ficha, est = fichas.get(socio), estados.get(socio) or {}
+        en_espera = len(est.get("en_espera") or [])
+        if ficha is None:
+            renglones.append(
+                f"  Socio {socio}: sin clave cargada (no se manda ni se recibe nada)."
+                + (f" Anotados sin salir: {en_espera}." if en_espera else "")
+                + f" Para cargarla:  {orden} socio invitar {para_pegar(buzon.archivo)} "
+                f"{socio}   o   {orden} socio aceptar {para_pegar(buzon.archivo)} {socio}")
+            continue
+        huella = huella_de_clave(ficha["clave"])
+        al_dia = est.get("huella") == huella
+        renglones.append(f"  Socio {socio} (control {control_de_socio(ficha['clave'])}"
+                         + (", clave de ENSAYO" if ficha.get("ensayo") else "") + "):")
+        se_ve = es_carpeta_real(ficha["carpeta"])
+        renglones.append(f"    Carpeta compartida: {ficha['carpeta']} "
+                         f"({'se ve' if se_ve else 'NO se ve ahora'}).")
+        if not al_dia and ficha["estrenado"]:
+            renglones.append(
+                "    OJO: se perdió la cuenta de los mensajes con este socio (la memoria se "
+                "borró o es una copia vieja): no se manda ni se entrega nada hasta renovar "
+                f"la clave:  {orden} socio renovar {para_pegar(buzon.archivo)} {socio}")
+        elif not al_dia:
+            renglones.append("    Todavía no se usó: la cuenta arranca la primera vez que "
+                             "corra el programa.")
+        por_salir = len(est.get("por_salir") or []) if al_dia else 0
+        renglones.append(
+            f"    Por salir: {cuantos_mensajes(por_salir + en_espera) if por_salir + en_espera else 'ninguno'}"
+            + (f" (el último que mandé fue el número {est['enviado']})."
+               if al_dia and est.get("enviado") else "."))
+        traidos = set(est.get("traidos") or []) if al_dia else set()
+        esperan = []
+        for nombre in en_pendientes:
+            forma = _PENDIENTE_DE_SOCIO.fullmatch(nombre)
+            if forma and forma.group(1) == huella and int(forma.group(2)) in traidos:
+                esperan.append((int(forma.group(2)), nombre))
+        renglones.append(
+            f"    Esperan tu si: {cuantos_mensajes(len(esperan)) if esperan else 'ninguno'}"
+            + (f". Se contestan al correr {buzon.archivo}:" if esperan else "."))
+        for numero, nombre in esperan[:10]:
+            tipo = "(no se puede leer)"
+            try:
+                with abrir_sin_seguir(os.path.join(carpeta_de_pendientes, nombre)) as f:
+                    datos = json_de_sobre(f.read(MAX_SOBRE + 1))[0]
+                tipo = texto_ajeno(datos["mensaje"]["tipo"], 60)
+                if datos.get("clase") == "falla":
+                    tipo = f"aviso de que no atendió {tipo}"
+            except (OSError, ValueError, RecursionError, KeyError, TypeError):
+                pass
+            renglones.append(f"      - el número {numero}: {tipo}")
+        if len(esperan) > 10:
+            renglones.append(f"      ... y {len(esperan) - 10} más")
+        if se_ve:
+            entrada = os.path.join(ficha["carpeta"], "de-b" if ficha["lado"] == "A" else "de-a")
+            sin_traer = 0
+            try:
+                with os.scandir(entrada) as hay:
+                    for n, e in enumerate(hay):
+                        if n >= MAX_MIRADOS_POR_CORRIDA:
+                            break
+                        sin_traer += e.name.lower().endswith(".json")
+            except OSError:
+                pass
+            if sin_traer:
+                renglones.append(
+                    f"    En la carpeta compartida: {sin_traer} "
+                    f"{'archivo' if sin_traer == 1 else 'archivos'} de {socio} sin traer "
+                    f"(se {'mira' if sin_traer == 1 else 'miran'} la próxima vez que corra "
+                    f"{buzon.archivo}).")
+        huecos = huecos_de_socio(est) if al_dia else []
+        if huecos:
+            renglones.append(
+                f"    Faltan números de {socio}: {', '.join(huecos)} (un mensaje que "
+                "todavía no llegó, o que se perdió o alguien borró en el camino).")
+    return renglones
+
+
 def orden_buzon(args, avisar, mostrar=print):
     """La orden 'buzon programa.mate': cuenta qué hay en el buzón de ese programa (los
     mensajes que esperan y de quién, los que tiene por salir y los rechazados, con su
@@ -13561,6 +16369,8 @@ def orden_buzon(args, avisar, mostrar=print):
                 + f"). Salen la próxima vez que corra {buzon.archivo}.")
     else:
         mostrar("  Por salir: ninguno.")
+    for renglon in renglones_de_socios(ruta, buzon):
+        mostrar(renglon)
     rechazados = os.path.join(buzon.carpeta, "rechazados")
     try:
         nombres = sorted(n for n in os.listdir(rechazados) if n.lower().endswith(".json"))
@@ -13569,8 +16379,16 @@ def orden_buzon(args, avisar, mostrar=print):
     if not nombres:
         mostrar("  Rechazados: ninguno.")
         return 0
+    de_socios = sum(1 for n in nombres if n.lower().startswith("socio-"))
+    consejo = "para intentar uno de nuevo, movelo a la carpeta de arriba"
+    if de_socios == len(nombres):
+        consejo = ("son de otro negocio y no se reintentan a mano: si alguno hacía falta, "
+                   "pedile a tu socio que lo mande de nuevo")
+    elif de_socios:
+        consejo += ("; los que empiezan con socio- son de otro negocio y no se reintentan a "
+                    "mano: pedile a tu socio que los mande de nuevo")
     mostrar(f"  Rechazados: {len(nombres)} (están en {buzon.donde_van_los_rechazados()}; "
-            "para intentar uno de nuevo, movelo a la carpeta de arriba)")
+            f"{consejo})")
     for nombre in nombres[:20]:
         motivo = "(sin motivo anotado)"
         try:
@@ -13641,7 +16459,8 @@ def probar_varios(pedidos, opciones, avisar):
 # no), nunca con la orden 'probar', y se apaga con MATE_SIN_REGISTRO=1 o --sin-registro.
 
 ORDENES_SABIDAS = ORDENES + ORDENES_DE_MEMORIA + ("ayuda", "guia", "consola", "informe",
-                                                  "curso", "nuevo", "ensayar", "buzon")
+                                                  "curso", "nuevo", "ensayar", "buzon",
+                                                  "socio")
 _FECHA_DE_REGISTRO = "%d/%m/%Y %H:%M"
 _LARGO_A_TAPAR = 800
 # Cómo es una opción ('--traza', '-h', '--borrar=2'). Lo que empieza con guion y no tiene
@@ -14207,6 +17026,12 @@ def _main(argv, donde):
                True, "parece que el comando se pegó dos veces en el mismo renglón (y Mate "
                "mostró el comando bien escrito)")
         return 2
+    if argv and sin_tildes(argv[0].lower()) == "socio" and not (
+            len(argv) == 1 and (os.path.isfile("socio") or os.path.isfile("socio.mate"))):
+        # (0.8; 'socio' sola, con un socio.mate en la carpeta, sigue corriendo ese programa.
+        # Va antes que las opciones: las suyas, --carpeta, --invitacion y --dictar, son
+        # solo de esta orden.)
+        return orden_socio(argv[1:], avisar)
     alias = {"-h": "--ayuda", "--help": "--ayuda", "-?": "--ayuda", "/?": "--ayuda"}
     opciones, args, conversacion, respuestas, borrar = set(), [], None, None, None
     guardar_en = None  # guia --guardar=guia.txt: la salida va a ese archivo, no a la pantalla
@@ -14236,7 +17061,8 @@ def _main(argv, donde):
                 avisar("a --guardar le falta el nombre del archivo, por ejemplo: guia "
                        "--guardar=guia.txt")
                 return 2
-            if guardar_en.lower().rstrip(". ").endswith(NO_SE_PISAN):
+            if guardar_en.lower().rstrip(". ").endswith(NO_SE_PISAN) \
+                    or es_archivo_de_clave(guardar_en):
                 avisar(f"no guardo en '{guardar_en}' para no pisar un programa: elegí otro "
                        "nombre, por ejemplo --guardar=guia.txt")
                 return 2
@@ -14258,6 +17084,12 @@ def _main(argv, donde):
             if any(n.endswith(NO_SE_PISAN) for n in nombres_de_un_camino(conversacion)):
                 avisar(f"no guardo la conversación en '{conversacion}' para no pisar un "
                        "programa: elegí otro nombre, por ejemplo --traza=conversacion.txt")
+                return 2
+            if es_archivo_de_clave(conversacion):
+                avisar("no guardo la conversación en '"
+                       + os.path.basename(conversacion.replace("\\", "/"))
+                       + "': ese archivo guarda la clave de un socio. Elegí otro nombre, "
+                       "por ejemplo --traza=conversacion.txt")
                 return 2
             if traza_pisaria_la_memoria(conversacion):
                 avisar(f"no guardo la conversación en '{conversacion}': ese archivo lo "
@@ -14411,7 +17243,7 @@ def _main(argv, donde):
             f", ¿quisiste decir '{parecidas[0]}'?" if parecidas
             else ". Las órdenes son: correr, probar, verificar, consola, guia, ayuda, "
                  "curso, nuevo, ensayar, corregir, lecciones, propuestas, proponer, "
-                 "bitacora, buzon e informe"),
+                 "bitacora, buzon, socio e informe"),
             "al escribir la orden: orden que no existe")
         return 2
     if not archivos:
@@ -14521,12 +17353,15 @@ def _main(argv, donde):
             soltar_candado_de_memoria(candado, archivo_candado)
         return True
 
-    def guardar(agentes, buzon=None):
+    def guardar(agentes, buzon=None, correo=None):
         """Escribe la memoria de este programa. Solo se llama con el candado tomado (toda
         la corrida, o adentro de con_candado) y con lo que se leyó ya con él tomado: sin
         candado, guardar_memoria se niega."""
+        if correo is None:  # (se conserva la parte de lo enviado y de los socios)
+            return guardar_memoria(archivo_memoria, os.path.basename(ruta), agentes, buzon,
+                                   candado=aprendido["candado"])
         return guardar_memoria(archivo_memoria, os.path.basename(ruta), agentes, buzon,
-                               candado=aprendido["candado"])
+                               candado=aprendido["candado"], correo=correo)
 
     def por_que_no_hay_candado(e):
         return por_que_no_se_tomo_el_candado(ruta, e)
@@ -14612,14 +17447,28 @@ def _main(argv, donde):
             agentes = en_disco
         en_buzon = leer_buzon_de_memoria(archivo_memoria)[0]
         parte = buzon.fundido(en_buzon)
-        if agentes != en_disco or parte != en_buzon:
-            problema = guardar(agentes, parte)
+        # (0.8) Lo enviado y lo de los socios va en la MISMA escritura: el número de cada
+        # sobre que sale, lo que llegó y lo que ya se entregó quedan junto con el estado.
+        en_correo = leer_correo_de_memoria(archivo_memoria)
+        correo = buzon.correo_fundido(en_correo)
+        if agentes != en_disco or parte != en_buzon or correo != en_correo:
+            problema = guardar(agentes, parte, correo if correo != en_correo else None)
             if problema:
                 avisar(f"aviso: {problema}. Los mensajes del buzón no se tocaron: los que "
                        "llegaron se atienden de nuevo la próxima vez, y no salió ninguno")
                 return
         quedan = buzon.repartir(parte["por_salir"])
         buzon.acomodar()
+        salio = False
+        if buzon.socios is not None:
+            salio = buzon.socios.repartir(correo)
+            buzon.socios.acomodar()
+        if salio:
+            try:
+                ahora = leer_memoria(archivo_memoria)[0]
+            except ErrorMate:
+                return
+            guardar(ahora, None, correo)
         if len(quedan) != len(parte["por_salir"]):
             # Lo repartido deja de estar "por salir". Se mira el archivo de nuevo, por si
             # otra ventana guardó algo mientras tanto. (Si esto falla no pasa nada: se
@@ -14703,6 +17552,9 @@ def _main(argv, donde):
             nueva = aprendido["leida"]  # (la memoria ya quedó guardada, o avisada)
         elif buzon is not None:
             buzon.soltar()
+            if buzon.socios is not None:  # (nada que guardar: "no llegó nada nuevo de...")
+                for renglon in buzon.socios.resumen():
+                    print(renglon)
         if buzon is not None and not buzon.atendio:
             # El programa se cortó antes de terminar sus renglones (un error, o Ctrl+C):
             # lo que le dejaron en el buzón no se atendió. Que no quede esperando callado.
@@ -14745,6 +17597,8 @@ def _main(argv, donde):
             for linea, texto in errores:
                 reportar(linea, texto)
             return 1
+        for aviso in avisos_de_socios(programa):
+            avisar(f"aviso: {aviso}")
         if orden == "verificar":
             print(f"{ruta}: sin errores")
             return 0
@@ -14822,6 +17676,7 @@ def _main(argv, donde):
                 except ErrorMate as e:
                     inicio["error"] = e
                 inicio["buzon"] = leer_buzon_de_memoria(archivo_memoria)
+                inicio["correo"] = leer_correo_de_memoria(archivo_memoria)
 
             envia_a_otros = any(s[0] == "agente_ajeno" for s in programa)
             if aprendido["candado"] is not None:
@@ -14956,6 +17811,38 @@ def _main(argv, donde):
                         and aprendido["sin_candado"] is not None:
                     avisar_que_no_salen(len(buzon.leido["por_salir"]))
                 buzon.leido = leer_buzon_de_memoria(archivo_memoria)[0]
+
+            buzon.enviados = set(inicio["correo"]["enviados"])
+            buzon.leer_correo = lambda: leer_correo_de_memoria(archivo_memoria)
+            declarados = socios_declarados(programa)
+            if declarados:
+                # Los socios (0.8): las claves, y la cuenta de cada uno en la memoria. Lo
+                # que quedó "por salir" de una corrida anterior sale ahora.
+                socios = buzon.socios = Socios(ruta, declarados, buzon,
+                                               lambda texto: avisar(f"aviso: {texto}"))
+                socios.cargar_claves()
+                socios.leer_estado = lambda: leer_correo_de_memoria(archivo_memoria)["socios"]
+
+                def preparar_socios():
+                    correo = leer_correo_de_memoria(archivo_memoria)
+                    cambio, por_estrenar = socios.preparar(correo)
+                    salio = socios.repartir(correo)
+                    if cambio or salio:
+                        try:
+                            ahora = leer_memoria(archivo_memoria)[0]
+                        except ErrorMate:
+                            socios.frenar_todos()
+                            return
+                        if guardar(ahora, None, correo):
+                            socios.frenar_todos()
+                            return
+                    socios.estrenar(por_estrenar)
+
+                if socios.fichas and not con_candado(preparar_socios, 2):
+                    socios.frenar_todos()
+                    avisar("aviso: no pude tomar el candado de la memoria para revisar la "
+                           "cuenta de los socios: en esta corrida no mando ni recibo nada "
+                           "de ellos (lo que se les envíe queda anotado)")
 
             def cambio_la_memoria():
                 """¿Otra ventana de este programa guardó un estado distinto del que leyó

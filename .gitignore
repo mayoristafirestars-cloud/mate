@@ -4,3 +4,7 @@ __pycache__/
 *.buzon/
 *.memoria.json
 *.memoria.candado
+# (0.8) Las claves de los socios y las invitaciones: NUNCA van al repositorio.
+*.socios.json
+*.socios.json.*.tmp
+invitacion-mate*.txt

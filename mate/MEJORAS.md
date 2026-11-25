@@ -1058,6 +1058,62 @@ Nota de la vuelta 4 (lo que quedó abierto de la vuelta 3):
 - Quedó afuera: una presentación con el segundo número más chico, o que parezca una hora ("6x2.25"), que la IA diga de otra manera que el renglón de la lista (sin los paréntesis, otro orden, o sin la medida) se sigue frenando; al revés, una celda de dos palabras o más dicha entera pasa aunque parezca un dato (con una presentación "24 hs", "Atendemos 24 hs" pasa: es así desde la vuelta 4); y el resto de las frenadas de más con los datos vacíos ("te aviso a la tarde", "es precio de contado").
 *Mirada: el dueño que atiende con un modelo local y vio que le inventaba el horario · Esfuerzo: mediano · Estado: hecha (vuelta 3)*
 
+**128. Socios: agentes de negocios distintos que se hablan por una carpeta compartida (0.8)**
+Hasta la 0.7 dos programas se hablaban solo si estaban en la misma carpeta de la misma PC.
+El rumbo de la 0.8 es que el programa de un negocio le hable al de OTRO negocio, en otra
+máquina: un comprador con su proveedor. Sin gastar cupo (siguen 36 palabras y 48 funciones:
+`socio` y `acepta` solo significan algo después de `usar`) y sin red: Mate no abre
+conexiones ni levanta servidores, solo lee y escribe archivos en una carpeta que ven las dos
+máquinas (de OneDrive, Google Drive o Dropbox, de red, o un pendrive).
+- **En el programa:** `usar socio Proveedor acepta Cotizacion, SinStock`. El socio queda como
+  destino de `enviar` y como `remitente`, con las prohibiciones de un agente de otro
+  programa. Se le manda al negocio; lo recibe el único agente que tiene ese `al recibir`
+  (`verificar` lo exige antes de correr). `acepta` es la lista cerrada de lo que se le recibe.
+- **La clave:** una por par de negocios, 40 cifras al azar más 4 de control. Vive en
+  `<programa>.socios.json`, al lado del programa (nace con permisos cerrados donde el sistema
+  lo permite), nunca en el `.mate`, ni en la carpeta compartida, ni en la traza, ni en un
+  error, ni como parte de una orden. La orden `socio` (`invitar`, `aceptar`, `renovar`,
+  `quitar`) la genera y dice cómo pasarla por fuera: en un archivo de invitación (pendrive) o
+  dictada (se muestra una sola vez, y solo en una ventana de verdad; del otro lado se tipea
+  sin que se vea). En pantalla queda el **número de control**, que los dos comparan por
+  teléfono. Las funciones de archivos, `usar`, `correr`, `--traza=` y `--guardar=` se niegan
+  sobre `*.socios.json` y `invitacion-mate*.txt`.
+- **El sobre firmado** (`"mate_buzon": 2`): HMAC-SHA256 de todo el sobre menos la firma,
+  escrito de una sola manera, con una clave derivada por sentido (lado A o B: un sobre propio
+  devuelto no verifica). Lleva un número de orden por socio y por sentido: se acepta fuera de
+  orden, una sola vez. Antes de usar cualquier dato del sobre se comprueba la firma; el socio
+  lo da la carpeta donde apareció el archivo. Lo que no verifica va a `rechazados` (local, con
+  cupo) y no se contesta. El reloj del otro no decide nada.
+- **La carpeta compartida:** `de-a` y `de-b`, cada lado escribe en la suya. Aguanta archivos
+  a medio llegar (se dejan; a las 24 horas locales de seguir rotos, a rechazados), copias en
+  conflicto, archivos revividos, la carpeta ausente (queda por salir) y basura (no se abre lo
+  que no es un archivo común, no se sigue un acceso directo, no se borra lo ajeno).
+- **El `si` del dueño:** nada de otro negocio llega a un agente sin un `si`, mensaje por
+  mensaje. Se valida ANTES de preguntar (el `acepta`, el contrato, los topes: 8 KB, 500 letras
+  por texto, 4 niveles) y se muestra entero, con los textos entre comillas y lo que no se ve
+  escapado. Entrega exactamente una vez: el número deja de figurar "sin entregar" en la misma
+  escritura de memoria que guarda el estado del agente, y lo que espera el `si` se verifica
+  de nuevo al entregar.
+- **Los avisos de falla entre negocios** llevan un código de una lista cerrada (nunca el
+  texto de un error), solo valen por un mensaje enviado de verdad a ese socio (uno por
+  mensaje) y, si disparan un `al fallar`, también pasan por el `si`.
+- **El buzón local (P161):** entrega solo lo que viene de un programa conocido (uno que este
+  nombra con `usar buzon`, o uno de la carpeta que lo nombra a él), no le contesta a un
+  desconocido, y un aviso de falla tiene que nombrar un mensaje enviado de verdad. Los
+  ejemplos de la 0.7 siguen andando sin cambios.
+- **Para ensayar:** el ejemplo 14 (`14_comprador.mate`, `14_proveedor.mate`, `14_trato.mate`)
+  y `nuevo socio`, que arma los dos negocios y la carpeta compartida en una sola PC, con una
+  clave de ensayo y los pasos para copiar en PowerShell.
+- Quedó afuera, a propósito: **cifrar el contenido** (quien ve la carpeta compartida lee los
+  mensajes), cualquier conexión de red, `preguntar` entre negocios, más de dos negocios por
+  carpeta y la entrega automática sin `si`. Y sin hacer: una huella de la declaración de cada
+  mensaje dentro del sobre (para avisar "tu socio tiene Pedido declarado distinto"), y un
+  "no a todos los de este socio". **No se probó en una Windows de verdad** (los permisos del
+  archivo de la clave, `getpass` en PowerShell, las uniones de carpetas) **ni con un
+  OneDrive, un Google Drive o un Dropbox reales**: las copias en conflicto y las demoras
+  están simuladas en las pruebas.
+*Mirada: el mayorista que quiere que su programa de compras le hable al de su proveedor · Esfuerzo: grande · Estado: hecha*
+
 ## Lo que se descartó
 
 Para que quede constancia, estas ideas se discutieron y no entraron: funciones sin nombre con
