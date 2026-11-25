@@ -4386,6 +4386,284 @@ hacerlos una vez con la carpeta `compartida` en el disco y otra en un pendrive (
 **Lo que sigue**: probar en la PC del dueño (Windows, pendrive y una carpeta sincronizada), las
 decisiones de P254, P260, P261 y P245, y recién después publicar.
 
+### 0.8.1: el número 3.500 y los pendientes de socios
+
+**Registro del integrador** (rama `equipo/mate-0.8.1`, que sale de `main` = Mate 0.8 publicado;
+sobre `3f853fb` más el commit que trae este registro; todo en commits locales, sin subir nada y
+sin tocar `main` ni `.github`). Lo de arriba de la 0.8 queda como estaba: lo que esta sección
+cierra de la lista P245 a P264 se dice acá y no se corrigió allá.
+
+**Estado: la 0.8.1 está APROBADA en la vuelta 2 (sobre `3f853fb`) y NO está publicada.** Hubo
+dos vueltas. No queda ningún problema alto ni medio abierto; quedan bajos (P265 a P274, más lo
+que sigue abierto de la 0.8). **Aprobada quiere decir revisada y probada en Linux, con Python
+3.13 y sin IA. No se probó en una Windows de verdad** (ni `socio carpeta` con letras de
+unidad, ni la guía nueva de instalación, ni los `.bat`), ni con Python 3.10, 3.11, 3.12 o 3.14.
+**Trae un cambio de comportamiento** (el punto A): leerlo antes de publicar.
+
+#### Origen
+
+Una investigación de diseño encontró que `numero("3.500")` daba 3.5 y `numero("35.000")` daba
+35. En la Argentina eso es tres mil quinientos y treinta y cinco mil, y una lista de precios
+real cae ahí: es un error de plata por mil. A eso se sumaron los pendientes bajos de la 0.8
+que el coordinador eligió cerrar: P245, P246, P247, P248, P249, P251 y P252, y la guía de
+instalación en Windows.
+
+#### Decisiones del coordinador (el alcance; nada más entró)
+
+- **A) El número "3.500"** (lo más importante). En un TEXTO que se pasa a número, un solo
+  punto, sin coma, seguido de exactamente tres cifras y con una parte entera de 1 a 3 cifras
+  que no sea "0", es separador de miles: `"3.500"` es 3500, `"35.000"` es 35000, `"-3.500"` es
+  -3500. Siguen siendo decimales `"3.5"`, `"3.50"`, `"0.500"`, `"3.5000"` y `"1234.567"`. Los
+  números escritos en el CÓDIGO de un programa no cambian. Es un cambio de comportamiento y hay
+  que decirlo claro en el manual y en MEJORAS. Si la regla es peligrosa en algún caso (cantidades
+  con tres decimales), no aplicarla a ciegas: describirlo y elegir lo más seguro para plata.
+- **B)** Cambiar SOLO la carpeta compartida sin cambiar la clave, con la orden `socio` que ya
+  existe, y que el aviso "no veo la carpeta compartida" diga qué hacer (P245).
+- **C)** Ignorar en silencio los archivos de sistema conocidos en la compartida (P247).
+- **D)** Ejemplo 14 y lo que copia `nuevo socio`: que un pedido no quede trabado cuando el
+  proveedor contesta "no" o falla (P248).
+- **E)** Manual y salida de `nuevo socio`: qué archivos se le pasan al otro negocio y cuáles
+  nunca (P249).
+- **F)** Chicos: el número que no entra en pantalla se rechaza antes de "¿Lo entrego?" (P246);
+  el motivo de rechazo de un sobre de socios en el buzón local (P251); el "¿...conexión?."
+  (P252).
+- **G)** Que la guía de instalación en Windows no dependa del instalador clásico de Python si
+  ya no es el camino recomendado, verificado contra la documentación oficial y sin inventar.
+- La versión pasa a 0.8.1. Sin palabras clave ni funciones nuevas.
+
+**Decisiones tomadas por el implementador dentro de ese alcance** (las informó él; el
+coordinador las puede revertir):
+
+- La regla de A se aplica igual en `numero()`, en lo tecleado que pasa por `numero()` y en las
+  celdas de `leer_tabla()` (una sola función, `numero_de_texto`). Efecto buscado a propósito:
+  en una planilla `0.500` y `$ 0.500` pasan de 500 a 0,5 y `01.500` de 1500 a 1,5. Volver al
+  comportamiento anterior en planillas es reponer dos renglones.
+- Ante el riesgo de las cantidades con tres decimales se aplicó la regla decidida (lo seguro
+  para plata) y el manual dice en negrita que los decimales van con coma. No hay aviso al
+  correr (P265, P266).
+- No se tocaron el freno de precios (`importes_de`) ni `numero_de` del ejemplo 12: ya leían
+  "3.500" como miles. Las respuestas de la IA no pasan texto a número (los números de JSON son
+  literales).
+- `socio carpeta` no pide un `si` (no toca la clave) y no muda archivos.
+- En D no se puso el atajo de teclado de Buscar del Bloc de notas: no se pudo confirmar que
+  sea el mismo en todas las versiones. Se nombra el menú Edición, Buscar.
+
+#### Qué se implementó y quién
+
+`git log origin/main..HEAD` antes de este registro: dos commits, los dos del implementador.
+El revisor y el probador no cambiaron archivos. El integrador solo escribe este registro.
+
+| Commit | Qué |
+|---|---|
+| `bdf2885` | 0.8.1, vuelta 1: la regla del "3.500" (A), `socio carpeta` y el aviso de carpeta ausente (B), archivos de sistema ignorados (C), el `al fallar` del comprador del ejemplo 14 (D), qué se le pasa al otro negocio (E), los tres chicos (F), la guía de instalación en Windows (G), `VERSION = "0.8.1"`, manual, MEJORAS 129 |
+| `3f853fb` | Correcciones de la revisión sobre `bdf2885`: un medio (la instrucción de D mandaba al "último renglón") y varios bajos |
+
+`git diff --stat origin/main..3f853fb`: 14 archivos, 1238 renglones agregados y 89 quitados
+(`mate/pruebas/test_socios.py` +509, `mate/pruebas/test_mate.py` +211, `mate/mate.py` +207,
+`mate/README.md` +187, `mate/MEJORAS.md` +84, `mate/ejemplos/14_comprador.mate` +82, y cambios
+chicos en `README.md`, `docs/index.html`, `mate/instalar.bat`, `mate/mate.bat`, los ejemplos
+02 y 12 y las clases 06 y 07 del curso).
+
+Detalle por punto (según el implementador):
+
+- **A**: `numero_de_texto()` es la única regla para `numero()`, lo tecleado y las celdas de
+  `leer_tabla()` (vía `valor_de_celda()`). Un literal `3.500` en el código sigue como antes.
+  Documentado en el manual (subsección "La 0.8.1" dentro de "Qué cambió en la 0.8", tabla en
+  "Números y plata", fila en "Qué cambió y puede frenar un programa viejo"), MEJORAS 129, la
+  guía para IA, la descripción de `numero()`, los ejemplos 02 y 12 y las clases 06 y 07.
+  `nuevo mostrador`, `nuevo equipo` y `nuevo socio` copian los ejemplos 12, 13 y 14 y ninguno
+  cambia de resultado. Pruebas: tabla de 89 casos de `numero`, 30 textos que siguen sin ser
+  número, literales sin cambio, ida y vuelta con `pesos()`, lo tecleado con `simular_teclado`
+  y una lista de precios con `leer_tabla`.
+- **B**: `socio carpeta programa.mate Socio --carpeta=...` (sin `--carpeta` muestra la actual
+  y pregunta). Clave, lado, huellas anteriores y cuenta de mensajes quedan igual; pasa por los
+  mismos controles que al cargar la clave y rechaza `--invitacion` y `--dictar`. Desde la
+  vuelta 2 cuenta los mensajes propios que quedaron sin traer en la carpeta de antes y dice
+  qué hacer. El aviso "no veo la carpeta compartida" trae la orden, aclara que `F:\Compartida`
+  es un ejemplo y se explica entero una sola vez por corrida.
+- **C**: `es_archivo_de_sistema` ignora por nombre, sin abrirlos, `desktop.ini`, `Thumbs.db`,
+  `ehthumbs.db`, `.DS_Store`, `.localized`, `.dropbox`, los `._algo` de macOS, los `~$algo` de
+  Office y parecidos. Algo con forma de sobre nunca cuenta como archivo de sistema; lo demás
+  (`foto.jpg`) se sigue avisando.
+- **D**: el `al fallar` de `14_comprador.mate` marca el pedido como "rechazado", dice qué pasó
+  y qué hacer (llamar al proveedor; para pedirlo de nuevo, otro número de pedido, buscando
+  `A-17` con Edición, Buscar) y no lo reenvía. Desde la vuelta 2 el comprador nombra en cada
+  corrida los pedidos que siguen esperando, y la pregunta de un aviso de falla explica que con
+  "no" el programa no se entera. Las pruebas del ejemplo pasan de 6 a 8.
+- **E**: tabla nueva en el manual y texto en la salida de `nuevo socio`: se pasa su `.mate`,
+  `trato.mate` y la carpeta `mate`; nunca los `.socios.json`, `.memoria.json`,
+  `.bitacora.txt`, las carpetas `.buzon` ni la carpeta del ensayo entera; la invitación, solo
+  en pendrive.
+- **F**: un número cuyo texto pasa de 60 caracteres no viaja entre negocios (ni sale ni se
+  pregunta). Un sobre de socios en el buzón local se rechaza con "es un sobre firmado de otro
+  negocio...". El aviso de carpeta ausente ya no tiene "?.".
+- **G**: verificado por el implementador el 25/11/2026 contra
+  `docs.python.org/3/using/windows.html` y `python.org/downloads/windows`: lo recomendado es
+  el "Python install manager" (Microsoft Store o MSIX); el instalador clásico está en retirada
+  desde 3.14 y no se produce desde 3.16. El manual, `README.md` de la raíz, `docs/index.html`,
+  los mensajes de `instalar.bat` y `mate.bat` (siguen en ASCII con CRLF) y el aviso de Python
+  viejo de `mate.py` ponen primero ese camino; el `.exe` con "Add python.exe to PATH" queda
+  como alternativa. **El integrador no repitió esa verificación en la web.**
+
+**Pruebas existentes que cambiaron** (ninguna salteada ni aflojada, según el implementador):
+las dos que esperaban `numero("3.500") == 3.5` ahora esperan 3500; la que fijaba el motivo
+"versión más nueva" para un sobre de socios en el buzón local; las que fijaban "0.8".
+Topes sin mover: 36 palabras clave (tope 40) y 48 funciones (tope 48); `misma_carpeta` y
+`es_archivo_de_sistema` son internas, no funciones de Mate.
+
+#### Vueltas
+
+**Vuelta 1, sobre `bdf2885` — NO aprobada (un problema medio).**
+
+- Medio: el "qué hacer" de un pedido rechazado (ejemplo 14, lo que copia `nuevo socio`, su
+  salida y el manual) mandaba al "último renglón" del programa, donde hay una llave de una
+  prueba: siguiéndolo al pie de la letra el dueño no encontraba el pedido.
+- Bajos señalados: el "no" al aviso de falla y a la Cotizacion; lo que queda atrás al cambiar
+  de carpeta; el aviso de carpeta ausente, largo y con una ruta que parecía la verdadera;
+  "0.500" distinto según el camino.
+- Evidencia del implementador sobre `bdf2885`: `pytest mate/pruebas mate/modelo` 1620 pasan
+  (10 min); `probar mate/ejemplos` 157 de 157 en 25 archivos; `probar mate/curso` 37 de 37 en
+  26 archivos.
+- El detalle de los veredictos de esta vuelta no llegó al integrador: lo que hay es lo que la
+  vuelta 2 dice haber corregido.
+
+**Vuelta 2, sobre `3f853fb` — APROBADA (revisor y probador; ningún alto ni medio abierto).**
+
+- Medio, corregido: nadie dice más "último renglón"; se manda a buscar `A-17`, que figura en
+  un solo renglón, y se aclara que los `enviar Pedir` del final son de las pruebas. Prueba
+  nueva de punta a punta que sigue el aviso al pie de la letra (`A-17` por `A-17-b`).
+- Bajos corregidos: el recordatorio de pedidos que esperan y la pregunta del aviso de falla
+  (tres pruebas); `socio carpeta` cuenta lo que quedó atrás (dos pruebas); el aviso de carpeta
+  ausente en renglones cortos y una vez por corrida (una prueba); el comentario de `numero_de`
+  en el ejemplo 12; MEJORAS 129 con los peligros conocidos de la regla.
+- Evidencia del implementador: `pytest` 1627 pasan, 0 fallan (540 s); `probar mate/ejemplos`
+  157 de 157; `probar mate/curso` 37 de 37.
+- Evidencia del revisor y del probador: los once bajos que informaron traen su forma de
+  reproducirlos y están abajo (P265 a P273, y el resto de P246). El probador comparó contra
+  una copia del `mate.py` de `origin/main` (por ejemplo, `1.250` tecleado: 1.25 en la 0.8,
+  1250 en la 0.8.1) e hizo los pasos de `nuevo socio`, con "no" del proveedor, "no" del
+  comprador al aviso y versiones mezcladas. Los datos que recibió el integrador no dicen quién
+  informó cada bajo; por el contenido, los seis primeros son del revisor y los cinco últimos
+  del probador (dos coinciden entre los dos: tres decimales y las comillas).
+- **Incidente del probador, ya corregido**: para sacar la copia de `origin/main` usó
+  `git --work-tree=<temporal> checkout origin/main -- .` parado en el repositorio, y eso
+  cambió el índice (no los archivos ni los commits). Lo deshizo con `git reset -q`. El
+  integrador lo confirmó antes de escribir: `git status` limpio, `HEAD` en `3f853fb`, rama
+  `equipo/mate-0.8.1`.
+
+**Lo que repitió el integrador sobre `3f853fb`** (Linux, Python 3.13.18,
+`MATE_SIN_REGISTRO=1`): `--version` dice "Mate 0.8.1"; `probar mate/ejemplos` 157 de 157 en 25
+archivos; `probar mate/curso` 37 de 37 en 26 archivos; `numero_de_texto` da 3500, 35000 y
+-3500 para "3.500", "35.000" y "-3.500", y 3.5, 3.5, 0.5, 3.5 y 1234.567 para "3.5", "3.50",
+"0.500", "3.5000" y "1234.567"; un literal `3.5` sigue 3.5. Reproduje P265, P266 y P267
+(valores abajo) y leí el renglón del manual de P268. **No repetí** la batería `pytest` (la
+corrió el implementador sobre este mismo commit), ni los pasos de `nuevo socio`, ni la
+verificación de G en la web.
+
+#### Qué pasó con los pendientes de la 0.8
+
+- **Cerrados**: P245 (`socio carpeta`), P247 (archivos de sistema), P249 (qué se le pasa al
+  otro negocio), P251 (motivo del sobre de socios en el buzón local), P252 ("?.").
+- **P246, cerrado a medias**: el número que no entra ya se rechaza antes de preguntar. Sigue
+  abierto que un decimal de un socio se muestra redondeado en "¿Lo entrego?"
+  (0.30000000000000004 se ve 0.3) y el agente recibe el valor entero.
+- **P248, cerrado a medias**: el "no" del proveedor y la falla de su programa ya marcan el
+  pedido como rechazado. Sigue abierto el mensaje que se pierde sin aviso (no hay reenvío:
+  límite conocido, en el manual) y el "no" del propio comprador (P271).
+- **Siguen abiertos sin tocar**: P250 (lo primero a probar en Windows), P253 a P264. De las
+  decisiones que se pedían, la de P245 quedó tomada; siguen pendientes P254, P260 y P261.
+
+#### Problemas abiertos (todos bajos)
+
+Nuevos de la 0.8.1, salvo donde dice "ya estaba".
+
+- **P265** (riesgo de la regla A; lo informaron el implementador, el revisor y el probador):
+  una cantidad con tres decimales escrita con punto se lee como miles, sin ningún aviso al
+  correr. `"1.250"` kilos tecleado da 1250 (en la 0.8 daba 1.25); un coeficiente `"1.105"` da
+  1105. No hay forma de distinguirlo de plata. En `leer_tabla` ya era así desde la 0.5. Está
+  en negrita en el manual y en MEJORAS 129. Reproducir: `var k = numero(leer("kilos? "))`,
+  `mostrar(k)` y escribir `1.250`. Falta evaluar un aviso cuando una columna o un dato de
+  kilos, cantidad o stock trae ese formato.
+- **P266** (ida y vuelta de la regla A): un decimal con exactamente tres cifras y parte entera
+  de 1 a 999 que pasa por texto se relee mil veces más grande. `numero(texto(99 / 8))` da
+  12375 (un precio unitario de 12,375), `numero(a_json(12.375))` da 12375 y
+  `numero(texto(1.125))` da 1125. Un programa que guarda así un decimal y lo relee con
+  `numero()` o `leer_tabla()` lo lee mal. El manual manda a `pesos(x, 3)` (que redondea) o a
+  `a_json` junto con `de_json` (lo único exacto); quien relea con `numero()` cae igual. Ningún
+  ejemplo ni clase cae ahí. Falta evaluar un aviso.
+- **P267** (ceros adelante y caminos que no coinciden): con un cero adelante el texto cambió
+  de lectura: `"$ 010.000"` pasó de 10000 a 10, la celda `01.500` de 1500 a 1,5, y
+  `numero("01.000")` da 1 mientras `"1.000"` da 1000. El manual y MEJORAS nombran `0.500` y
+  `$ 0.500` pero no los demás. Además `numero_de` del ejemplo 12 y el freno de precios leen
+  "0.500" como 500 y `numero()` y `leer_tabla` como 0,5: quedó comentado en el ejemplo, no
+  unificado.
+- **P268** (ya estaba, y ahora contradice más): la sección de `leer_tabla` del manual
+  (`mate/README.md`, renglón 3606) dice "en una planilla el punto es siempre de los miles",
+  pero una celda `0.500` es medio desde la 0.8.1 y `3.5` ya era decimal. La tabla de "Números
+  y plata" dice lo correcto.
+- **P269** (lo informaron el revisor y el probador): la orden del aviso "no veo la carpeta
+  compartida", la de la ayuda y el uso de `socio` van sin comillas
+  (`--carpeta=F:\Compartida`). Con una ruta con espacios copiada con ese molde, PowerShell la
+  parte en dos y Mate contesta el uso genérico de `socio` (código 2), sin decir que faltan las
+  comillas. La salida de `nuevo socio` y el manual sí usan comillas simples. Reproducir:
+  `socio carpeta comprador.mate Proveedor --carpeta=F:\Mi carpeta`. Arreglo: mostrarla siempre
+  con comillas, o decir que sin `--carpeta` Mate pregunta la ruta.
+- **P270**: el comprador del ejemplo 14 muestra en cada corrida "El pedido A-17 ya salió y
+  espera la cotización... Si no llega más, o le dijiste que no...", también justo antes de que
+  Mate muestre la cotización que sí llegó (la entrega va después del programa). No es un
+  error, pero confunde en el paso 4 de `nuevo socio`.
+- **P271**: si el comprador contesta "no" a un aviso de falla o a la Cotizacion, el pedido
+  queda en "pedido" o "confirmando" para siempre. Está avisado en la pregunta, en la respuesta
+  al "no", en el manual y en el recordatorio de cada corrida, pero no hay forma de volver a ver
+  ese aviso ni de cerrar el pedido desde el programa. Pide una decisión de diseño (por ejemplo,
+  una orden para marcarlo rechazado).
+- **P272** (versiones mezcladas): si el que envía todavía corre la 0.8 y manda un número de
+  más de 60 cifras, el que recibe con 0.8.1 lo rechaza bien; pero al emisor, ya en 0.8.1, el
+  aviso le llega como "tu socio Proveedor avisa que no atendió ?: no cumple el contrato de tu
+  socio", sin pregunta y sin disparar el `al fallar`: el pedido sigue en "pedido". Con los dos
+  en 0.8.1 no se llega ahí (el que envía ya se niega).
+- **P273** (instalación en Windows, sin probar): el nombre de la app en Microsoft Store (se
+  escribió "Python Install Manager"; la documentación solo da el identificador 9NQ7512CXL7T);
+  que `py --version` baje Python solo (la documentación confirma la instalación automática,
+  no ese comando); que `instalar.bat` y `mate.bat` encuentren ese Python (prueban `python` y
+  `py -3`, y `py -3` no figura como ejemplo en la documentación). Con el install manager y
+  ningún Python, esa prueba silenciosa de los `.bat` puede disparar la descarga automática sin
+  mostrar nada.
+- **P274**: `socio carpeta` avisa cuántos mensajes quedaron en la carpeta de antes pero no los
+  muda; si el socio ya no puede leer la carpeta vieja hay que rehacer el pedido con otro
+  número. No avisa si la carpeta vieja ya no se ve. La orden `buzon` todavía no sugiere
+  `socio carpeta` cuando la carpeta no se ve.
+
+**Decisiones que pide el integrador al coordinador**: P265 y P266 (¿un aviso al correr cuando
+un texto con tres decimales se lee como miles?; hoy es silencioso y es el riesgo mayor de esta
+versión), P267 (¿`leer_tabla` se queda con `0.500` = 0,5, y se unifican el ejemplo 12 y el
+freno de precios?) y P271 (¿una forma de cerrar un pedido al que se le dijo "no"?). P268 y
+P269 son arreglos de texto de pocos renglones.
+
+#### Sin probar
+
+- **Windows de verdad**: nada de la 0.8.1. En especial `socio carpeta` con letras de unidad
+  (E: a F:), los archivos ocultos que crea Windows en un pendrive o una nube real, el Bloc de
+  notas (Edición, Buscar) y todo P273. Sigue pendiente lo de la 0.8 (P250 antes que nada).
+- **Otras versiones de Python**: todo corrió solo con 3.13; nada con 3.10, 3.11, 3.12 ni 3.14.
+- **Modelo real**: nada (el ejemplo 14 no usa IA).
+
+**Para el dueño, en Windows** (parado en la carpeta que tiene adentro a `mate`)
+
+```
+py mate\mate.py --version
+py -m pytest mate\pruebas mate\modelo -q -p no:cacheprovider
+py mate\mate.py probar mate\ejemplos
+py mate\mate.py nuevo socio ensayo
+```
+
+`--version` tiene que decir "Mate 0.8.1". Después de `nuevo socio`, conviene cambiarle el
+nombre a la carpeta `compartida` y probar la orden `socio carpeta` que sugiere el aviso.
+
+**Lo que sigue**: revisar que ninguna planilla ni programa del negocio guarde kilos o
+coeficientes con punto y tres decimales (P265, P266), probar en la PC del dueño, las
+decisiones de arriba, y recién después publicar.
+
 ## Estado final de la 0.7
 
 **Estado de hoy** (integrador, después de la tercera pasada del revisor externo sobre el pull
