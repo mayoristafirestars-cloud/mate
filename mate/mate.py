@@ -5792,6 +5792,7 @@ class Socios:
         self.limpios = set()  # los socios a los que ya les saqué lo mío de otra clave
         self.avisados = set()
         self._carpetas = {}
+        self._dijo_que_hacer_sin_carpeta = False
         self._rechazos_avisados = {}
 
     def avisar_una_vez(self, cual, texto):
@@ -5930,12 +5931,20 @@ class Socios:
         if not es_carpeta_real(base):
             # (0.8.1) Dice qué hacer: antes solo preguntaba por el pendrive.
             problema = f"no veo la carpeta compartida con {socio} ({base})"
-            que_hacer = (
-                ". Qué hacer: fijate que esté puesto el pendrive, o que ande la conexión, y "
-                "corré el programa de nuevo. Si la carpeta cambió de lugar (por ejemplo, el "
-                "pendrive ahora es F: y antes era E:), decile a Mate dónde está ahora; la "
-                "clave no cambia y tu socio no tiene que hacer nada:  "
-                f"{self.orden_de('carpeta', socio)} --carpeta=F:\\Compartida")
+            # (se explica entero una vez por corrida; con más socios, después va corto)
+            la_orden = f"{self.orden_de('carpeta', socio)} --carpeta=F:\\Compartida"
+            if self._dijo_que_hacer_sin_carpeta:
+                que_hacer = f".\n  Si cambió de lugar (con la ruta de verdad):  {la_orden}"
+            else:
+                que_hacer = (
+                    ".\n  Qué hacer: fijate que esté puesto el pendrive, o que ande la "
+                    "conexión, y corré de nuevo."
+                    "\n  Si la carpeta cambió de lugar (el pendrive tiene otra letra), decile "
+                    "a Mate dónde está:"
+                    f"\n    {la_orden}"
+                    "\n  (F:\\Compartida es un ejemplo: poné la ruta donde está AHORA la "
+                    "carpeta; la clave no cambia)")
+            self._dijo_que_hacer_sin_carpeta = True
         else:
             for sub in (mia, suya):
                 completa = os.path.join(base, sub)
@@ -9792,6 +9801,8 @@ class Interprete:
         if que["falla"]:
             self.salida(f"{quien} avisa que NO atendió {valor_ajeno(que['msg'])}")
             self.salida(f"  Motivo: {que['motivo']}.")
+            self.salida("  (Es un aviso, no un pedido nuevo. Con si, tu programa lo anota. Con "
+                        "no, tu programa NO se entera y sigue esperando esa respuesta.)")
         else:
             self.salida(f"{quien} te manda {valor_ajeno(que['msg'])}")
         self.salida(f"  escrito el {cuando} según el reloj de tu socio. Lo recibe: "
@@ -9840,7 +9851,9 @@ class Interprete:
                 avisar=False)
             self.falla_a_socio(socio, sobre, "descartado", de_agente=dest.nombre)
             self.salida("  No se entregó: queda en rechazados"
-                        + ("." if que["falla"] else ", y tu socio recibe el aviso."))
+                        + (". Tu programa no se enteró del aviso: lo que esperaba esa "
+                           "respuesta sigue esperando." if que["falla"]
+                           else ", y tu socio recibe el aviso."))
             return True
         rem = self.ajenos[socio]
         self.conversaciones += 1
@@ -15704,6 +15717,14 @@ def sobres_en_viaje(ficha):
     return cuantos
 
 
+def misma_carpeta(una, otra):
+    """¿Las dos rutas llegan a la misma carpeta? (Si alguna no se ve, no se sabe: no.)"""
+    try:
+        return os.path.samefile(una, otra)
+    except (OSError, ValueError):
+        return False
+
+
 def preparar_compartida(carpeta):
     """Deja armada la carpeta compartida: de-a, de-b y el LEEME (sin pisar nada)."""
     for sub in ("de-a", "de-b"):
@@ -15956,6 +15977,11 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
             return 0
         nuevas = dict(fichas)
         nuevas[socio] = dict(existente, carpeta=carpeta)
+        # Los mensajes propios que el socio todavía no trajo de la carpeta de antes. Si la
+        # de antes ya no se ve (cambió la letra del pendrive), no hay nada que contar: es
+        # la misma carpeta y siguen ahí.
+        atras = 0 if misma_carpeta(existente["carpeta"], carpeta) \
+            else sobres_en_viaje(existente)
         if not guardar(nuevas):
             return 1
         try:
@@ -15970,8 +15996,17 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
         mostrar("  Tiene que ser la MISMA carpeta que ve tu socio (el mismo pendrive, la "
                 "misma carpeta de OneDrive o de Drive), aunque en cada PC tenga otra letra "
                 "u otra ruta. Si en cambio pasaron a una carpeta nueva, tu socio tiene que "
-                "hacer lo mismo en su PC con su 'socio carpeta', y lo que haya quedado sin "
-                "traer en la carpeta vieja no se muda solo: hay que mandarlo de nuevo.")
+                "hacer lo mismo en su PC con su 'socio carpeta'.")
+        if atras:
+            mostrar(f"  OJO: en la carpeta de antes {'quedó' if atras == 1 else 'quedaron'} "
+                    f"{cuantos_mensajes(atras)} {'tuyo' if atras == 1 else 'tuyos'} que tu "
+                    "socio todavía no trajo, y no se "
+                    f"{'muda solo' if atras == 1 else 'mudan solos'}. Qué hacer: pedile a "
+                    "tu socio que corra su programa UNA vez más con la carpeta de antes "
+                    "(antes de hacer su 'socio carpeta'): así los recibe. Si ya no puede, "
+                    "esos mensajes se pierden: avisale, y lo que pedían hay que hacerlo de "
+                    "nuevo desde tu programa (un pedido, con otro número de pedido). "
+                    "(Con la orden 'buzon', tu socio ve qué números le faltan.)")
         return 0
 
     if que == "invitar" and existente is not None:
@@ -16299,8 +16334,10 @@ def nuevo_socio(args, avisar, mostrar=print):
         "Entre una orden y la otra conviene que ninguno corra su programa.",
         "OJO: las carpetas se acuerdan del ensayo (el pedido A-17 ya figura hecho y el stock",
         "ya está descontado), así que la primera corrida de verdad no mandaría nada. Antes,",
-        "cada uno cambia en su programa los datos de muestra por los suyos (el pedido A-17",
-        "está en el último renglón de comprador.mate) y corre UNA vez con --olvidar, que",
+        "cada uno cambia en su programa los datos de muestra por los suyos (en comprador.mate",
+        "el pedido está en el renglón que empieza con 'enviar Pedir' y dice \"A-17\": con el",
+        "Bloc de notas se encuentra buscando A-17 en el menú Edición, Buscar; NO es ninguno",
+        "de los 'enviar Pedir' de las pruebas del final) y corre UNA vez con --olvidar, que",
         "arranca con la memoria limpia:",
         f"       {lanzador} correr comprador.mate --olvidar",
         "",

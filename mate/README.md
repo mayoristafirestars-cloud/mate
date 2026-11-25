@@ -1379,8 +1379,11 @@ Mate.
 **Ojo al pasar del ensayo a lo real: las carpetas se acuerdan del ensayo.** El pedido A-17
 ya figura mandado o confirmado y el stock ya está descontado, así que la primera corrida de
 verdad no mandaría nada. Antes, cada uno cambia en su programa los datos de muestra por los
-suyos (el pedido A-17 está en el último renglón de `comprador.mate`) y corre **una** vez con
-`--olvidar`, que arranca con la memoria limpia:
+suyos y corre **una** vez con `--olvidar`, que arranca con la memoria limpia. En
+`comprador.mate` el pedido está en el renglón que empieza con `enviar Pedir` y dice `"A-17"`,
+debajo del título "El programa": con el Bloc de notas se encuentra buscando `A-17` en el menú
+Edición, Buscar. **No** es ninguno de los `enviar Pedir` del final del archivo: esos son de
+las pruebas (P-1 a P-8) y cambiarlos no manda nada.
 
 ```
 python mate\mate.py correr comprador.mate --olvidar
@@ -1510,7 +1513,14 @@ clave, el número de control y la cuenta de los mensajes quedan como estaban, y 
 por salir sale a la carpeta nueva en la próxima corrida. Tiene que ser **la misma carpeta que
 ve tu socio** (el mismo pendrive, la misma carpeta de la nube), aunque en cada PC tenga otra
 ruta. Si en cambio los dos pasan a una carpeta nueva, cada uno hace su `socio carpeta`, y lo
-que haya quedado sin traer en la vieja no se muda solo: hay que mandarlo de nuevo.
+que haya quedado sin traer en la vieja **no se muda solo**. Si en la carpeta de antes
+quedaron mensajes tuyos que tu socio no trajo, `socio carpeta` te dice cuántos son. Lo más
+simple es que tu socio corra su programa una vez más con la carpeta de antes, antes de hacer
+su `socio carpeta`: así los recibe. Si ya no puede, esos mensajes se pierden: avisale, y lo
+que pedían se hace de nuevo desde tu programa (un pedido, con otro número de pedido).
+
+Mientras la carpeta no se vea, el aviso sale en cada corrida. La orden que muestra trae
+`F:\Compartida` **de ejemplo**: ahí va la ruta donde está ahora la carpeta.
 
 **Renová la clave** (`socio renovar` de un lado, `socio aceptar` del otro) si se perdió o
 pudo haberse copiado el pendrive, la invitación o el archivo `.socios.json`; si restauraste
@@ -1582,6 +1592,12 @@ viaja el texto de un error de adentro de un programa. Si tu agente tiene `al fal
 aviso también pasa por tu `si`; si no, se muestra y listo. Solo vale el aviso de un mensaje
 que tu programa le mandó de verdad a ese socio, y uno solo por mensaje.
 
+**A un aviso de falla conviene contestarle `si`.** No es un pedido nuevo: es la noticia de
+que algo tuyo no se atendió. Con `si`, tu programa la anota (en el ejemplo, el pedido queda
+`rechazado`). Con `no`, el aviso va a `rechazados` y **tu programa no se entera**: lo que
+esperaba esa respuesta sigue esperando. Mate lo dice en la pregunta y otra vez si contestás
+`no`.
+
 **Que un pedido no quede trabado (0.8.1).** En el ejemplo 14 (y en lo que copia `nuevo
 socio`), cuando el proveedor contesta `no` o su programa falla, el `al fallar` del comprador
 marca ese pedido como **rechazado** y dice qué hacer:
@@ -1589,8 +1605,16 @@ marca ese pedido como **rechazado** y dice qué hacer:
 ```
 Pedido A-17: el proveedor NO lo atendió. Motivo: el dueño lo descartó.
 Quedó anotado como RECHAZADO: no está pedido ni confirmado, y no sale de nuevo solo.
-Qué hacer: llamá al proveedor para saber qué pasó. Si lo querés pedir otra vez, cambiá el número del pedido...
+Qué hacer: llamá al proveedor para saber qué pasó. Si lo querés pedir otra vez, hace falta otro número de pedido: abrí este programa con el Bloc de notas, buscá A-17 (menú Edición, Buscar) y, en ese renglón, el que empieza con 'enviar Pedir', cambialo por otro (por ejemplo A-17-b). Guardá y corré de nuevo.
 ```
+
+Ese renglón está en el medio del archivo, debajo del título "El programa", y es el único
+donde figura el número del pedido. Los `enviar Pedir` del final son de las pruebas.
+
+Mientras un pedido espera una respuesta, el comprador también lo dice en cada corrida (`El
+pedido A-17 ya salió y espera la cotización del proveedor...`): si le contestaste `no` a la
+cotización o al aviso de falla, el pedido sigue "esperando" y ese renglón te lo recuerda
+hasta que hables con el proveedor y lo pidas con otro número.
 
 Un pedido rechazado no se manda de nuevo solo (el mismo número no sale dos veces) y el
 programa lo recuerda en cada corrida: para pedirlo otra vez se usa **otro número de pedido**.

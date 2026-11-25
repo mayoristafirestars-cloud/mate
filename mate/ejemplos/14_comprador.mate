@@ -46,7 +46,14 @@ agente Compras {
         si tiene(pedidos, p.pedido) {
             # Si el proveedor lo rechazó, se recuerda en cada corrida qué hay que hacer.
             si pedidos[p.pedido].estado == "rechazado" {
-                mostrar("El pedido {p.pedido} quedó RECHAZADO: el proveedor no lo atendió, y no sale de nuevo solo. Hablá con el proveedor; para pedirlo otra vez, usá otro número de pedido (está en el último renglón del programa, el que empieza con 'enviar Pedir').")
+                mostrar("El pedido {p.pedido} quedó RECHAZADO: el proveedor no lo atendió, y no sale de nuevo solo. Hablá con el proveedor. Para pedirlo otra vez hace falta otro número de pedido: abrí este programa con el Bloc de notas, buscá {p.pedido} (menú Edición, Buscar) y, en ese renglón, el que empieza con 'enviar Pedir', cambialo por otro (por ejemplo {p.pedido}-b). Guardá y corré de nuevo.")
+            }
+            # Y si sigue esperando una respuesta, también se dice: que no espere callado.
+            si pedidos[p.pedido].estado == "pedido" {
+                mostrar("El pedido {p.pedido} ya salió y espera la cotización del proveedor. Si llegó, Mate te la muestra acá abajo. Si no llega más, o le dijiste que no a lo que mandó el proveedor, hablá con él: para pedirlo de nuevo hace falta otro número de pedido.")
+            }
+            si pedidos[p.pedido].estado == "confirmando" {
+                mostrar("El pedido {p.pedido} ya está confirmado de tu lado y espera el aviso del proveedor. Si llegó, Mate te lo muestra acá abajo. Si no llega más, hablá con él.")
             }
             devolver
         }
@@ -124,7 +131,7 @@ agente Compras {
         # Y se dice, en castellano simple, qué pasó y qué hay que hacer.
         mostrar("Pedido {cual}: el proveedor NO lo atendió. Motivo: {f.motivo}.")
         mostrar("Quedó anotado como RECHAZADO: no está pedido ni confirmado, y no sale de nuevo solo.")
-        mostrar("Qué hacer: llamá al proveedor para saber qué pasó. Si lo querés pedir otra vez, cambiá el número del pedido (por ejemplo {cual}-b) en el último renglón del programa, el que empieza con 'enviar Pedir', y corré de nuevo.")
+        mostrar("Qué hacer: llamá al proveedor para saber qué pasó. Si lo querés pedir otra vez, hace falta otro número de pedido: abrí este programa con el Bloc de notas, buscá {cual} (menú Edición, Buscar) y, en ese renglón, el que empieza con 'enviar Pedir', cambialo por otro (por ejemplo {cual}-b). Guardá y corré de nuevo.")
     }
 
     # (de entrecasa: en qué anda un pedido; lo usan las pruebas)
@@ -139,7 +146,9 @@ agente Compras {
 }
 
 # ── El programa ──
-# El pedido de siempre. Sale una sola vez: Compras recuerda que ya lo mandó.
+# El pedido de siempre. Sale una sola vez: Compras recuerda que ya lo mandó. Para hacer
+# otro pedido (o repetir uno rechazado) se cambia el número en ESTE renglón, no en las
+# pruebas de más abajo. Es el único lugar del programa donde está escrito ese número.
 enviar Pedir { pedido: "A-17", producto: "yerba", cantidad: 10 } a Compras
 
 # Lo que ya está cotizado se confirma recién con TU si (si no hay teclado, vale "no").

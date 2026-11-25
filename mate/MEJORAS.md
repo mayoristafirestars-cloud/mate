@@ -1173,6 +1173,26 @@ cerrar la 0.8. Sin palabras ni funciones nuevas (siguen 36 y 48).
   docs.python.org y python.org el 25/11/2026. **Sin probar en Windows real**: ni el
   administrador de instalación, ni que `instalar.bat` y `mate.bat` encuentren el Python que
   instala (prueban `python` y `py -3`).
+- **Correcciones de la revisión (sobre `bdf2885`):** el "qué hacer" de un pedido rechazado
+  mandaba al "último renglón del programa", y ahí hay una llave de una prueba (el pedido está
+  en el medio, y abajo hay once `enviar Pedir` de pruebas). Ahora los dos textos del ejemplo
+  14, la salida de `nuevo socio` y el manual dicen que se busque el número del pedido (A-17)
+  con Edición, Buscar: es el único renglón donde figura. El comprador recuerda en cada
+  corrida los pedidos que siguen esperando cotización o confirmación (antes, si el dueño le
+  decía `no` a la cotización o al aviso de falla, el pedido quedaba esperando callado). La
+  pregunta de un aviso de falla explica que con `no` el programa no se entera. `socio
+  carpeta` cuenta los mensajes propios que quedaron sin traer en la carpeta de antes y dice
+  qué hacer. El aviso `no veo la carpeta compartida` va en renglones cortos, aclara que
+  `F:\Compartida` es un ejemplo y se explica entero una sola vez por corrida. El ejemplo 12
+  avisa que su `numero_de("0.500")` da 500 (cuenta unidades) y `numero("0.500")` da 0,5.
+- **Peligros conocidos de la regla del "3.500", sin freno en la corrida:** una cantidad con
+  tres decimales escrita con punto (`"1.250"` kilos, un coeficiente `"1.105"`) se lee como
+  miles (1250, 1105), al teclearla, en una planilla o al releer lo que guardó `texto()`:
+  cerca de 1 de cada 10 números con decimales tomados al azar entre -2000 y 2000. Mate no
+  avisa. `pesos(x, 3)` redondea a tres decimales; lo único exacto para guardar y releer un
+  número es `a_json`/`de_json`. `numero("01.000")` da 1 (con un cero adelante es decimal,
+  igual que `"0.500"`). Falta evaluar un aviso cuando una columna de cantidad, kilos o stock
+  trae ese formato.
 - Quedó afuera: mostrar los decimales de un socio con todas sus cifras (0.30000000000000004
   se sigue viendo 0.3 en la pregunta), el reenvío de un mensaje perdido, y todo lo demás que
   figura abierto en el registro de la 0.8.

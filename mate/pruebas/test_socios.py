@@ -2502,3 +2502,188 @@ def test_nuevo_socio_y_el_manual_dicen_que_se_le_pasa_al_otro_negocio_y_que_nunc
     assert max(len(r) for r in ayuda.splitlines()) <= 100
     assert "invitar|aceptar|renovar|quitar|carpeta" in mate.__doc__
 
+
+
+# ── correcciones de la revisión de la 0.8.1 ──
+def test_el_que_hacer_de_un_pedido_rechazado_manda_al_renglon_que_existe(
+        tmp_path, capsys, monkeypatch):
+    """El aviso decía "en el último renglón del programa": ahí hay una llave de una prueba,
+    y abajo del pedido hay 'enviar Pedir' de pruebas. Ahora manda a buscar el número del
+    pedido, que figura en un solo renglón, y siguiendo eso al pie de la letra sale."""
+    codigo, impreso, err = orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")
+    base = tmp_path / "ensayo_de_socios"
+    comprador, proveedor, compartida = (base / n for n in
+                                        ("comprador", "proveedor", "compartida"))
+    programa = comprador / "comprador.mate"
+    renglones = programa.read_text(encoding="utf-8-sig").splitlines()
+    manual = (RAIZ / "README.md").read_text(encoding="utf-8")
+    ejemplo = (RAIZ / "ejemplos" / "14_comprador.mate").read_text(encoding="utf-8")
+    for texto in ("\n".join(renglones), impreso, manual, ejemplo):
+        assert "último renglón del programa" not in texto
+        assert "último renglón de comprador.mate" not in " ".join(texto.split())
+        assert "último renglón de `comprador.mate`" not in " ".join(texto.split())
+    # Lo que hay de verdad en el archivo: el último renglón no es el pedido, hay varios
+    # 'enviar Pedir', y el número A-17 está en uno solo, que es el del programa.
+    assert not renglones[-1].startswith("enviar Pedir")
+    assert sum(r.strip().startswith("enviar Pedir") for r in renglones) > 5
+    (con_el_numero,) = [r for r in renglones if "A-17" in r]
+    assert con_el_numero.startswith('enviar Pedir { pedido: "A-17"')
+    que_dice = " ".join(impreso.split())
+    assert "buscando A-17" in que_dice and "'enviar Pedir'" in que_dice
+    assert "de las pruebas" in que_dice
+    assert "buscando `A-17`" in manual and "son de las pruebas" in " ".join(manual.split())
+    # La vuelta: el proveedor dice que no, y el comprador hace lo que dice el aviso.
+    _correr(capsys, monkeypatch, comprador)
+    _correr(capsys, monkeypatch, proveedor, "no")
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")
+    (que_hacer,) = [r for r in salida.splitlines() if r.startswith("Qué hacer:")]
+    assert "buscá A-17 (menú Edición, Buscar)" in que_hacer
+    assert "el que empieza con 'enviar Pedir'" in que_hacer and "A-17-b" in que_hacer
+    programa.write_text("\n".join(
+        r.replace("A-17", "A-17-b") if "A-17" in r else r for r in renglones) + "\n",
+        encoding="utf-8")
+    antes = len(sobres(compartida / "de-a"))
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "dejé 1 mensaje para Proveedor" in salida
+    assert len(sobres(compartida / "de-a")) == antes + 1
+    pedidos = memoria(comprador)["agentes"]["Compras"]["estado"]["pedidos"]
+    assert pedidos["A-17-b"]["estado"] == "pedido" and pedidos["A-17"]["estado"] == "rechazado"
+    # Y la vuelta con el número nuevo anda entera.
+    _correr(capsys, monkeypatch, proveedor, "si")
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")
+    assert "Pedido A-17-b: 10 de yerba" in salida
+    # El recordatorio del rechazado también manda al mismo lugar.
+    programa.write_text("\n".join(renglones) + "\n", encoding="utf-8")
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "El pedido A-17 quedó RECHAZADO" in salida
+    assert "buscá A-17 (menú Edición, Buscar)" in salida and "último renglón" not in salida
+
+
+def test_ejemplo_14_el_no_a_un_aviso_de_falla_no_deja_el_pedido_esperando_callado(
+        tmp_path, capsys, monkeypatch):
+    orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")
+    base = tmp_path / "ensayo_de_socios"
+    comprador, proveedor = base / "comprador", base / "proveedor"
+    _correr(capsys, monkeypatch, comprador)
+    _correr(capsys, monkeypatch, proveedor, "no")
+    # La pregunta de un aviso de falla dice qué pasa con "no", y el "no" lo repite.
+    salida, err = _correr(capsys, monkeypatch, comprador, "no")
+    assert "avisa que NO atendió" in salida
+    assert "Es un aviso, no un pedido nuevo" in salida
+    assert "Con no, tu programa NO se entera" in salida
+    assert "Tu programa no se enteró del aviso" in salida
+    assert "tu socio recibe el aviso" not in salida
+    estado = memoria(comprador)["agentes"]["Compras"]["estado"]["pedidos"]["A-17"]
+    assert estado["estado"] == "pedido"
+    # Las corridas siguientes ya no son mudas: el pedido que espera se nombra cada vez.
+    for _ in range(2):
+        salida, err = _correr(capsys, monkeypatch, comprador)
+        assert "El pedido A-17 ya salió y espera la cotización del proveedor" in salida
+        assert "hablá con él" in salida and "otro número de pedido" in salida
+
+
+def test_ejemplo_14_el_no_a_la_cotizacion_tampoco_deja_el_pedido_callado(
+        tmp_path, capsys, monkeypatch):
+    orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")
+    base = tmp_path / "ensayo_de_socios"
+    comprador, proveedor = base / "comprador", base / "proveedor"
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "espera la cotización" not in salida  # recién sale: todavía no hay qué recordar
+    _correr(capsys, monkeypatch, proveedor, "si")
+    salida, err = _correr(capsys, monkeypatch, comprador, "no")
+    assert "te manda Cotizacion" in salida and "tu socio recibe el aviso" in salida
+    assert "Es un aviso, no un pedido nuevo" not in salida  # eso es solo de las fallas
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "El pedido A-17 ya salió y espera la cotización del proveedor" in salida
+    assert "¿Confirmás" not in salida
+
+
+def test_ejemplo_14_un_pedido_confirmando_tambien_se_recuerda(tmp_path, capsys, monkeypatch):
+    orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")
+    base = tmp_path / "ensayo_de_socios"
+    comprador, proveedor = base / "comprador", base / "proveedor"
+    _correr(capsys, monkeypatch, comprador)
+    _correr(capsys, monkeypatch, proveedor, "si")
+    _correr(capsys, monkeypatch, comprador, "si")
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")  # ¿Confirmás...? si
+    assert "¿Confirmás" in salida and "espera el aviso del proveedor" not in salida
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "El pedido A-17 ya está confirmado de tu lado y espera el aviso" in salida
+    _correr(capsys, monkeypatch, proveedor, "si")
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")
+    assert "Pedido A-17: confirmado por el proveedor." in salida
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "espera" not in salida and "RECHAZADO" not in salida
+
+
+def test_socio_carpeta_avisa_cuantos_mensajes_propios_quedaron_en_la_carpeta_de_antes(
+        tmp_path, capsys, monkeypatch):
+    local = negocio(tmp_path, "local", RECIBE + "enviar Mandar { n: 5 } a Caja\n")
+    vieja, nueva = tmp_path / "compartida", tmp_path / "otra_carpeta"
+    nueva.mkdir()
+    orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert len(sobres(vieja / "de-a")) == 1
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", f"--carpeta={nueva}")
+    assert (codigo, err) == (0, "")
+    dicho = " ".join(salida.split())
+    assert "OJO: en la carpeta de antes quedó 1 mensaje tuyo que tu socio todavía no trajo" \
+        in dicho
+    assert "Qué hacer: pedile a tu socio que corra su programa UNA vez más" in dicho
+    assert "otro número de pedido" in dicho and "buzon" in dicho
+    assert len(sobres(vieja / "de-a")) == 1 and sobres(nueva / "de-a") == []  # no muda nada
+    # Con dos, en plural. Y de vuelta a una carpeta sin nada atrás, no dice OJO.
+    dejar(nueva / "de-a", sobre_de(7))
+    dejar(nueva / "de-a", sobre_de(8))
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", f"--carpeta={vieja}")
+    assert "quedaron 2 mensajes tuyos" in " ".join(salida.split())
+    tercera = tmp_path / "tercera"
+    tercera.mkdir()
+    (vieja / "de-a").rename(tmp_path / "sacados")
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", f"--carpeta={tercera}")
+    assert codigo == 0 and "OJO" not in salida
+
+
+def test_socio_carpeta_no_asusta_si_es_la_misma_carpeta_por_otro_camino(
+        tmp_path, capsys, monkeypatch):
+    """El pendrive con otra letra: si la carpeta de antes ya no se ve, o es la misma por
+    otra ruta, los mensajes siguen ahí y no hay nada que avisar."""
+    local = negocio(tmp_path, "local", RECIBE + "enviar Mandar { n: 5 } a Caja\n")
+    vieja, nueva = tmp_path / "compartida", tmp_path / "pendrive_en_f"
+    orden(capsys, monkeypatch, local, "correr", "local.mate")
+    vieja.rename(nueva)
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", f"--carpeta={nueva}")
+    assert codigo == 0 and "OJO" not in salida and len(sobres(nueva / "de-a")) == 1
+    assert mate.misma_carpeta(str(nueva), str(nueva / "de-a" / ".."))
+    assert not mate.misma_carpeta(str(nueva), str(vieja))
+    assert not mate.misma_carpeta(str(nueva), str(local))
+
+
+def test_el_aviso_de_carpeta_que_no_se_ve_va_en_renglones_cortos_y_entero_una_vez(
+        tmp_path, capsys, monkeypatch):
+    fuente = RECIBE + "usar socio Tercero\n"
+    local = negocio(tmp_path, "local", fuente)
+    otra = tmp_path / "otra"
+    fichas = mate.leer_socios(str(local / "local.mate"))[0]
+    fichas["Tercero"] = dict(fichas["Socio"], clave=mate.nueva_clave_de_socio(),
+                             carpeta=str(otra))
+    mate.guardar_socios(str(local / "local.mate"), fichas)
+    (tmp_path / "compartida").rename(tmp_path / "sacada")
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert codigo == 0
+    avisos = [r for r in err.splitlines() if "no veo la carpeta compartida" in r]
+    assert len(avisos) == 2
+    # Entero una sola vez por corrida; el del otro socio va corto, con su orden.
+    assert err.count("Qué hacer: fijate que esté puesto el pendrive") == 1
+    assert err.count("F:\\Compartida es un ejemplo: poné la ruta donde está AHORA") == 1
+    assert "socio carpeta local.mate Socio --carpeta=F:\\Compartida" in err
+    assert "socio carpeta local.mate Tercero --carpeta=F:\\Compartida" in err
+    assert err.count("Si cambió de lugar (con la ruta de verdad):") == 1
+    # Ningún renglón del "qué hacer" es una parrafada (la ruta de la carpeta va aparte).
+    for renglon in err.splitlines():
+        if renglon.startswith("  ") and "socio carpeta" not in renglon:
+            assert len(renglon) <= 100, renglon
+    assert "?." not in err
