@@ -35,8 +35,8 @@ set "PY=py -3"
 py -3 -c "import sys" >nul 2>nul
 if not errorlevel 1 goto correr
 echo No encuentro Python en esta computadora.
-echo Instalalo desde https://www.python.org/downloads/ y, en la primera pantalla
-echo del instalador, marca la casilla "Add python.exe to PATH".
+echo Instalalo: en la tienda Microsoft Store, busca "Python Install Manager" y toca
+echo Instalar. O bajalo de https://www.python.org/downloads/windows/
 set "CODIGO=1"
 goto fin
 

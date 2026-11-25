@@ -1114,6 +1114,70 @@ máquinas (de OneDrive, Google Drive o Dropbox, de red, o un pendrive).
   están simuladas en las pruebas.
 *Mirada: el mayorista que quiere que su programa de compras le hable al de su proveedor · Esfuerzo: grande · Estado: hecha*
 
+**129. `numero("3.500")` son tres mil quinientos, y arreglos de los socios (0.8.1)**
+Una versión chica, con un cambio que importa y varios arreglos de lo que quedó anotado al
+cerrar la 0.8. Sin palabras ni funciones nuevas (siguen 36 y 48).
+- **CAMBIO DE COMPORTAMIENTO: el número "3.500".** Hasta la 0.8, `numero("3.500")` daba 3,5 y
+  `numero("35.000")` daba 35. En la Argentina eso es tres mil quinientos y treinta y cinco
+  mil, y una lista de precios de verdad cae justo ahí: el programa cobraba mil veces menos y
+  no avisaba. Desde la 0.8.1, en un **texto** que se pasa a número, un solo punto, sin coma,
+  con una parte entera de una a tres cifras que no empieza con cero y **exactamente tres
+  cifras** atrás es el punto de los miles: `"3.500"` → 3500, `"35.000"` → 35000, `"-3.500"` →
+  -3500. Siguen siendo decimales `"3.5"`, `"3.50"`, `"0.500"`, `"3.5000"` y `"1234.567"`, y la
+  coma sigue siendo la de los decimales. Es una sola regla para todos los lugares donde Mate
+  pasa un texto a número: `numero()` (y por lo tanto lo que se lee con `leer()`) y las celdas
+  de `leer_tabla()`, que ya leía `3.500` como 3500 desde la 0.5. **Los números escritos en el
+  código de un programa no cambian**: `3.5` es tres y medio y un `3.500` suelto sigue dando
+  el error que explica cómo se escribe.
+- Nota de lo decidido, y lo que NO se pudo resolver: la regla no puede saber si `"1.250"` es
+  plata (mil doscientos cincuenta) o una cantidad con tres decimales (un kilo y cuarto). Se
+  eligió lo más seguro para plata, que es lo que pidió el dueño, y el manual dice en negrita
+  que las cantidades con decimales se escriben con coma. Dos consecuencias que hay que saber:
+  (1) `numero(texto(1.125))` ya no devuelve 1,125 sino 1125: un programa que guarda un número
+  con tres decimales en un archivo con `texto()` y lo lee después con `numero()` o
+  `leer_tabla()` lo lee mal; el manual manda a guardarlo con `pesos(x, 3)` o `a_json`. (2) En
+  una planilla, una celda `0.500` pasó de leerse 500 a leerse 0,5 (medio), y `$ 0.500` también:
+  con un cero adelante nadie escribe quinientos, y medio kilo sí se escribe así. No se tocó
+  el freno de precios (`importes_de`), que ya leía `$ 3.500` como 3500, ni el `numero_de` del
+  ejemplo 12, que ya sacaba los puntos de miles de lo que escribe el cliente.
+- **Socios, cambiar solo la carpeta:** `socio carpeta comprador.mate Proveedor
+  --carpeta=F:\Compartida` cambia dónde está la carpeta compartida y nada más (la clave, el
+  lado, las huellas de antes y la cuenta de los mensajes quedan). Antes, si el pendrive pasaba
+  de `E:` a `F:`, la única salida era renovar la clave. Pasa por los mismos controles que al
+  cargarla (carpeta de verdad, aparte de la del programa y de la de otro socio). El aviso `no
+  veo la carpeta compartida` ahora dice qué hacer y muestra esa orden lista para copiar (y
+  ya no termina en "¿...conexión?.").
+- **Socios, archivos del sistema:** `desktop.ini`, `Thumbs.db`, `.DS_Store`, los `._algo` de
+  una Mac, los `~$algo` de Office y parecidos se ignoran en silencio en `de-a`/`de-b` (antes
+  disparaban en cada corrida "hay 1 cosa que no es un sobre... sacalo a mano", y Windows los
+  vuelve a crear). Se mira solo el nombre, nunca se abren, y algo con la forma de un sobre
+  nunca cuenta como archivo del sistema.
+- **Ejemplo 14 y `nuevo socio`:** el `al fallar` del comprador marca el pedido como
+  `rechazado` y dice qué hacer (llamar al proveedor; para pedirlo de nuevo, otro número de
+  pedido). Antes mostraba un renglón y el pedido quedaba "pedido" o "confirmando" para
+  siempre. Un pedido cuyo mensaje se **pierde** sin aviso sigue quedando esperando: no hay
+  reenvío.
+- **Qué se le pasa al otro negocio:** el manual y la salida de `nuevo socio` dicen qué
+  archivos recibe el otro negocio para arrancar (su programa, `trato.mate` y Mate) y cuáles
+  no se pasan nunca (el `.socios.json`, la memoria, la bitácora, la carpeta `.buzon`, la
+  carpeta del ensayo entera).
+- **Chicos:** un número de más de 60 cifras no viaja entre negocios (se rechaza antes de
+  preguntar "¿Lo entrego?"; antes se mostraba recortado y el agente lo recibía entero); un
+  sobre de socios copiado a mano al buzón local se rechaza diciendo eso, y no "lo escribió una
+  versión más nueva de Mate".
+- **Instalar Python en Windows:** la guía (manual, página, `instalar.bat`, `mate.bat`) pone
+  primero el "Python install manager" (Microsoft Store, o el `.msix` de python.org), que es lo
+  que hoy recomienda la documentación oficial de Python; el instalador clásico (`.exe`) está
+  marcado como en retirada desde Python 3.14 y no se va a producir desde la 3.16. Se deja
+  como alternativa, con su casilla "Add python.exe to PATH". Verificado contra
+  docs.python.org y python.org el 25/11/2026. **Sin probar en Windows real**: ni el
+  administrador de instalación, ni que `instalar.bat` y `mate.bat` encuentren el Python que
+  instala (prueban `python` y `py -3`).
+- Quedó afuera: mostrar los decimales de un socio con todas sus cifras (0.30000000000000004
+  se sigue viendo 0.3 en la pregunta), el reenvío de un mensaje perdido, y todo lo demás que
+  figura abierto en el registro de la 0.8.
+*Mirada: el mayorista que carga su lista de precios como la escribe · Esfuerzo: medio · Estado: hecha*
+
 ## Lo que se descartó
 
 Para que quede constancia, estas ideas se discutieron y no entraron: funciones sin nombre con

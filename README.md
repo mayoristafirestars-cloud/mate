@@ -10,7 +10,10 @@ corre desde PowerShell.
 
 ## Empezar
 
-1. Instalá Python desde `python.org/downloads` (marcá "Add python.exe to PATH").
+1. Instalá Python: en la tienda Microsoft Store, buscá `Python Install Manager` y tocá
+   "Instalar" (es el camino que hoy recomienda Python; el paso a paso está en el
+   [manual](mate/README.md#instalarlo)). Si usás el instalador de antes, el `.exe` de
+   `python.org/downloads`, marcá "Add python.exe to PATH".
 2. Bajá este proyecto: botón verde **Code** y después **Download ZIP**. Extraelo.
 3. Abrí PowerShell en la carpeta extraída y probá:
 

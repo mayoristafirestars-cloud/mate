@@ -26,6 +26,7 @@ mostrar("Con IVA: {pesos(redondear(total * (1 + iva), 2))}")
 # Se arma con llaves, como arriba, o convirtiendo con texto(...).
 mostrar("Son " + texto(total) + " pesos")
 
-# Al revés, numero(...) convierte un texto en un número. Entiende "1.234,50".
+# Al revés, numero(...) convierte un texto en un número. Entiende "1.234,50", y también
+# "3.500" (tres mil quinientos: en un texto, el punto con tres cifras atrás es de miles).
 sea precio = numero("1.234,50")
 mostrar(precio + 1)

@@ -154,21 +154,24 @@ goto fin
 :falta_python
 echo No instale nada: no encuentro Python en esta computadora, y Mate lo necesita.
 echo.
-echo   1. Bajalo de https://www.python.org/downloads/
-echo   2. Abri el instalador y, en la primera pantalla, abajo, marca la casilla
-echo      "Add python.exe to PATH" antes de tocar "Install Now".
+echo   1. Abri la tienda Microsoft Store, busca "Python Install Manager" y toca
+echo      Instalar. O bajalo de https://www.python.org/downloads/windows/ : es el
+echo      "Python install manager", un archivo .msix. Doble clic, Instalar.
+echo   2. Abri PowerShell y escribi:  py --version   La primera vez baja Python
+echo      solo: hace falta internet y tarda un rato.
 echo   3. Cerra esta ventana y volve a correr instalar.bat.
 echo.
-echo Si ya lo habias instalado, casi seguro falto marcar esa casilla: corre de nuevo
-echo el instalador de Python, elegi "Modify" y marcala.
+echo Si lo instalaste con el instalador de antes, el .exe, casi seguro falto marcar
+echo la casilla "Add python.exe to PATH": corre de nuevo ese instalador, elegi
+echo "Modify" y marcala.
 goto fin
 
 :python_viejo
 echo No instale nada: el Python de esta computadora es anterior al 3.10, y Mate
 echo necesita el 3.10 o uno mas nuevo.
-echo Baja el ultimo de https://www.python.org/downloads/ y, en la primera pantalla
-echo del instalador, marca la casilla "Add python.exe to PATH". Despues volve a
-echo correr instalar.bat.
+echo Instala uno nuevo: en la tienda Microsoft Store, busca "Python Install Manager"
+echo y toca Instalar. O bajalo de https://www.python.org/downloads/windows/
+echo Despues volve a correr instalar.bat.
 goto fin
 
 :sin_carpeta

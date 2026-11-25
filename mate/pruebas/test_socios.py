@@ -1414,7 +1414,9 @@ def test_local_el_que_no_nombra_al_destinatario_no_entrega(tmp_path, capsys, mon
            in motivos["2.motivo.txt"]
     assert "no conozco a 'intruso'" in motivos["3.motivo.txt"]
     assert "no tiene ningún agente con ese nombre" in motivos["4.motivo.txt"]
-    assert "versión más nueva" in motivos["5.motivo.txt"]  # un sobre 2 no va en el local
+    # (0.8.1) un sobre de socios no va en el buzón local, y el motivo dice eso
+    assert "es un sobre firmado de otro negocio" in motivos["5.motivo.txt"]
+    assert "versión más nueva" not in motivos["5.motivo.txt"]
     # A un desconocido no se le contesta: no nace la carpeta de un nombre elegido por él.
     assert not (carpeta / "fantasma.buzon").exists()
     assert not (carpeta / "intruso.buzon").exists()
@@ -1610,7 +1612,7 @@ def test_nuevo_socio_crea_el_ensayo_y_los_pasos_impresos_andan_tal_cual(
                                              forma.group(3), respuestas=["si"])
         assert codigo == 0, (paso, err)
         corridas.append((forma.group(2), salida_del_paso, err))
-    assert "6 de 6 pruebas pasaron" in corridas[0][1]
+    assert "8 de 8 pruebas pasaron" in corridas[0][1]
     assert "7 de 7 pruebas pasaron" in corridas[1][1]
     assert "Pedido A-17: confirmado por el proveedor." in corridas[-2][1]
     # Cada corrida avisa que la clave es de ensayo, y dice cómo pasar a una de verdad.
@@ -1627,7 +1629,7 @@ def test_los_ejemplos_14_son_lo_que_crea_nuevo_socio_y_pasan_probar(tmp_path, ca
                                                                     monkeypatch):
     for nombre in ("14_comprador.mate", "14_proveedor.mate", "14_trato.mate"):
         (tmp_path / nombre).write_bytes((RAIZ / "ejemplos" / nombre).read_bytes())
-    for nombre, cuantas in (("14_comprador.mate", 6), ("14_proveedor.mate", 7)):
+    for nombre, cuantas in (("14_comprador.mate", 8), ("14_proveedor.mate", 7)):
         assert orden(capsys, monkeypatch, tmp_path, "verificar", nombre)[0] == 0
         codigo, salida, err = orden(capsys, monkeypatch, tmp_path, "probar", nombre)
         assert codigo == 0 and f"{cuantas} de {cuantas} pruebas pasaron" in salida
@@ -2184,3 +2186,319 @@ def test_el_resumen_no_dice_que_estan_en_rechazados_los_que_no_se_guardaron(
     codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
     assert "Socios: 1 no se entregó: 0 quedaron en " in salida
     assert "de el otro no se guardó copia" in salida
+
+
+# ── 0.8.1 ──
+def test_socio_carpeta_cambia_solo_la_carpeta_y_la_clave_queda(tmp_path, capsys, monkeypatch):
+    """El pendrive pasó de E: a F:: se cambia la carpeta sin renovar la clave, y lo que
+    estaba por salir sale a la carpeta nueva."""
+    local = negocio(tmp_path, "local", RECIBE + "enviar Mandar { n: 5 } a Caja\n",
+                    antes=[{"huella": "0a1b2c3d", "lado": "B"}])
+    vieja, nueva = tmp_path / "compartida", tmp_path / "pendrive_en_f"
+    vieja.rename(nueva)
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert codigo == 0 and "no veo la carpeta compartida con Socio" in err
+    # El aviso dice qué hacer, con la orden lista para copiar, y sin "?." al final.
+    aviso = " ".join(err.split())
+    assert "Qué hacer:" in aviso and "la clave no cambia" in aviso
+    assert "socio carpeta local.mate Socio --carpeta=F:\\Compartida" in aviso
+    assert "?." not in err and "?. " not in salida
+    (por_salir,) = de_socio(local)["por_salir"]
+    antes = mate.leer_socios(str(local / "local.mate"))[0]["Socio"]
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", f"--carpeta={nueva}")
+    assert (codigo, err) == (0, "")
+    assert "La clave NO cambió" in salida and str(nueva) in salida and str(vieja) in salida
+    assert f"control {mate.control_de_socio(CLAVE)}" in salida and CLAVE not in salida
+    despues = mate.leer_socios(str(local / "local.mate"))[0]["Socio"]
+    assert despues == dict(antes, carpeta=str(nueva))
+    assert despues["clave"] == CLAVE and despues["lado"] == "A" and despues["antes"]
+    assert de_socio(local)["por_salir"] == [por_salir]  # la cuenta no se tocó
+    (local / "local.mate").write_text(RECIBE, encoding="utf-8")
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert codigo == 0 and "dejé 1 mensaje para Socio" in salida
+    assert "no veo la carpeta" not in err
+    (salido,) = sobres(nueva / "de-a")
+    assert salido == por_salir  # firmado con la misma clave, con el mismo número
+    # y del otro lado se sigue recibiendo: llega uno firmado con la clave de siempre
+    dejar(nueva / "de-b", sobre_de(1))
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
+                                respuestas=["si"])
+    assert "anotado 1" in salida and suma(local) == 1
+
+
+def test_socio_carpeta_pregunta_si_no_se_la_dicen_y_no_cambia_nada_si_algo_falta(
+        tmp_path, capsys, monkeypatch):
+    local = negocio(tmp_path, "local", RECIBE)
+    archivo = local / "local.socios.json"
+    original = archivo.read_bytes()
+    nueva = tmp_path / "otra"
+    # sin la carpeta y sin teclado: no cambia nada y dice cómo se escribe
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio")
+    assert codigo == 2 and "falta la carpeta compartida" in err
+    assert "socio carpeta local.mate Socio --carpeta=" in err
+    assert str(tmp_path / "compartida") in salida  # muestra la que tiene anotada
+    # una carpeta que no existe
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", f"--carpeta={nueva}")
+    assert codigo == 2 and "no encuentro la carpeta" in err
+    # la del programa, o una con un programa adentro, no sirven de carpeta compartida
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", f"--carpeta={local}")
+    assert codigo == 2 and "no uso esa carpeta" in err
+    # no toca la clave: no lleva --invitacion ni --dictar
+    nueva.mkdir()
+    for opcion in (f"--invitacion={tmp_path}", "--dictar"):
+        codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                    "local.mate", "Socio", f"--carpeta={nueva}", opcion)
+        assert codigo == 2 and "no toca la clave" in err
+    assert archivo.read_bytes() == original and list(nueva.iterdir()) == []
+    # preguntando: se contesta la ruta, y queda armada (de-a, de-b y el LEEME)
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", respuestas=[f'"{nueva}"'])
+    assert (codigo, err) == (0, "") and "¿Cuál es la carpeta que compartís con Socio?" in salida
+    assert mate.leer_socios(str(local / "local.mate"))[0]["Socio"]["carpeta"] == str(nueva)
+    assert sorted(p.name for p in nueva.iterdir()) == ["LEEME-mate.txt", "de-a", "de-b"]
+    # la misma de nuevo: lo dice y no hace nada
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Socio", f"--carpeta={nueva}")
+    assert codigo == 0 and "ya era esa" in salida
+    # sin clave cargada no hay carpeta que cambiar
+    sin_clave = negocio(tmp_path, "nuevo", RECIBE, clave=None)
+    codigo, salida, err = orden(capsys, monkeypatch, sin_clave, "socio", "carpeta",
+                                "nuevo.mate", "Socio", f"--carpeta={nueva}")
+    assert codigo == 1 and "no hay ninguna clave cargada con Socio" in err
+    assert "socio invitar nuevo.mate Socio" in err and "socio aceptar nuevo.mate Socio" in err
+    assert not (sin_clave / "nuevo.socios.json").exists()
+    # la ayuda de la orden la nombra
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio")
+    assert codigo == 2 and "socio carpeta comprador.mate Proveedor --carpeta=" in err
+
+
+def test_socio_carpeta_no_usa_la_carpeta_de_otro_socio(tmp_path, capsys, monkeypatch):
+    fuente = ("mensaje Dato { n: numero }\nusar socio Uno acepta Dato\n"
+              "usar socio Dos acepta Dato\nagente Caja { al recibir Dato como d { } }\n")
+    local = tmp_path / "local"
+    local.mkdir()
+    (local / "local.mate").write_text(fuente, encoding="utf-8")
+    con_uno, con_dos = tmp_path / "con_uno", tmp_path / "con_dos"
+    con_uno.mkdir()
+    con_dos.mkdir()
+    mate.guardar_socios(str(local / "local.mate"), {
+        "Uno": {"clave": CLAVE, "lado": "A", "carpeta": str(con_uno), "estrenado": False},
+        "Dos": {"clave": OTRA_CLAVE, "lado": "A", "carpeta": str(con_dos),
+                "estrenado": False}})
+    codigo, salida, err = orden(capsys, monkeypatch, local, "socio", "carpeta",
+                                "local.mate", "Dos", f"--carpeta={con_uno}")
+    assert codigo == 2 and "ya es la que compartís con Uno" in err
+    fichas = mate.leer_socios(str(local / "local.mate"))[0]
+    assert fichas["Dos"]["carpeta"] == str(con_dos) and fichas["Uno"]["clave"] == CLAVE
+
+
+@pytest.mark.parametrize("nombre", [
+    "desktop.ini", "Desktop.ini", "Thumbs.db", "thumbs.db", "ehthumbs.db", ".DS_Store",
+    "._00000001-00000000.json", "._.DS_Store", ".dropbox", "~$pedido.docx", ".localized",
+])
+def test_los_archivos_del_sistema_en_la_compartida_se_ignoran_en_silencio(
+        lugar, capsys, monkeypatch, nombre):
+    local, compartida = lugar
+    entrada = compartida / "de-b"
+    (entrada / nombre).write_bytes(b"\x00\x05\x16\x07 cosas del sistema")
+    dejar(entrada, sobre_de(1))
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
+                                respuestas=["si"])
+    assert codigo == 0 and "anotado 1" in salida and suma(local) == 1
+    assert (entrada / nombre).read_bytes() == b"\x00\x05\x16\x07 cosas del sistema"
+    assert rechazados(local) == {}
+    for frase in ("no es un sobre", "no son sobres", "Sacalo a mano", "no se entiende",
+                  "no se puede abrir"):
+        assert frase not in err + salida, frase
+    # y en las corridas siguientes tampoco dice nada
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert codigo == 0 and "Sacalo a mano" not in err and "no se entiende" not in err
+
+
+def test_lo_que_no_es_del_sistema_se_sigue_avisando(lugar, capsys, monkeypatch):
+    local, compartida = lugar
+    entrada = compartida / "de-b"
+    (entrada / "desktop.ini").write_text("[.ShellClassInfo]", encoding="utf-8")
+    (entrada / "foto.jpg").write_bytes(b"\xff\xd8")
+    (entrada / "desktop.ini.json").write_text("no soy json", encoding="utf-8")
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert codigo == 0 and "hay 1 cosa que no es un sobre" in err
+    assert "1 archivo que todavía no se entiende" in err
+    # Algo con la forma de un sobre nunca cuenta como archivo del sistema.
+    assert not mate.es_archivo_de_sistema("00000001-00000000.json")
+    assert mate.es_archivo_de_sistema("DESKTOP.INI") and mate.es_archivo_de_sistema("._x")
+    assert not mate.es_archivo_de_sistema("pedido.json")
+    assert not mate.es_archivo_de_sistema(".json") and not mate.es_archivo_de_sistema("a.ini")
+
+
+def test_un_numero_que_no_entra_en_pantalla_se_rechaza_antes_de_preguntar(lugar, capsys,
+                                                                         monkeypatch):
+    local, compartida = lugar
+    enorme = 10 ** 70  # 71 cifras: en "¿Lo entrego?" se veía recortado
+    dejar(compartida / "de-b", sobre_de(1, {"tipo": "Dato", "campos": {
+        "n": enorme, "nota": "hola"}}))
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate",
+                                respuestas=["si"])
+    assert codigo == 0 and "¿Lo entrego?" not in salida and suma(local) == 0
+    (motivo,) = rechazados(local).values()
+    assert "trae un número de más de 60 cifras, que no entra en pantalla" in motivo
+    assert "..." not in salida
+    # Al socio le vuelve la falla de la lista cerrada, sin el número.
+    (vuelta,) = sobres(compartida / "de-a")
+    assert vuelta["clase"] == "falla" and vuelta["motivo"] == "contrato"
+    assert str(enorme) not in json.dumps(vuelta)
+    # El tope es por lo que se ve: 60 letras entran, 61 no. También adentro de una lista,
+    # negativo o con decimales.
+    def entra(valor):
+        return mate.no_entra_de_socio({"tipo": "Dato", "campos": {"n": valor}})
+
+    assert entra(10 ** 59) is None and entra(-(10 ** 58)) is None and entra(0.1 + 0.2) is None
+    assert entra(35000) is None and entra(3.5) is None and entra(verdadero := True) is None
+    for malo in (10 ** 60, -(10 ** 59), [1, [10 ** 60]], {"a": 10 ** 65}, 1e300):
+        assert "no entra en pantalla" in entra(malo), malo
+    # Lo que se muestra de un número que sí entra es el número entero, sin recortar.
+    assert mate.valor_ajeno(10 ** 59) == str(10 ** 59)
+
+
+def test_un_numero_que_no_entra_en_pantalla_tampoco_sale(tmp_path, capsys, monkeypatch):
+    fuente = RECIBE.replace("n: numero desde 1 hasta 100", "n: numero") \
+        + "enviar Mandar { n: 1" + "0" * 70 + " } a Caja\n"
+    local = negocio(tmp_path, "local", fuente)
+    codigo, salida, err = orden(capsys, monkeypatch, local, "correr", "local.mate")
+    assert "no entra en pantalla" in err + salida
+    assert sobres(tmp_path / "compartida" / "de-a") == []
+
+
+def test_un_sobre_de_socios_en_el_buzon_local_dice_que_es_eso(tmp_path):
+    de_socios = sobre_de(1)
+    with pytest.raises(mate.NoSeEntrega) as info:
+        mate.revisar_sobre(de_socios)
+    motivo = str(info.value)
+    assert "es un sobre firmado de otro negocio" in motivo and "buzón local" in motivo
+    assert "carpeta compartida" in motivo and "versión más nueva" not in motivo
+    # Entre negocios ese mismo sobre vale.
+    mate.revisar_sobre(de_socios, hasta=mate.VERSION_DE_SOBRE_DE_SOCIO)
+    # Uno de una versión que todavía no existe sigue diciendo "versión más nueva".
+    for futuro in (dict(de_socios, mate_buzon=3), {k: v for k, v in dict(
+            de_socios, mate_buzon=2).items() if k not in ("firma", "socio")}):
+        with pytest.raises(mate.NoSeEntrega) as info:
+            mate.revisar_sobre(futuro)
+        assert "versión más nueva" in str(info.value)
+
+
+def test_ejemplo_14_el_no_del_proveedor_deja_el_pedido_rechazado_y_no_trabado(
+        tmp_path, capsys, monkeypatch):
+    """La ida y vuelta de verdad: el proveedor contesta "no", y al comprador le llega el
+    aviso. El pedido queda rechazado, el programa dice qué hacer, y no lo manda de nuevo."""
+    orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")
+    base = tmp_path / "ensayo_de_socios"
+    comprador, proveedor, compartida = (base / n for n in
+                                        ("comprador", "proveedor", "compartida"))
+
+    def pedido(cual="A-17"):
+        return memoria(comprador)["agentes"]["Compras"]["estado"]["pedidos"][cual]
+
+    _correr(capsys, monkeypatch, comprador)
+    assert pedido()["estado"] == "pedido"
+    salida, err = _correr(capsys, monkeypatch, proveedor, "no")
+    assert "¿Lo entrego?" in salida and _stock_o_nada(proveedor) in (None, 40)
+    # Al comprador le llega el aviso de falla: pasa por su si, y el 'al fallar' lo anota.
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")
+    assert "avisa que NO atendió" in salida and "el dueño lo descartó" in salida
+    assert "Pedido A-17: el proveedor NO lo atendió. Motivo: el dueño lo descartó." in salida
+    assert "RECHAZADO" in salida and "Qué hacer: llamá al proveedor" in salida
+    assert "otra vez" in salida and "enviar Pedir" in salida
+    assert pedido()["estado"] == "rechazado"
+    # Las corridas siguientes lo recuerdan, no preguntan por confirmarlo y no mandan nada.
+    antes = len(sobres(compartida / "de-a"))
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")
+    assert "El pedido A-17 quedó RECHAZADO" in salida and "¿Confirmás" not in salida
+    assert len(sobres(compartida / "de-a")) == antes and pedido()["estado"] == "rechazado"
+    # Con otro número de pedido, como dice el aviso, sale de nuevo.
+    programa = comprador / "comprador.mate"
+    texto = programa.read_text(encoding="utf-8-sig")
+    assert texto.count('pedido: "A-17"') == 1
+    programa.write_text(texto.replace('pedido: "A-17"', 'pedido: "A-18"'), encoding="utf-8")
+    salida, err = _correr(capsys, monkeypatch, comprador)
+    assert "dejé 1 mensaje para Proveedor" in salida and pedido("A-18")["estado"] == "pedido"
+    assert pedido("A-17")["estado"] == "rechazado"
+
+
+def _stock_o_nada(proveedor):
+    estado = memoria(proveedor).get("agentes", {}).get("Ventas", {}).get("estado", {})
+    return estado.get("stock", {}).get("yerba")
+
+
+def test_ejemplo_14_si_el_programa_del_proveedor_falla_el_pedido_queda_rechazado(
+        tmp_path, capsys, monkeypatch):
+    orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")
+    base = tmp_path / "ensayo_de_socios"
+    comprador, proveedor = base / "comprador", base / "proveedor"
+    programa = proveedor / "proveedor.mate"
+    texto = programa.read_text(encoding="utf-8-sig")
+    renglon = "        sea total = precio * p.cantidad\n"
+    assert texto.count(renglon) == 1
+    programa.write_text(texto.replace(
+        renglon, renglon + '        si total >= 0 { fallar "se rompió la lista" }\n'),
+        encoding="utf-8")
+    assert orden(capsys, monkeypatch, proveedor, "verificar", "proveedor.mate")[0] == 0
+    _correr(capsys, monkeypatch, comprador)
+    codigo, salida, err = orden(capsys, monkeypatch, proveedor, "correr", "proveedor.mate",
+                                respuestas=["si"])
+    assert "¿Lo entrego?" in salida and "se rompió la lista" in salida + err
+    salida, err = _correr(capsys, monkeypatch, comprador, "si")
+    assert "Motivo: el programa de tu socio falló al atenderlo." in salida
+    assert "se rompió la lista" not in salida + err  # el texto del error no viaja
+    estado = memoria(comprador)["agentes"]["Compras"]["estado"]["pedidos"]["A-17"]
+    assert estado["estado"] == "rechazado"
+
+
+def test_nuevo_socio_y_el_manual_dicen_que_se_le_pasa_al_otro_negocio_y_que_nunca(
+        tmp_path, capsys, monkeypatch):
+    codigo, impreso, err = orden(capsys, monkeypatch, tmp_path, "nuevo", "socio")
+    assert codigo == 0
+    final = impreso.split("PARA TRABAJAR CON UN SOCIO DE VERDAD")[1]
+    se_pasa, nunca = final.split("QUÉ SE LE PASA AL OTRO NEGOCIO")[1].split(
+        "QUÉ NO SE LE PASA NUNCA")
+    for frase in ("proveedor.mate y trato.mate", "comprador.mate y trato.mate",
+                  "la carpeta 'mate' entera", "socio aceptar"):
+        assert frase in se_pasa, frase
+    assert ".socios.json" not in se_pasa and "memoria" not in se_pasa
+    for frase in ("comprador.socios.json y proveedor.socios.json", "la clave",
+                  ".memoria.json", ".bitacora.txt", ".buzon", "invitacion-mate.txt",
+                  "nunca", "por mail"):
+        assert frase in nunca, frase
+    # la orden para cambiar solo la carpeta, lista para copiar en PowerShell
+    paso = next(r.strip() for r in final.splitlines() if " socio carpeta " in r)
+    assert re.fullmatch(r"(?:python3?|py) '.+' socio carpeta comprador\.mate Proveedor "
+                        r"--carpeta='F:\\Compartida'", paso), paso
+    assert max(len(r) for r in final.splitlines()
+               if "'" not in r) <= 100  # (los que llevan una ruta pueden ser más largos)
+    # Lo que dice que NO se pasa es lo que de verdad queda en cada carpeta después de usarla.
+    base = tmp_path / "ensayo_de_socios"
+    _correr(capsys, monkeypatch, base / "comprador")
+    _correr(capsys, monkeypatch, base / "proveedor", "si")
+    for negocio_ in ("comprador", "proveedor"):
+        secretos = sorted(p.name for p in (base / negocio_).iterdir()
+                          if not p.name.endswith(".mate"))
+        assert secretos and all(
+            n.endswith((".socios.json", ".memoria.json", ".bitacora.txt", ".buzon"))
+            for n in secretos), secretos
+    leeme = " ".join((RAIZ / "README.md").read_text(encoding="utf-8").split())
+    socios = leeme.split("### Dos negocios que se hablan: los socios")[1].split(" ### ")[0]
+    for frase in ("Qué se le pasa al otro negocio para que arranque, y qué no se pasa nunca",
+                  "`proveedor.mate` y `trato.mate`", "No se pasa **nunca**",
+                  "`comprador.socios.json` y `proveedor.socios.json`", "`.memoria.json`",
+                  "`.bitacora.txt`", "`.buzon`", "socio carpeta comprador.mate Proveedor",
+                  "`desktop.ini`", "`Thumbs.db`", "`.DS_Store`", "**rechazado**",
+                  "números de hasta 60 cifras"):
+        assert frase in socios, frase
+    ayuda = mate.texto_de_ayuda()
+    assert "socio carpeta comprador.mate Proveedor --carpeta=" in ayuda
+    assert max(len(r) for r in ayuda.splitlines()) <= 100
+    assert "invitar|aceptar|renovar|quitar|carpeta" in mate.__doc__
+

@@ -848,7 +848,7 @@ def test_redondear_lleva_el_medio_hacia_arriba():
 def test_numero_entiende_el_formato_argentino():
     casos = {
         'numero("1.234,50")': "1234.5", 'numero("1.234.567")': "1234567",
-        'numero("12")': "12", 'numero(" 7,25 ")': "7.25", 'numero("3.500")': "3.5",
+        'numero("12")': "12", 'numero(" 7,25 ")': "7.25", 'numero("3.500")': "3500",  # (0.8.1) son miles
         'numero("$ 1.234,5")': "1234.5", 'numero("-$ 1.500,00")': "-1500",
         'numero("-12")': "-12", "numero(5)": "5", 'tipo(numero("3,5"))': "numero",
     }
@@ -1558,7 +1558,7 @@ def test_numero_lee_lo_que_escribe_pesos():
     casos = {
         'numero(pesos(3500, 0))': "3500", 'numero(pesos(1234567, 0))': "1234567",
         'numero("-$ 3.500")': "-3500", 'numero(pesos(999.5))': "999.5",
-        'numero(pesos(3.5, 3))': "3.5", 'numero("3.500")': "3.5", 'numero("$ 3.50")': "3.5",
+        'numero(pesos(3.5, 3))': "3.5", 'numero("3.500")': "3500", 'numero("$ 3.50")': "3.5",
     }
     for expresion, esperado in casos.items():
         assert mostrado(expresion) == esperado, expresion
@@ -3593,9 +3593,9 @@ def test_la_orden_consola(capsys, monkeypatch):
 # 0.8: agentes de negocios distintos que se hablan por una carpeta compartida, los socios)
 
 def test_version_0_8_y_el_readme_lo_dice(capsys):
-    assert mate.VERSION == "0.8"
+    assert mate.VERSION == "0.8.1"
     leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
-    assert "Versión 0.8." in leeme and "## Límites de la versión 0.8" in leeme
+    assert "Versión 0.8.1." in leeme and "## Límites de la versión 0.8" in leeme
     assert "versión 0.2" not in leeme.replace("desde la versión 0.2 hasta la 0.8", "")
     assert "desde la versión 0.2 hasta la 0.8" in leeme and "versión 0.3" not in leeme
     assert "Versión 0.7." not in leeme and "Límites de la versión 0.7" not in leeme
@@ -3684,10 +3684,10 @@ def test_version_0_8_y_el_readme_lo_dice(capsys):
     for ancla in anclas:
         assert el_titulo_existe(ancla), ancla
     assert mate.main(["--version"]) == 0
-    assert capsys.readouterr().out.startswith("Mate 0.8 ")
+    assert capsys.readouterr().out.startswith("Mate 0.8.1 ")
     # la página de presentación dice el mismo número
     pagina = (RAIZ.parent / "docs" / "index.html").read_text(encoding="utf-8")
-    assert '<span class="marca">Mate 0.8</span>' in pagina and "Mate 0.6" not in pagina
+    assert '<span class="marca">Mate 0.8.1</span>' in pagina and "Mate 0.6" not in pagina
     assert "Mate 0.7" not in pagina
     assert "Mate 0.5" not in pagina
 
@@ -6860,7 +6860,7 @@ def test_informe_resume_el_registro(tmp_path, con_registro):
     renglones = out.splitlines()
     assert renglones[0] == "Informe de errores de uso de Mate"
     assert re.fullmatch(r"Hay 6 error\(es\) de uso anotado\(s\), del \d\d/\d\d/\d{4} \d\d:\d\d "
-                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.8\)\.", renglones[1])
+                        r"al \d\d/\d\d/\d{4} \d\d:\d\d \(Mate 0\.8\.1\)\.", renglones[1])
     assert renglones[3:6] == [
         "Los más frecuentes:",
         "    4 veces  antes de correr: no existe '<nombre>'",
@@ -9641,7 +9641,7 @@ def test_el_readme_arranca_por_que_es_como_se_instala_y_por_donde_empezar(tmp_pa
     ayuda = mate.texto_de_ayuda()
     assert "  curso  " in ayuda and "  curso 1  " in ayuda
     assert max(len(r) for r in ayuda.splitlines()) <= 100
-    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.8"
+    assert "mate.py curso" in mate.__doc__ and mate.VERSION == "0.8.1"
 
 
 # ───────────────────── Correcciones de la revisión de la 0.5 (mejora 120) ─────────────────────
@@ -19696,9 +19696,9 @@ def cargar_datos(tmp_path, programa, **datos):
 
 
 def test_version_0_7_1_y_el_readme_cuenta_los_datos_del_negocio():
-    assert mate.VERSION == "0.8"  # (la 0.7.1 ya pasó: lo suyo sigue contado en su sección)
+    assert mate.VERSION == "0.8.1"  # (la 0.7.1 ya pasó: lo suyo sigue contado en su sección)
     leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
-    assert "Versión 0.8." in leeme
+    assert "Versión 0.8.1." in leeme
     novedades = leeme.split("## Qué cambió en la 0.7")[1].split("\n## ")[0]
     de_la_071 = novedades.split("### La 0.7.1: los datos del negocio no se inventan")[1]
     for frase in ["`datos_del_negocio`", "**el programa, sin consultar a la IA**",
@@ -20544,3 +20544,194 @@ def test_071_vuelta_7_la_regla_esta_en_el_ejemplo_y_en_las_mejoras():
     ejemplo = (RAIZ / "ejemplos" / "12_mostrador_con_reglas.mate").read_text(encoding="utf-8")
     assert "\nfuncion sin_los_renglones(" in ejemplo
     assert "Nota de la vuelta 7" in (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+
+
+# ───────────── Versión 0.8.1: "3.500" son tres mil quinientos ─────────────
+# En un TEXTO que se pasa a número, un solo punto con exactamente tres cifras atrás (y una
+# parte entera de 1 a 3 cifras que no empieza con cero) es el punto de los miles.
+
+@pytest.mark.parametrize("texto, valor", [
+    # miles: lo que cambió en la 0.8.1
+    ("3.500", 3500), ("35.000", 35000), ("350.000", 350000), ("1.000", 1000),
+    ("999.999", 999999), ("1.001", 1001), ("9.990", 9990),
+    # con signo
+    ("-3.500", -3500), ("+3.500", 3500), ("-35.000", -35000), ("-350.000", -350000),
+    # con espacios en las puntas
+    (" 3.500", 3500), ("3.500 ", 3500), ("  35.000  ", 35000), ("\t3.500\n", 3500),
+    # con el signo $ (ya eran miles)
+    ("$ 3.500", 3500), ("$3.500", 3500), ("$  35.000", 35000), ("-$ 3.500", -3500),
+    ("+$ 3.500", 3500), (" $ 3.500 ", 3500),
+    # dos o más puntos: ya eran miles
+    ("1.234.567", 1234567), ("-1.234.567", -1234567), ("12.345.678", 12345678),
+    # con coma decimal: el punto es de miles y la coma de decimales (no cambió)
+    ("3.500,50", 3500.5), ("35.000,5", 35000.5), ("1.234.567,89", 1234567.89),
+    ("$ 3.500,50", 3500.5), ("-3.500,25", -3500.25), ("3,5", 3.5), ("3,500", 3.5),
+    ("3,50", 3.5), ("0,5", 0.5), ("-0,5", -0.5), ("$ 7,25", 7.25), ("1234,567", 1234.567),
+    # siguen siendo decimales: atrás del punto no hay tres cifras justas
+    ("3.5", 3.5), ("3.50", 3.5), ("3.5000", 3.5), ("3.50000", 3.5), ("35.00", 35.0),
+    ("35.0000", 35.0), ("3.1", 3.1), ("3.14", 3.14), ("3.1416", 3.1416), ("12.5", 12.5),
+    ("-3.5", -3.5), ("-3.50", -3.5), ("$ 3.50", 3.5), ("$ 3.5", 3.5),
+    # siguen siendo decimales: la parte entera es cero o empieza con cero
+    ("0.500", 0.5), ("-0.500", -0.5), ("0.001", 0.001), ("0.125", 0.125), ("0.5", 0.5),
+    ("00.500", 0.5), ("01.500", 1.5), ("$ 0.500", 0.5),
+    # siguen siendo decimales: la parte entera tiene más de tres cifras
+    ("1234.567", 1234.567), ("-1234.567", -1234.567), ("12345.678", 12345.678),
+    ("1000.000", 1000.0), ("$ 1234.567", 1234.567),
+    # enteros de siempre
+    ("3500", 3500), ("35000", 35000), ("-3500", -3500), ("0", 0), ("12", 12), ("007", 7),
+])
+def test_un_texto_con_un_punto_y_tres_cifras_es_de_miles(texto, valor):
+    leido = mate.numero_de_texto(texto)
+    assert leido == valor and type(leido) is type(valor), (texto, leido)
+    # y es lo mismo desde un programa, con numero()
+    if texto.isprintable():
+        assert mostrado(f'numero("{texto}") == {valor!r}') == "verdadero", texto
+
+
+@pytest.mark.parametrize("texto", [
+    "", "   ", "3.500.", ".500", "3.", "3..500", "3.500.5", "3.50.000", "3.5000.000",
+    "1.2345.678", "3. 500", "3 .500", "3 500", "3.500 pesos", "3.5oo", "3,500,000",
+    "3.500,5,5", "1,234.50", "3,5.000", "--3.500", "$", "$ ", "$$ 3.500", "3.500 $ 4",
+    "1e3", "0x10", "1_000", "inf", "nan", "tres mil",
+])
+def test_lo_que_no_es_un_numero_sigue_sin_serlo(texto):
+    with pytest.raises(mate.ErrorMate) as info:
+        mate.numero_de_texto(texto)
+    assert info.value.familia == "numero"
+
+
+def test_los_numeros_escritos_en_el_programa_no_cambian():
+    """La regla nueva es para los TEXTOS. En el código, el punto sigue siendo decimal."""
+    assert mostrado("3.5") == "3.5" and mostrado("3.5 * 2") == "7"
+    assert mostrado("1.234 + 1") == "2.234" and mostrado("0.500 * 2") == "1"
+    assert mostrado("35.125 * 8") == "281"
+    # un 3.500 suelto sigue dando el error de siempre: no pasó a valer tres mil quinientos
+    error = falla("sea precio = 3.500\nmostrar(precio)")
+    assert "el punto es el de los decimales" in error.mensaje and "3500" in error.mensaje
+    # y un decimal adentro de un texto armado por el programa sigue siendo ese texto
+    assert mostrado('"{3.5}"') == "3.5" and mostrado("texto(3.5)") == "3.5"
+    # lo que escribe pesos() se sigue leyendo bien, también con tres decimales
+    for expresion, esperado in {
+            "numero(pesos(3500, 0))": "3500", "numero(pesos(3500))": "3500",
+            "numero(pesos(3.5))": "3.5", "numero(pesos(1.125, 3))": "1.125",
+            "numero(pesos(0.5, 3))": "0.5", "numero(pesos(35000.25))": "35000.25",
+            "numero(pesos(-3500, 0))": "-3500"}.items():
+        assert mostrado(expresion) == esperado, expresion
+
+
+def test_lo_que_escribe_el_cliente_con_punto_de_miles_se_lee_bien(tmp_path, capsys):
+    fuente = """
+        funcion total_de(precio_unitario) {
+            sea dicho = leer("¿Cuántas unidades?", "0")
+            devolver numero(dicho) * precio_unitario
+        }
+        prueba "lo tecleado se lee a la argentina" {
+            simular_teclado(["3.500", "35.000", "3,5", "0.500", "3.5", "-3.500", " $ 1.250 "])
+            asegurar total_de(2) == 7000
+            asegurar total_de(2) == 70000
+            asegurar total_de(2) == 7
+            asegurar total_de(2) == 1
+            asegurar total_de(2) == 7
+            asegurar total_de(2) == -7000
+            asegurar total_de(2) == 2500
+        }
+    """
+    codigo, salida, err = por_main(tmp_path, capsys, fuente, orden="probar")
+    assert codigo == 0 and "1 de 1 pruebas pasaron" in salida, salida + err
+
+
+def test_una_lista_de_precios_con_puntos_de_miles_se_lee_con_leer_tabla(tmp_path, capsys):
+    """La lista de precios de un mayorista, como la guarda Excel acá: los precios con punto
+    de miles, con y sin $, con coma decimal; y el stock con decimales."""
+    (tmp_path / "precios.csv").write_text(
+        "producto;precio;costo;stock;codigo\r\n"
+        "Yerba 1 kg;3.500;2.900,50;40;00123\r\n"
+        "Bolsón de yerba;35.000;$ 29.000;12;00124\r\n"
+        "Pallet de azúcar;350.000;$ 1.250.000,75;1;A-7\r\n"
+        "Sal fina;950;0.500;3,5;0.500\r\n"
+        "Aceite;-3.500;3.50;1.250;12.5\r\n"
+        "Fideos; 9.800 ;1234.567;0;3.5000\r\n", encoding="utf-8")
+    fuente = """
+        sea filas = leer_tabla("precios.csv")
+        var suma = 0
+        para fila en filas {
+            mostrar("{fila.producto} | {fila.precio} | {fila.costo} | {fila.stock} | {fila.codigo}")
+            suma = suma + fila.precio
+        }
+        mostrar(pesos(suma, 0))
+        mostrar(tipo(filas[0].codigo), tipo(filas[0].precio))
+        mostrar(numero("3.500") == filas[0].precio)
+    """
+    codigo, salida, err = por_main(tmp_path, capsys, fuente)
+    assert (codigo, err) == (0, "")
+    assert salida.splitlines() == [
+        "Yerba 1 kg | 3500 | 2900.5 | 40 | 00123",
+        "Bolsón de yerba | 35000 | 29000 | 12 | 00124",
+        "Pallet de azúcar | 350000 | 1250000.75 | 1 | A-7",
+        "Sal fina | 950 | 0.5 | 3.5 | 0.5",
+        "Aceite | -3500 | 3.5 | 1250 | 12.5",
+        "Fideos | 9800 | 1234.567 | 0 | 3.5",
+        "$ 395.750",
+        "texto numero",
+        "verdadero",
+    ]
+
+
+@pytest.mark.parametrize("celda, valor", [
+    ("3.500", 3500), ("35.000", 35000), ("-3.500", -3500), ("$ 3.500", 3500),
+    ("3.500 $", 3500), ("3.500.-", 3500), ("3.500,50", 3500.5), ("1.234.567", 1234567),
+    ("0.500", 0.5), ("$ 0.500", 0.5), ("3.5", 3.5), ("3.50", 3.5), ("3.5000", 3.5),
+    ("1234.567", 1234.567), ("00123", "00123"), ("3.500 kg", "3.500 kg"),
+])
+def test_una_celda_y_numero_leen_el_punto_con_la_misma_regla(celda, valor):
+    leido = mate.valor_de_celda(celda)
+    assert leido == valor and type(leido) is type(valor), (celda, leido)
+    sin_adornos = re.sub(r"\s*\$$|\.-$", "", celda)
+    if not isinstance(valor, str):  # lo mismo que da numero() con ese texto
+        assert mate.numero_de_texto(sin_adornos) == valor
+
+
+def test_el_manual_y_la_ayuda_avisan_del_cambio_de_numero():
+    leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    def corrido(texto):  # sin los cortes de renglón ni la marca de cita
+        return " ".join(texto.replace("\n> ", "\n").split())
+
+    cambio = corrido(leeme.split("### La 0.8.1: ")[1].split("\n## ")[0])
+    for frase in ['`numero("3.500")` ahora da `3500`', '`numero("35.000")` da `35000`',
+                  "Antes daban `3.5` y `35`", '`"0.500"`', "con coma", "no cambian",
+                  "socio carpeta", "desktop.ini", "rechazado", "mejora 129"]:
+        assert frase in cambio, frase
+    plata = corrido(leeme.split("### Números y plata")[1].split("\n## ")[0])
+    for frase in ["cambió en la 0.8.1", "exactamente tres cifras", '`"1234.567"`',
+                  "Ojo con las cantidades con tres decimales", "pesos(x, 3)",
+                  "Los números escritos en el programa no cambiaron"]:
+        assert frase in plata, frase
+    frena = leeme.split("## Qué cambió y puede frenar un programa viejo")[1].split("\n## ")[0]
+    assert '`numero("3.500")` da `3500`' in frena
+    mejoras = (RAIZ / "MEJORAS.md").read_text(encoding="utf-8")
+    ficha = mejoras.split("\n**129. ")[1].split("\n\n")[0]
+    for frase in ["CAMBIO DE COMPORTAMIENTO", '`"3.500"` → 3500', "no cambian",
+                  "numero(texto(1.125))", "Estado: hecha", "Sin probar en Windows real"]:
+        assert frase in ficha, frase
+    assert '"3.500" es 3500' in mate.FUNCIONES["numero"][3]
+    assert 'numero("3.500") también da 3500' in mate.texto_de_guia()
+    # los topes no se movieron: ni una palabra ni una función nueva
+    assert len(mate.FUNCIONES) == 48 and len(mate.PALABRAS) == 36
+
+
+def test_la_guia_de_instalacion_no_depende_del_instalador_clasico():
+    leeme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    instalar = leeme.split("## Instalarlo")[1].split("\n## ")[0]
+    paso_1 = " ".join(instalar.split("**2. Bajá Mate.**")[0].split())
+    assert paso_1.index("Python Install Manager") < paso_1.index("Add python.exe to PATH")
+    for frase in ["Microsoft Store", "python.org/downloads/windows", ".msix", "py --version",
+                  "No hay ninguna casilla que", "no va a existir desde"]:
+        assert frase in paso_1, frase
+    pagina = (RAIZ.parent / "docs" / "index.html").read_text(encoding="utf-8")
+    assert pagina.index("Python Install Manager") < pagina.index("Add python.exe to PATH")
+    for archivo in ("instalar.bat", "mate.bat"):
+        crudo = (RAIZ / archivo).read_bytes()
+        texto = crudo.decode("ascii")  # sin tildes: cmd las muestra mal
+        assert "Python Install Manager" in texto and "Microsoft Store" in texto
+        assert b"\n" not in crudo.replace(b"\r\n", b"")  # todos los renglones con CRLF
+
