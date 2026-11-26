@@ -50,7 +50,8 @@ Está en `mate\curso\clase_06_teclado.mate`:
 - `leer("pregunta", "chau")` muestra la pregunta y espera que escribas y aprietes Enter.
   Devuelve lo escrito, **siempre como texto**.
 - `numero(dicho)` pasa ese texto a número, para poder hacer cuentas. Entiende `3`, `3,5`
-  y `1.500`.
+  (tres y medio) y `1.500` (mil quinientos: en lo que escribe una persona, el punto con tres
+  cifras atrás es el de los miles; los decimales van con coma).
 - `mientras condición { ... }` repite mientras la condición se cumpla. Con
   `mientras verdadero` repite siempre, y se sale con `romper`.
 - `intentar { ... } si falla { ... }` prueba hacer algo y, si falla, hace lo otro en vez

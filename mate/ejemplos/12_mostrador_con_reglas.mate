@@ -297,8 +297,10 @@ funcion numero_de(palabra) {
     si no es_cifra(palabra[0]) {
         devolver nada
     }
-    # Para numero(), "1.000" sería 1 coma 0. Acá el cliente habla de unidades: un punto
-    # con tres cifras atrás es el de los miles ("1.000", "1.000.000"), y se saca.
+    # El cliente habla de unidades: un punto con tres cifras atrás es el de los miles
+    # ("1.000", "1.000.000"), y se saca. (Desde la 0.8.1 numero("1.000") ya da mil solo.)
+    # Ojo, que acá no es igual: numero("0.500") es medio, pero para esta función "0.500"
+    # es 500, porque acá se cuentan unidades y nadie pide medio paquete. Es a propósito.
     var escrito = palabra
     sea grupos = partir(palabra, ".")
     var de_miles = largo(grupos) > 1 y no tiene(palabra, ",")

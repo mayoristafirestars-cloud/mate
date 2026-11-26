@@ -62,7 +62,8 @@ El programa:
   de los datos son los títulos de la primera fila, tal cual están escritos:
   `fila.producto`, `fila.precio`, `fila.stock`.
 - Los números llegan como números aunque estén escritos a la argentina: `3.500`,
-  `1.250,50` y `$ 2.900`. (En la planilla el punto es de los miles; en el programa, no.)
+  `1.250,50` y `$ 2.900`. (En la planilla, igual que en `numero("3.500")`, el punto con tres
+  cifras atrás es de los miles; en un número escrito en el programa, no.)
 - `tiene(texto, otro)` dice si un texto tiene adentro al otro.
 - `nada` es "no hay valor". Sirve para avisar que no se encontró lo que se buscaba.
 - El archivo tiene que estar **en la misma carpeta que el programa**.

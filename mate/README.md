@@ -5,7 +5,7 @@ Mate es un lenguaje de programación chico, con palabras en castellano. Sirve pa
 escribís las reglas (qué precios puede nombrar, qué no puede prometer, cuánto puede gastar por
 día) y Mate revisa cada respuesta de la IA antes de que salga.
 
-Versión 0.8. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
+Versión 0.8.1. El intérprete es un solo archivo (`mate.py`), sin dependencias: alcanza con Python 3.
 Se escribe con el Bloc de notas y se corre desde PowerShell.
 
 ```
@@ -30,8 +30,18 @@ mostrar(preguntar Consulta { pregunta: "¿Cuánto sale la yerba?" } a Mostrador)
 
 En Windows 10 u 11, sin permisos de administrador. Son tres pasos y se hacen una sola vez.
 
-**1. Instalá Python.** Bajalo de `python.org/downloads` y abrí el instalador. En la primera
-pantalla, abajo, marcá la casilla **"Add python.exe to PATH"** antes de tocar "Install Now".
+**1. Instalá Python.** El camino que hoy recomienda Python para Windows es su **administrador
+de instalación** ("Python install manager"): abrí la tienda **Microsoft Store**, buscá
+`Python Install Manager` (el de Python Software Foundation) y tocá "Instalar". Si no usás la
+tienda, bajá ese mismo administrador de `python.org/downloads/windows` (arriba de todo: "Python
+install manager", el archivo que termina en `.msix`), hacele doble clic y elegí "Instalar".
+Después abrí PowerShell y escribí `py --version`: la primera vez baja Python solo (hace falta
+internet y tarda un rato) y contesta con el número de versión. No hay ninguna casilla que
+marcar. Si ya tenías Python instalado y `python --version` o `py --version` contestan 3.10 o
+más, no hace falta instalar nada. (El instalador de antes, el archivo `.exe` de
+`python.org/downloads`, sigue sirviendo, pero Python lo está dejando: no va a existir desde
+Python 3.16. Si usás ese, en la primera pantalla, abajo, marcá la casilla
+**"Add python.exe to PATH"** antes de tocar "Install Now".)
 
 **2. Bajá Mate.** Entrá a `github.com/mayoristafirestars-cloud/mate`, apretá el botón verde
 "Code" y después "Download ZIP". Hacé clic derecho sobre el archivo y elegí "Extraer todo" (no
@@ -106,7 +116,7 @@ o la página `docs\index.html`, que explica los pasos.
 | Saber qué hace una palabra | `python mate\mate.py ayuda si` (o `ayuda para`, `ayuda frenos`, `ayuda leer_tabla`...) |
 | Que una IA te escriba un programa en Mate | `python mate\mate.py guia` imprime una página para pegarle antes de pedírselo |
 | Contarle a otra persona qué es Mate | La página `docs\index.html` (está fuera de la carpeta `mate`): un solo archivo que se ve bien en el celular |
-| Saber qué cambió en esta versión | [Qué cambió en la 0.8](#qué-cambió-en-la-08) |
+| Saber qué cambió en esta versión | [Qué cambió en la 0.8](#qué-cambió-en-la-08) y, adentro, [La 0.8.1](#la-081-3500-son-tres-mil-quinientos) |
 
 **Para qué no sirve todavía:** no atiende por WhatsApp ni por una página web (la charla es por
 teclado, en PowerShell); es un proyecto nuevo, de una sola persona, sin comunidad; y es lento
@@ -190,9 +200,12 @@ python mate\mate.py correr mate\ejemplos\hola.mate
 
 No hace falta saber programar ni instalar nada más que Python.
 
-**1. Instalar Python (una sola vez).** Bajalo de `python.org/downloads` y abrí el instalador.
-En la primera pantalla, abajo, marcá la casilla **"Add python.exe to PATH"** antes de tocar
-"Install Now". Sin esa casilla, Windows después no encuentra a Python.
+**1. Instalar Python (una sola vez).** Como dice [Instalarlo](#instalarlo): desde la tienda
+Microsoft Store, instalá `Python Install Manager` (o bajá el archivo `.msix` del "Python
+install manager" de `python.org/downloads/windows` y hacele doble clic). No hay casillas que
+marcar. Si en cambio usás el instalador de antes (el `.exe`), en la primera pantalla, abajo,
+marcá la casilla **"Add python.exe to PATH"** antes de tocar "Install Now": sin esa casilla,
+Windows después no encuentra a Python.
 
 **2. Abrir PowerShell en la carpeta de trabajo.** En el Explorador de archivos entrá a la
 carpeta donde está la carpeta `mate` (tenés que ver `mate` como una carpeta más, no estar
@@ -204,11 +217,15 @@ que Python quedó bien instalado:
 python --version
 ```
 
-Tiene que contestar algo como `Python 3.12.4`. Si dice que `python` "no se reconoce", probá
+Tiene que contestar algo como `Python 3.14.2`. (Con el administrador de instalación, la primera
+vez puede tardar: está bajando Python.) Si dice que `python` "no se reconoce", probá
 con `py --version`. Si `py` contesta, Python está bien instalado y en tu computadora se llama
 así: **escribí `py` en lugar de `python` en todos los comandos de acá abajo** (por ejemplo,
-`py mate\mate.py correr hola.mate`). Si no contesta ninguno de los dos, cerrá PowerShell,
-volvé a correr el instalador marcando la casilla del paso 1 y abrí PowerShell de nuevo.
+`py mate\mate.py correr hola.mate`). Si no contesta ninguno de los dos, cerrá PowerShell y
+abrilo de nuevo (una ventana abierta antes de instalar no se entera). Si sigue igual: tocá
+Inicio, escribí "Administrar alias de ejecución de aplicaciones" y fijate que los de Python
+estén activados; y si instalaste con el `.exe` de antes, corré ese instalador de nuevo, elegí
+"Modify" y marcá la casilla del paso 1.
 
 **3. Escribir el programa en el Bloc de notas.** En esa misma ventana escribí:
 
@@ -1344,11 +1361,29 @@ nadie** (adentro está la clave): cada corrida lo avisa, en un renglón. Para pa
 real, cada negocio se queda con su carpeta, en su máquina, y generan una clave nueva (más
 abajo).
 
+**Qué se le pasa al otro negocio para que arranque, y qué no se pasa nunca.** Para trabajar
+con un socio de verdad, él necesita en su PC el programa de su lado:
+
+| Se le pasa (no llevan nada secreto: van en un pendrive o por mail) | No se pasa **nunca**, ni a tu socio ni a nadie |
+|---|---|
+| Su programa y el trato. Si vos sos el comprador, a tu proveedor le pasás `proveedor.mate` y `trato.mate` (los dos `.mate` de la carpeta `proveedor`); si sos el proveedor, `comprador.mate` y `trato.mate` | `comprador.socios.json` y `proveedor.socios.json`: ahí está la **clave**. Quien los tenga puede firmar mensajes como ustedes. Cada PC arma el suyo con la orden `socio` |
+| Mate, si todavía no lo tiene: la carpeta `mate` entera | La **memoria** de cada programa: los `.memoria.json`, los `.bitacora.txt` y las carpetas `.buzon`. Tienen tus pedidos, tu stock y la cuenta de los mensajes: con una memoria copiada los dos programas se desordenan (y hay que renovar la clave) |
+| | La carpeta `ensayo_de_socios` entera (lleva las dos cosas de arriba) |
+
+Él los pone en una carpeta suya, en su PC (fuera de OneDrive y de la carpeta compartida), y
+ahí carga la clave con `socio aceptar` (más abajo). La **invitación** (`invitacion-mate.txt`)
+es aparte: va solo en un pendrive o en mano, nunca por mail ni en la carpeta compartida, y Mate
+la borra al cargarla. En la carpeta compartida no se copia nada a mano: ahí escribe y borra
+Mate.
+
 **Ojo al pasar del ensayo a lo real: las carpetas se acuerdan del ensayo.** El pedido A-17
 ya figura mandado o confirmado y el stock ya está descontado, así que la primera corrida de
 verdad no mandaría nada. Antes, cada uno cambia en su programa los datos de muestra por los
-suyos (el pedido A-17 está en el último renglón de `comprador.mate`) y corre **una** vez con
-`--olvidar`, que arranca con la memoria limpia:
+suyos y corre **una** vez con `--olvidar`, que arranca con la memoria limpia. En
+`comprador.mate` el pedido está en el renglón que empieza con `enviar Pedir` y dice `"A-17"`,
+debajo del título "El programa": con el Bloc de notas se encuentra buscando `A-17` en el menú
+Edición, Buscar. **No** es ninguno de los `enviar Pedir` del final del archivo: esos son de
+las pruebas (P-1 a P-8) y cambiarlos no manda nada.
 
 ```
 python mate\mate.py correr comprador.mate --olvidar
@@ -1385,9 +1420,9 @@ reciba. Un socio tiene las mismas prohibiciones que un agente de otro programa: 
 puede `preguntar` (su programa corre en otro momento), ni `crear`, ni mirarle el estado, ni
 meterlo adentro de un mensaje, y un `contrato conversacion` no cruza.
 
-Un mensaje entre negocios es **corto**: hasta 8 KB en total, textos de hasta 500 letras y
-hasta 4 cosas una adentro de otra. Es así porque se te muestra entero antes del `si`: lo que
-no entra en pantalla no se recorta, se rechaza.
+Un mensaje entre negocios es **corto**: hasta 8 KB en total, textos de hasta 500 letras,
+números de hasta 60 cifras (0.8.1) y hasta 4 cosas una adentro de otra. Es así porque se te
+muestra entero antes del `si`: lo que no entra en pantalla no se recorta, se rechaza.
 
 Y sus textos van **en un solo renglón y sin caracteres que no se ven**: un texto con un salto
 de renglón, un tabulador, un carácter de control o de dirección de texto no sale hacia un
@@ -1458,11 +1493,34 @@ lo único de la clave que Mate muestra, y aparece al lado de cada mensaje que ll
 | `socio aceptar proveedor.mate Cliente` | carga la clave que te pasó tu socio (del archivo de invitación, o tipeada sin que se vea) |
 | `socio renovar comprador.mate Proveedor` | cambia la clave por una nueva (pide un `si`). Tu socio la tiene que aceptar de nuevo. Lo que estaba por salir, esperando tu `si` o viajando en la carpeta compartida con la clave vieja deja de valer, con aviso |
 | `socio quitar comprador.mate Proveedor` | saca la clave (pide un `si`): con ese socio no se manda ni se recibe más |
+| `socio carpeta comprador.mate Proveedor --carpeta=F:\Compartida` | (0.8.1) cambia **solo** dónde está la carpeta compartida. La clave queda igual y tu socio no tiene que hacer nada |
 | `buzon comprador.mate` | muestra, sin tocar nada, lo que hay con cada socio: el número de control, la carpeta (y si se ve), lo que está por salir, lo que espera tu `si` y los números que faltan |
 
 Si un programa tiene `usar socio Proveedor` y todavía no tiene la clave, **corre igual**:
 avisa qué orden falta, y lo que le mande a ese socio queda anotado y sale cuando la clave
 esté. No es un error.
+
+**Si la carpeta compartida cambió de lugar** (al pendrive le tocó otra letra, o moviste la
+carpeta de OneDrive), Mate avisa `no veo la carpeta compartida con Proveedor` y dice la orden
+para arreglarlo. No hace falta cambiar la clave (0.8.1):
+
+```
+python mate\mate.py socio carpeta comprador.mate Proveedor --carpeta='F:\Compartida'
+```
+
+Sin `--carpeta`, Mate muestra cuál tiene anotada y pregunta por la nueva. Cambia solo eso: la
+clave, el número de control y la cuenta de los mensajes quedan como estaban, y lo que estaba
+por salir sale a la carpeta nueva en la próxima corrida. Tiene que ser **la misma carpeta que
+ve tu socio** (el mismo pendrive, la misma carpeta de la nube), aunque en cada PC tenga otra
+ruta. Si en cambio los dos pasan a una carpeta nueva, cada uno hace su `socio carpeta`, y lo
+que haya quedado sin traer en la vieja **no se muda solo**. Si en la carpeta de antes
+quedaron mensajes tuyos que tu socio no trajo, `socio carpeta` te dice cuántos son. Lo más
+simple es que tu socio corra su programa una vez más con la carpeta de antes, antes de hacer
+su `socio carpeta`: así los recibe. Si ya no puede, esos mensajes se pierden: avisale, y lo
+que pedían se hace de nuevo desde tu programa (un pedido, con otro número de pedido).
+
+Mientras la carpeta no se vea, el aviso sale en cada corrida. La orden que muestra trae
+`F:\Compartida` **de ejemplo**: ahí va la ruta donde está ahora la carpeta.
 
 **Renová la clave** (`socio renovar` de un lado, `socio aceptar` del otro) si se perdió o
 pudo haberse copiado el pendrive, la invitación o el archivo `.socios.json`; si restauraste
@@ -1534,6 +1592,35 @@ viaja el texto de un error de adentro de un programa. Si tu agente tiene `al fal
 aviso también pasa por tu `si`; si no, se muestra y listo. Solo vale el aviso de un mensaje
 que tu programa le mandó de verdad a ese socio, y uno solo por mensaje.
 
+**A un aviso de falla conviene contestarle `si`.** No es un pedido nuevo: es la noticia de
+que algo tuyo no se atendió. Con `si`, tu programa la anota (en el ejemplo, el pedido queda
+`rechazado`). Con `no`, el aviso va a `rechazados` y **tu programa no se entera**: lo que
+esperaba esa respuesta sigue esperando. Mate lo dice en la pregunta y otra vez si contestás
+`no`.
+
+**Que un pedido no quede trabado (0.8.1).** En el ejemplo 14 (y en lo que copia `nuevo
+socio`), cuando el proveedor contesta `no` o su programa falla, el `al fallar` del comprador
+marca ese pedido como **rechazado** y dice qué hacer:
+
+```
+Pedido A-17: el proveedor NO lo atendió. Motivo: el dueño lo descartó.
+Quedó anotado como RECHAZADO: no está pedido ni confirmado, y no sale de nuevo solo.
+Qué hacer: llamá al proveedor para saber qué pasó. Si lo querés pedir otra vez, hace falta otro número de pedido: abrí este programa con el Bloc de notas, buscá A-17 (menú Edición, Buscar) y, en ese renglón, el que empieza con 'enviar Pedir', cambialo por otro (por ejemplo A-17-b). Guardá y corré de nuevo.
+```
+
+Ese renglón está en el medio del archivo, debajo del título "El programa", y es el único
+donde figura el número del pedido. Los `enviar Pedir` del final son de las pruebas.
+
+Mientras un pedido espera una respuesta, el comprador también lo dice en cada corrida (`El
+pedido A-17 ya salió y espera la cotización del proveedor...`): si le contestaste `no` a la
+cotización o al aviso de falla, el pedido sigue "esperando" y ese renglón te lo recuerda
+hasta que hables con el proveedor y lo pidas con otro número.
+
+Un pedido rechazado no se manda de nuevo solo (el mismo número no sale dos veces) y el
+programa lo recuerda en cada corrida: para pedirlo otra vez se usa **otro número de pedido**.
+Conviene copiar esa idea en tus programas: un `al fallar` que anote en el estado que el
+mensaje no se atendió, para que nada quede "esperando" para siempre.
+
 #### Qué hay en la carpeta compartida
 
 ```
@@ -1557,7 +1644,10 @@ aguanta lo que hace una carpeta sincronizada:
 - **La carpeta no está** (el pendrive afuera, sin conexión): lo que había para mandar
   queda anotado, con aviso, y sale en la próxima corrida.
 - **Lo que no es un mensaje de Mate** (otro archivo, una carpeta, un acceso directo, algo
-  de más de 2 MB) no se abre, no se sigue y no se borra.
+  de más de 2 MB) no se abre, no se sigue y no se borra, y Mate avisa para que lo saques.
+- **Los archivos que deja el sistema** (0.8.1) se ignoran sin avisar: `desktop.ini`,
+  `Thumbs.db`, `.DS_Store`, los `._algo` que escribe una Mac en un pendrive, los `~$algo` de
+  Office y parecidos. Windows los oculta y los vuelve a crear: no hay que sacarlos.
 - **Un archivo que en ese momento no se puede abrir** (lo tiene tomado el programa que
   sincroniza, o el antivirus) se deja, con aviso, y se mira en la corrida siguiente. No lo
   borres: puede ser un mensaje bueno.
@@ -1589,8 +1679,9 @@ no va adentro de OneDrive** ni de ninguna otra carpeta que se suba sola (en Wind
   después llegó otro con un número más alto, `buzon` muestra el hueco; **si era el último, no
   se ve**: del lado que lo mandó, `buzon` dice `el último que mandé fue el número N`, y eso
   se compara por teléfono con lo que recibió el otro. En el ejemplo 14 un pedido cuyo mensaje
-  se perdió queda trabado (el mismo pedido no se manda dos veces): hay que hacerlo de nuevo
-  con otro número de pedido.
+  se **perdió** (nadie avisó nada) queda esperando: hay que hacerlo de nuevo con otro número
+  de pedido. Si en cambio el proveedor lo rechazó o su programa falló, llega el aviso y el
+  pedido queda `rechazado` (0.8.1).
 - **La clave es una sola para los dos.** Cualquiera de los dos podría firmar como el otro:
   un mensaje firmado no sirve de prueba ante un tercero.
 - **Si la clave se filtra** (alguien copió la invitación, el pendrive o el archivo
@@ -3231,7 +3322,7 @@ Son estas y no hay otras. Cada renglón es un ejemplo que se puede copiar:
 | `leer("¿Cuántos?", "3")` | le pide un texto a la persona (en las pruebas da el 2.º valor) |
 | `simular_teclado(["hola", "chau"])` | solo en una prueba: lo que 'teclea' la persona en cada leer() |
 | `texto(3.5)` | lo pasa a texto: "3.5" |
-| `numero("1.234,50")` | lee un número escrito como texto: 1234.5 |
+| `numero("1.234,50")` | lee un número escrito como texto: 1234.5 (y "3.500" es 3500) |
 | `tipo(x)` | dice qué es: "numero", "texto", "lista", "mapa"... |
 | `largo(lista)` | cuántos elementos tiene (o letras, o claves) |
 | `redondear(3.14159, 2)` | 3.14 (sin el 2.º valor, sin decimales) |
@@ -3580,11 +3671,32 @@ Mate lo avisa antes de correr.
 - `pesos(1234567.891)` devuelve el texto `$ 1.234.567,89`; `pesos(3500, 0)` devuelve `$ 3.500`
   (el segundo valor es la cantidad de decimales, de 0 a 6). Los negativos salen `-$ 1.500,00`.
 - `numero("1.234,50")` da `1234.5` y `numero("$ 7,25")` da `7.25`: entiende la coma decimal, el
-  punto de miles y el signo `$`. Ojo: con un solo punto y sin coma, el punto es decimal
-  (`numero("3.500")` da `3.5`); con dos o más puntos son miles (`numero("1.234.567")`). Con el
-  signo `$` adelante, el punto seguido de tres cifras son miles: `numero("$ 3.500")` da `3500`,
-  así lo que escribe `pesos()` se puede volver a leer. Un texto vacío o que no es un número
-  (`"1e5"`, `"hola"`, `".5"`, `"5."`, `"1_000"`) es un error: medio se escribe `"0.5"` o `"0,5"`.
+  punto de miles y el signo `$`. Un texto vacío o que no es un número (`"1e5"`, `"hola"`,
+  `".5"`, `"5."`, `"1_000"`) es un error: medio se escribe `"0.5"` o `"0,5"`.
+- **`numero("3.500")` da `3500` (cambió en la 0.8.1; antes daba `3.5`).** En un **texto**, un
+  punto seguido de **exactamente tres cifras** es el punto de los miles, como se escribe acá:
+  `"3.500"` es tres mil quinientos, `"35.000"` treinta y cinco mil, `"-3.500"` es `-3500` y
+  `"1.234.567"` un millón y pico. Es la misma regla en todos los lugares donde un texto pasa a
+  número: `numero()`, lo que alguien escribe en un `leer()` y pasás por `numero()`, y las
+  celdas de una planilla con `leer_tabla()`.
+
+  | El texto | Da | Por qué |
+  |---|---|---|
+  | `"3.500"`, `"35.000"`, `"350.000"`, `"$ 3.500"` | `3500`, `35000`, `350000`, `3500` | un punto y tres cifras atrás: miles |
+  | `"3.5"`, `"3.50"`, `"3.5000"` | `3.5` | atrás del punto no hay tres cifras justas: decimales |
+  | `"0.500"` | `0.5` | adelante del punto hay un cero: es medio, no quinientos |
+  | `"1234.567"` | `1234.567` | adelante del punto hay más de tres cifras: decimales |
+  | `"3,5"`, `"3,500"`, `"3.500,50"` | `3.5`, `3.5`, `3500.5` | la coma es siempre la de los decimales |
+
+  **Ojo con las cantidades con tres decimales.** Un peso escrito `"1.250"` (un kilo y cuarto)
+  se lee `1250`. Si un dato tuyo lleva decimales, escribilo con **coma** (`"1,250"` da `1.25`):
+  con coma no hay duda. Lo mismo si tu programa guarda un número en un archivo para leerlo
+  después: `texto(1.125)` escribe `1.125`, y al volver por `numero()` o por `leer_tabla()` se
+  lee `1125`. Guardalo con `pesos(x, 3)` (escribe `$ 1,125`, que vuelve bien) o con `a_json` y
+  `de_json`, que no cambian nada.
+- **Los números escritos en el programa no cambiaron**: ahí el punto es siempre el de los
+  decimales. `sea kilos = 3.5` es tres y medio, y un `3.500` suelto (sin comillas) sigue dando
+  el error de siempre, que explica cómo se escribe tres mil quinientos (`3500`).
 
 - La igualdad no convierte nada, tampoco adentro de una lista o un mapa: `1 == verdadero` da
   `falso` y `[1] == [verdadero]` también.
@@ -3657,6 +3769,32 @@ Tres cosas de la 0.8 pueden frenar algo viejo: el buzón ya no entrega un sobre 
 programa desconocido, un aviso de falla tiene que nombrar un mensaje enviado, y `socio` pasó
 a ser una orden (ver
 [Qué cambió y puede frenar un programa viejo](#qué-cambió-y-puede-frenar-un-programa-viejo)).
+
+### La 0.8.1: "3.500" son tres mil quinientos
+
+La 0.8.1 es una versión chica, de arreglos. **Una cosa cambia lo que hace un programa que ya
+tenías**, y hay que saberla:
+
+> **`numero("3.500")` ahora da `3500`, y `numero("35.000")` da `35000`.** Antes daban `3.5` y
+> `35`: una lista de precios escrita como se escribe acá quedaba mil veces más barata. En un
+> texto, un punto seguido de exactamente tres cifras es el punto de los miles. `"3.5"`,
+> `"3.50"`, `"0.500"` y `"1234.567"` siguen siendo decimales, la coma sigue siendo la de los
+> decimales (`"3,5"`), y los números escritos en el programa (`3.5`) no cambian. Si un programa
+> tuyo recibía por `numero()` cantidades con tres decimales escritas con punto (`"1.250"`
+> kilos), ahora las lee como miles: escribilas con coma (`"1,250"`). El detalle y la tabla
+> están en [Números y plata](#números-y-plata).
+
+| Qué más cambió | Dónde se explica |
+|---|---|
+| En una planilla (`leer_tabla`) vale la misma regla que en `numero()`. Lo único distinto de antes: una celda `0.500` ahora es medio (antes, quinientos) | [Números y plata](#números-y-plata) |
+| `socio carpeta comprador.mate Proveedor --carpeta=F:\Compartida` cambia **solo** la carpeta compartida, sin cambiar la clave (antes, si el pendrive pasaba de `E:` a `F:` había que renovarla). El aviso `no veo la carpeta compartida` ahora dice qué hacer | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| En la carpeta compartida, los archivos que deja el sistema (`desktop.ini`, `Thumbs.db`, `.DS_Store` y parecidos) se ignoran sin avisar | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| Ejemplo 14 y `nuevo socio`: si el proveedor contesta `no` o su programa falla, el pedido queda **rechazado** (ya no trabado) y el programa dice qué hacer | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| El manual y `nuevo socio` dicen qué archivos se le pasan al otro negocio para que arranque y cuáles **nunca** | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| Un mensaje de un socio con un número de más de 60 cifras se rechaza antes de preguntar `¿Lo entrego?` (antes se mostraba recortado). Y un sobre de socios copiado a mano al buzón común se rechaza diciendo eso | [Dos negocios que se hablan](#dos-negocios-que-se-hablan-los-socios) |
+| La guía para instalar Python en Windows usa el administrador de instalación que hoy recomienda Python, y ya no depende del instalador de antes | [Instalarlo](#instalarlo) |
+
+No agrega ninguna palabra ni función incluida. El detalle está en `MEJORAS.md`, mejora 129.
 
 ## Qué cambió en la 0.7
 
@@ -3805,6 +3943,7 @@ archivo viejo deja de andar, casi seguro es por una de estas:
 | Dentro de una prueba, `intentar` no ataja un `asegurar` de la prueba | Para comprobar que algo falla, usar `fallar` en el código y `asegurar` afuera del `intentar` |
 | "Demasiada recursión" y el freno de pasos no se atajan con `intentar` | Achicar la recursión, o `--sin-limite` para el freno de pasos |
 | Un agente no puede cambiar ninguna variable que no sea suya, ni llamando a una función que la tenga guardada | Que la función devuelva el valor y el agente lo guarde en su `estado` |
+| **`numero("3.500")` da `3500` y `numero("35.000")` da `35000` (0.8.1)**; antes daban `3.5` y `35`. En un texto, un punto con exactamente tres cifras atrás es de miles. Siguen siendo decimales `"3.5"`, `"3.50"`, `"0.500"`, `"3.5000"` y `"1234.567"`. En una planilla, `0.500` ahora es medio (antes, quinientos). Los números escritos en el programa no cambian | Si pasabas por `numero()` cantidades con tres decimales escritas con punto (`"1.250"` kilos), escribilas con coma: `"1,250"`. Y no guardes decimales con `texto()` para leerlos después con `numero()`: usá `pesos(x, 3)` o `a_json` |
 | `numero(".5")`, `numero("5.")` y `numero("1_000")` son error; `numero("1.234.567")` y `numero("1,5")` ahora sí son números | Escribir `"0.5"`; si usabas `intentar` para detectar texto inválido, revisalo |
 | `redondear(x, -2)` es un error, y el medio redondea hacia arriba | Para centenas: `redondear(x / 100) * 100` |
 | Los decimales se muestran con 12 cifras como mucho, y `fallar 0.1 + 0.2` dice `0.3` | Ver "Números y plata" |

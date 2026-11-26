@@ -17,6 +17,9 @@
 #   5. proveedor:  le llega la Confirmacion: si. Recién ahí descuenta stock. Avisa.
 #   6. comprador:  le llega el Confirmado: si.
 #
+# Si en el paso 2 el proveedor contesta "no" (o su programa falla), al comprador le llega
+# el aviso y el pedido queda "rechazado": no queda trabado esperando. Mirá 'al fallar'.
+#
 # Nada de otro negocio llega a un agente sin tu si, mensaje por mensaje. Y lo que mueve
 # plata o stock tiene además el control del propio agente (mirá Confirmacion, del otro lado).
 
@@ -31,15 +34,27 @@ usar socio Proveedor acepta Cotizacion, Confirmado
 mensaje Pedir { pedido: texto, producto: texto, cantidad: numero }
 mensaje PorConfirmar { }
 mensaje Confirmar { pedido: texto }
+mensaje EnQueAnda { pedido: texto }
 
 agente Compras {
-    # Cada pedido y en qué anda: "pedido", "cotizado", "sin stock", "confirmando" o
-    # "confirmado". Se recuerda de una corrida a la otra.
+    # Cada pedido y en qué anda: "pedido", "cotizado", "sin stock", "confirmando",
+    # "confirmado" o "rechazado". Se recuerda de una corrida a la otra.
     estado recordado pedidos = {}
 
     al recibir Pedir como p {
         # El mismo pedido no se manda dos veces, aunque el programa corra muchas.
         si tiene(pedidos, p.pedido) {
+            # Si el proveedor lo rechazó, se recuerda en cada corrida qué hay que hacer.
+            si pedidos[p.pedido].estado == "rechazado" {
+                mostrar("El pedido {p.pedido} quedó RECHAZADO: el proveedor no lo atendió, y no sale de nuevo solo. Hablá con el proveedor. Para pedirlo otra vez hace falta otro número de pedido: abrí este programa con el Bloc de notas, buscá {p.pedido} (menú Edición, Buscar) y, en ese renglón, el que empieza con 'enviar Pedir', cambialo por otro (por ejemplo {p.pedido}-b). Guardá y corré de nuevo.")
+            }
+            # Y si sigue esperando una respuesta, también se dice: que no espere callado.
+            si pedidos[p.pedido].estado == "pedido" {
+                mostrar("El pedido {p.pedido} ya salió y espera la cotización del proveedor. Si llegó, Mate te la muestra acá abajo. Si no llega más, o le dijiste que no a lo que mandó el proveedor, hablá con él: para pedirlo de nuevo hace falta otro número de pedido.")
+            }
+            si pedidos[p.pedido].estado == "confirmando" {
+                mostrar("El pedido {p.pedido} ya está confirmado de tu lado y espera el aviso del proveedor. Si llegó, Mate te lo muestra acá abajo. Si no llega más, hablá con él.")
+            }
             devolver
         }
         pedidos[p.pedido] = { estado: "pedido", producto: p.producto, cantidad: p.cantidad, total: 0 }
@@ -99,14 +114,41 @@ agente Compras {
         mostrar("Pedido {k.pedido}: confirmado por el proveedor.")
     }
 
-    # Si el proveedor no atendió algo (lo descartó, no cumplía su contrato...), avisa.
+    # Si el proveedor no atendió algo (contestó "no", su programa falló, no cumplía su
+    # contrato...), Mate avisa acá. El pedido NO queda esperando para siempre: se marca
+    # como "rechazado" y se dice qué hacer. (Vale para el Pedido y para la Confirmacion:
+    # los dos mensajes llevan el número de pedido.)
     al fallar como f {
-        mostrar("El proveedor no atendió {f.mensaje.pedido}: {f.motivo}")
+        sea cual = f.mensaje.pedido
+        sea mio = obtener(pedidos, cual, nada)
+        # Un aviso de algo que no es un pedido mío, o de uno ya cerrado, no cambia nada.
+        si mio == nada o mio.estado == "confirmado" o mio.estado == "rechazado" {
+            mostrar("El proveedor avisa que no atendió algo del pedido {cual} ({f.motivo}), pero ese pedido no estaba esperando nada: no cambio nada.")
+            devolver
+        }
+        # Se anota el rechazo: desde acá el pedido no se puede confirmar ni sale de nuevo.
+        pedidos[cual] = { estado: "rechazado", producto: mio.producto, cantidad: mio.cantidad, total: mio.total }
+        # Y se dice, en castellano simple, qué pasó y qué hay que hacer.
+        mostrar("Pedido {cual}: el proveedor NO lo atendió. Motivo: {f.motivo}.")
+        mostrar("Quedó anotado como RECHAZADO: no está pedido ni confirmado, y no sale de nuevo solo.")
+        mostrar("Qué hacer: llamá al proveedor para saber qué pasó. Si lo querés pedir otra vez, hace falta otro número de pedido: abrí este programa con el Bloc de notas, buscá {cual} (menú Edición, Buscar) y, en ese renglón, el que empieza con 'enviar Pedir', cambialo por otro (por ejemplo {cual}-b). Guardá y corré de nuevo.")
+    }
+
+    # (de entrecasa: en qué anda un pedido; lo usan las pruebas)
+    al recibir EnQueAnda como q {
+        sea mio = obtener(pedidos, q.pedido, nada)
+        si mio == nada {
+            responder "no existe"
+        } sino {
+            responder mio.estado
+        }
     }
 }
 
 # ── El programa ──
-# El pedido de siempre. Sale una sola vez: Compras recuerda que ya lo mandó.
+# El pedido de siempre. Sale una sola vez: Compras recuerda que ya lo mandó. Para hacer
+# otro pedido (o repetir uno rechazado) se cambia el número en ESTE renglón, no en las
+# pruebas de más abajo. Es el único lugar del programa donde está escrito ese número.
 enviar Pedir { pedido: "A-17", producto: "yerba", cantidad: 10 } a Compras
 
 # Lo que ya está cotizado se confirma recién con TU si (si no hay teclado, vale "no").
@@ -165,4 +207,34 @@ prueba "lo que contesta el proveedor se prueba con simular" {
     sea pendientes = preguntar PorConfirmar { } a Compras
     asegurar largo(pendientes) == 1
     asegurar pendientes[0].total == 30
+}
+
+# Cuando el proveedor contesta "no" (o su programa falla), acá llega el aviso: el pedido
+# queda rechazado, no trabado, y no se puede confirmar.
+prueba "si el proveedor no atiende el pedido, queda rechazado y no trabado" {
+    # En la prueba, el proveedor "contesta que no": su lado falla al recibir el Pedido.
+    simular Proveedor al recibir Pedido como p {
+        fallar "el dueño lo descartó"
+    }
+    enviar Pedir { pedido: "P-7", producto: "yerba", cantidad: 5 } a Compras
+    # El 'al fallar' de Compras lo anotó: ni "pedido" ni por confirmar.
+    asegurar (preguntar EnQueAnda { pedido: "P-7" } a Compras) == "rechazado"
+    asegurar largo(preguntar PorConfirmar { } a Compras) == 0
+    # Pedirlo de nuevo con el mismo número no lo manda otra vez: va con otro número.
+    enviar Pedir { pedido: "P-7", producto: "yerba", cantidad: 5 } a Compras
+    asegurar (preguntar EnQueAnda { pedido: "P-7" } a Compras) == "rechazado"
+    enviar Pedir { pedido: "P-7-b", producto: "yerba", cantidad: 5 } a Compras
+    asegurar (preguntar EnQueAnda { pedido: "P-7-b" } a Compras) == "rechazado"
+}
+
+# Lo mismo si lo que no atiende es la Confirmacion: el pedido no queda "confirmando".
+prueba "si el proveedor no atiende la confirmación, el pedido queda rechazado" {
+    simular Proveedor al recibir Confirmacion como c {
+        fallar "el programa de tu socio falló al atenderlo"
+    }
+    # El pedido llega a estar cotizado y se confirma; lo que falla es la Confirmacion.
+    enviar Pedir { pedido: "P-8", producto: "yerba", cantidad: 5 } a Compras
+    enviar Cotizacion { pedido: "P-8", producto: "yerba", cantidad: 5, precio_unitario: 100, total: 500, hay: verdadero, vale_hasta: "30/11" } a Compras
+    enviar Confirmar { pedido: "P-8" } a Compras
+    asegurar (preguntar EnQueAnda { pedido: "P-8" } a Compras) == "rechazado"
 }

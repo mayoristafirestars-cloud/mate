@@ -13,7 +13,7 @@ Uso:
     python3 mate.py corregir  archivo.mate Agente "la lección"   (y: lecciones, bitacora)
     python3 mate.py informe   (los errores de uso anotados; --para-mejorar, --borrar)
     python3 mate.py curso     (las clases para aprender Mate; curso 1 muestra la primera)
-    python3 mate.py socio     invitar|aceptar|renovar|quitar programa.mate Socio
+    python3 mate.py socio     invitar|aceptar|renovar|quitar|carpeta programa.mate Socio
                               (la clave para hablarse con el programa de otro negocio)
 """
 
@@ -22,8 +22,8 @@ import sys
 if sys.version_info < (3, 10):  # antes que nada: con un Python viejo Mate falla de formas raras
     raise SystemExit(
         "Mate necesita Python 3.10 o mas nuevo, y este es Python %d.%d.\n"
-        "Instala uno nuevo desde https://www.python.org/downloads/ (en la primera pantalla "
-        "del instalador, marca la casilla \"Add python.exe to PATH\"), cerra esta ventana "
+        "Instala uno nuevo desde https://www.python.org/downloads/windows/ (el \"Python "
+        "install manager\"; tambien esta en la tienda Microsoft Store), cerra esta ventana "
         "y proba de nuevo en una ventana nueva." % sys.version_info[:2])
 
 import ast
@@ -47,7 +47,7 @@ import types
 import unicodedata
 from collections import deque
 
-VERSION = "0.8"
+VERSION = "0.8.1"
 
 # El tope para que Mate siga siendo chico (mejora 90): no puede haber más palabras propias
 # ni más funciones incluidas que estas. Para agregar una hay que sacar otra, o discutir el
@@ -115,7 +115,8 @@ FUNCIONES = {
     "simular_teclado": (1, 1, 'simular_teclado(["hola", "chau"])',
                         "solo en una prueba: lo que 'teclea' la persona en cada leer()"),
     "texto": (1, 1, "texto(3.5)", 'lo pasa a texto: "3.5"'),
-    "numero": (1, 1, 'numero("1.234,50")', "lee un número escrito como texto: 1234.5"),
+    "numero": (1, 1, 'numero("1.234,50")',
+               'lee un número escrito como texto: 1234.5 (y "3.500" es 3500)'),
     "tipo": (1, 1, "tipo(x)", 'dice qué es: "numero", "texto", "lista", "mapa"...'),
     "largo": (1, 1, "largo(lista)", "cuántos elementos tiene (o letras, o claves)"),
     "redondear": (1, 2, "redondear(3.14159, 2)", "3.14 (sin el 2.º valor, sin decimales)"),
@@ -3292,8 +3293,14 @@ def redondeo(x, decimales):
 _NUMERO_AR = re.compile(r"[+-]?[0-9]{1,3}(\.[0-9]{3})+,[0-9]+")       # 1.234,50
 _NUMERO_COMA = re.compile(r"[+-]?[0-9]+,[0-9]+")                      # 3,5
 _NUMERO_COMUN = re.compile(r"[+-]?[0-9]+(\.[0-9]+)?")                 # 12 y 3.5
-_NUMERO_PESOS = re.compile(r"[+-]?[0-9]{1,3}(\.[0-9]{3})+")           # $ 3.500
 _NUMERO_MILES = re.compile(r"[+-]?[0-9]{1,3}(\.[0-9]{3}){2,}")        # 1.234.567
+# (0.8.1) Un texto con un solo punto y EXACTAMENTE tres cifras atrás es de miles, como se
+# escribe acá: "3.500" es tres mil quinientos y "35.000" treinta y cinco mil. La parte
+# entera tiene de una a tres cifras y no empieza con cero: "0.500" sigue siendo medio, y
+# "3.5", "3.50", "3.5000" y "1234.567" siguen siendo decimales. Vale para los TEXTOS (lo
+# que escribe una persona, una planilla, un archivo); un número escrito en el programa
+# (3.500 sin comillas) no pasa por acá y sigue valiendo tres y medio.
+_NUMERO_MIL = re.compile(r"[+-]?[1-9][0-9]{0,2}\.[0-9]{3}")            # 3.500
 
 
 def numero_de_texto(texto):
@@ -3307,8 +3314,6 @@ def numero_de_texto(texto):
     con_signo = re.match(r"([+-]?)\$\s*", t)
     if con_signo:  # "$ 100" y también "-$ 100", que es como escribe pesos()
         t = con_signo.group(1) + t[con_signo.end():]
-        if _NUMERO_PESOS.fullmatch(t):  # con el signo $, "3.500" son tres mil quinientos
-            t = t.replace(".", "")
     if "." in t and "," in t:
         if not _NUMERO_AR.fullmatch(t):
             raise no_es()
@@ -3317,7 +3322,7 @@ def numero_de_texto(texto):
         if not _NUMERO_COMA.fullmatch(t):
             raise no_es()
         t = t.replace(",", ".")
-    elif _NUMERO_MILES.fullmatch(t):
+    elif _NUMERO_MILES.fullmatch(t) or _NUMERO_MIL.fullmatch(t):
         t = t.replace(".", "")
     elif not _NUMERO_COMUN.fullmatch(t):
         raise no_es()
@@ -3421,7 +3426,6 @@ CORTE_EN_EL_TECLADO = ("Listo: cortaste con Ctrl+C mientras el programa esperaba
 # abajo queda como un mapa con esos títulos como claves. Se aceptan las dos formas en que
 # Excel la guarda (separada por punto y coma, que es lo que hace en la Argentina, o por
 # coma) y los números escritos a la argentina.
-_SOLO_MILES = re.compile(r"[+-]?[0-9]{1,3}(\.[0-9]{3})+")   # 3.500 en una planilla: 3500
 _EMPIEZA_CON_CERO = re.compile(r"[+-]?0[0-9]+")              # 00123: un código, no un número
 COMO_GUARDAR_CSV = ("En Excel: Archivo > Guardar como > en 'Tipo' elegí "
                     "\"CSV (delimitado por comas) (*.csv)\" y guardalo en la carpeta del "
@@ -3437,9 +3441,7 @@ def valor_de_celda(celda):
     sin_pesos = re.sub(r"(?<=\d)(?:\s*\$|[.,]-)$", "", sin_pesos)  # 1.200 $   3500.-
     if not t or _EMPIEZA_CON_CERO.fullmatch(sin_pesos):
         return t
-    if _SOLO_MILES.fullmatch(sin_pesos):  # en una planilla argentina el punto es de los miles
-        sin_pesos = sin_pesos.replace(".", "")
-    try:
+    try:  # "3.500" es 3500 acá y en numero(): la misma regla (0.8.1)
         return numero_de_texto(sin_pesos)
     except ErrorMate:
         return t
@@ -4414,6 +4416,12 @@ def revisar_sobre(datos, hasta=None):
     version = datos.get("mate_buzon")
     if type(version) is not int or version < 1:
         raise NoSeEntrega(no_es)
+    if version == VERSION_DE_SOBRE_DE_SOCIO and hasta < version \
+            and ("firma" in datos or "socio" in datos):
+        raise NoSeEntrega(
+            "es un sobre firmado de otro negocio (de socios) y está en el buzón local, "
+            "donde no va: lo que manda un socio llega solo por la carpeta compartida, y "
+            "Mate lo trae de ahí. No lo copies a mano al buzón")
     if version > hasta:
         raise NoSeEntrega(f"lo escribió una versión más nueva de Mate (dice mate_buzon: "
                           f"{version} y esta entiende hasta {hasta})")
@@ -5244,6 +5252,7 @@ MAX_A_MEDIO_LLEGAR = 500  # archivos que no se entienden y se siguen mirando, po
 MAX_MIRADOS_POR_CORRIDA = 5000  # archivos de la carpeta compartida que se miran por socio
 ESPERA_DE_UN_ROTO = 86400  # segundos (de ESTA máquina) antes de dar por roto un archivo
 MAX_NUMERO_DE_SOBRE = 2 ** 53
+MAX_NUMERO_A_LA_VISTA = 60  # letras de un número entre negocios, como se le muestra al dueño
 LARGO_DE_CLAVE = 44  # 40 cifras al azar y 4 de control
 MAX_CLAVES_DE_ANTES = 5  # huellas de claves anteriores que se recuerdan por socio
 CIFRAS_DISTINTAS_DE_CLAVE = 6  # menos cifras distintas que estas, no es una clave al azar
@@ -5311,7 +5320,7 @@ def valor_ajeno(v):
     if isinstance(v, Registro):
         return texto_ajeno(v.tipo, 60) + " { " + ", ".join(
             f"{texto_ajeno(k, 60)}: {valor_ajeno(x)}" for k, x in v.campos.items()) + " }"
-    return texto_ajeno(formato(v, False), 60)
+    return texto_ajeno(formato(v, False), MAX_NUMERO_A_LA_VISTA)
 
 
 # ── la clave ──
@@ -5473,6 +5482,11 @@ def no_entra_de_socio(mensaje):
                     "entre negocios")
         if isinstance(x, str) and no_se_ve_o_engana(x):
             return TEXTO_QUE_NO_SE_VE
+        if es_num(x) and len(formato(x, False)) > MAX_NUMERO_A_LA_VISTA:
+            # (0.8.1) Un número tan largo no entra en la pregunta "¿Lo entrego?": antes se
+            # mostraba recortado y el agente lo recibía entero.
+            return (f"trae un número de más de {MAX_NUMERO_A_LA_VISTA} cifras, que no "
+                    "entra en pantalla")
         if isinstance(x, dict):
             if any(not isinstance(k, str) or len(k) > 60 for k in x):
                 return "trae un nombre de campo demasiado largo"
@@ -5664,6 +5678,26 @@ def problema_de_compartida(raiz, carpeta):
     return None
 
 
+# (0.8.1) Lo que Windows, macOS y los programas que sincronizan dejan solos en cualquier
+# carpeta, casi siempre ocultos, y vuelven a crear si se borran. En la carpeta compartida no
+# son "una cosa que no es un sobre": no se abren, no se tocan y no se avisa.
+_ARCHIVOS_DE_SISTEMA = frozenset((
+    "desktop.ini", "thumbs.db", "ehthumbs.db", "ehthumbs_vista.db", ".ds_store",
+    ".localized", ".dropbox", ".dropbox.attr", ".dropbox.cache", ".fseventsd",
+    ".spotlight-v100", ".trashes", ".temporaryitems", ".tmp.drivedownload",
+    ".tmp.driveupload", "$recycle.bin", "system volume information"))
+
+
+def es_archivo_de_sistema(nombre):
+    """¿Ese nombre es de los que deja el sistema (desktop.ini, Thumbs.db, .DS_Store, los
+    "._algo" que macOS escribe en un pendrive, los "~$algo" de Office)? Se mira solo el
+    nombre, y nunca vale para algo con la forma de un sobre."""
+    bajo = nombre.casefold()
+    if _SOBRE_EN_COMPARTIDA.fullmatch(bajo):
+        return False
+    return bajo in _ARCHIVOS_DE_SISTEMA or bajo.startswith(("._", "~$"))
+
+
 def estado_nuevo_de_socio(huella, en_espera=()):
     return {"huella": huella, "enviado": 0, "piso": 0, "vistos": {}, "traidos": [],
             "ids": {}, "por_salir": [], "en_espera": list(en_espera), "rotos": {}}
@@ -5758,6 +5792,7 @@ class Socios:
         self.limpios = set()  # los socios a los que ya les saqué lo mío de otra clave
         self.avisados = set()
         self._carpetas = {}
+        self._dijo_que_hacer_sin_carpeta = False
         self._rechazos_avisados = {}
 
     def avisar_una_vez(self, cual, texto):
@@ -5892,10 +5927,24 @@ class Socios:
         ficha = self.fichas[socio]
         base = ficha["carpeta"]
         mia, suya = ("de-a", "de-b") if ficha["lado"] == "A" else ("de-b", "de-a")
-        problema = None
+        problema, que_hacer = None, ""
         if not es_carpeta_real(base):
-            problema = (f"no veo la carpeta compartida con {socio} ({base}): ¿está el "
-                        "pendrive puesto, o la conexión?")
+            # (0.8.1) Dice qué hacer: antes solo preguntaba por el pendrive.
+            problema = f"no veo la carpeta compartida con {socio} ({base})"
+            # (se explica entero una vez por corrida; con más socios, después va corto)
+            la_orden = f"{self.orden_de('carpeta', socio)} --carpeta=F:\\Compartida"
+            if self._dijo_que_hacer_sin_carpeta:
+                que_hacer = f".\n  Si cambió de lugar (con la ruta de verdad):  {la_orden}"
+            else:
+                que_hacer = (
+                    ".\n  Qué hacer: fijate que esté puesto el pendrive, o que ande la "
+                    "conexión, y corré de nuevo."
+                    "\n  Si la carpeta cambió de lugar (el pendrive tiene otra letra), decile "
+                    "a Mate dónde está:"
+                    f"\n    {la_orden}"
+                    "\n  (F:\\Compartida es un ejemplo: poné la ruta donde está AHORA la "
+                    "carpeta; la clave no cambia)")
+            self._dijo_que_hacer_sin_carpeta = True
         else:
             for sub in (mia, suya):
                 completa = os.path.join(base, sub)
@@ -5904,7 +5953,7 @@ class Socios:
                         os.mkdir(completa)
                 except OSError:
                     problema = (f"no pude crear {sub} en la carpeta compartida con {socio} "
-                                f"({base}): ¿hay permiso para escribir ahí?")
+                                f"({base}): fijate que haya permiso para escribir ahí")
                     break
                 if not es_carpeta_real(completa):
                     problema = (f"en la carpeta compartida con {socio}, {sub} no es una "
@@ -5913,7 +5962,8 @@ class Socios:
                     break
         if problema:
             self.avisar(f"{problema}. En esta corrida no mando ni recibo nada de {socio}; lo "
-                        "que haya para mandarle queda anotado y sale la próxima vez")
+                        "que haya para mandarle queda anotado y sale la próxima vez"
+                        + que_hacer)
             self._carpetas[socio] = None
         else:
             self._carpetas[socio] = (os.path.join(base, mia), os.path.join(base, suya))
@@ -6256,7 +6306,7 @@ class Socios:
                             "queda para la próxima corrida")
                         break
                     bajo = entrada.name.lower()
-                    if bajo.endswith(".tmp"):
+                    if bajo.endswith(".tmp") or es_archivo_de_sistema(bajo):
                         continue
                     if not bajo.endswith(".json"):
                         otros += 1
@@ -9751,6 +9801,8 @@ class Interprete:
         if que["falla"]:
             self.salida(f"{quien} avisa que NO atendió {valor_ajeno(que['msg'])}")
             self.salida(f"  Motivo: {que['motivo']}.")
+            self.salida("  (Es un aviso, no un pedido nuevo. Con si, tu programa lo anota. Con "
+                        "no, tu programa NO se entera y sigue esperando esa respuesta.)")
         else:
             self.salida(f"{quien} te manda {valor_ajeno(que['msg'])}")
         self.salida(f"  escrito el {cuando} según el reloj de tu socio. Lo recibe: "
@@ -9799,7 +9851,9 @@ class Interprete:
                 avisar=False)
             self.falla_a_socio(socio, sobre, "descartado", de_agente=dest.nombre)
             self.salida("  No se entregó: queda en rechazados"
-                        + ("." if que["falla"] else ", y tu socio recibe el aviso."))
+                        + (". Tu programa no se enteró del aviso: lo que esperaba esa "
+                           "respuesta sigue esperando." if que["falla"]
+                           else ", y tu socio recibe el aviso."))
             return True
         rem = self.ajenos[socio]
         self.conversaciones += 1
@@ -11308,7 +11362,9 @@ FUNCIONES INCLUIDAS (no hay otras)
   de la primera fila, tal cual están escritos:
       para fila en leer_tabla("precios.csv") {{ mostrar(fila.producto, pesos(fila.precio)) }}
   Una celda escrita como número ya llega como número, también a la argentina (3.500 es 3500;
-  3.500,50; $ 3.500). Lo demás llega como texto, y una celda vacía es "". Un título con
+  3.500,50; $ 3.500). numero("3.500") también da 3500 (en un TEXTO, un punto con justo tres
+  cifras atrás es de miles; "3.5", "3.50" y "0.500" son decimales; en el programa, 3.5 es 3.5).
+  Lo demás llega como texto, y una celda vacía es "". Un título con
   espacios se lee con corchetes: fila["precio de lista"].
 - agregar_a_archivo("pedidos.txt", renglon) suma ese texto como un renglón más, al final (si
   el archivo no existe, lo crea). Con 'probar' no toca el archivo de verdad: lo agregado se
@@ -14852,7 +14908,10 @@ def texto_de_ayuda():
         "  socio invitar comprador.mate Proveedor   genera la clave de ese socio y dice cómo",
         "                           pasársela (en un pendrive, o dictada). Del otro lado:",
         "                           socio aceptar proveedor.mate Cliente. Para cambiarla,",
-        "                           socio renovar; para sacarla, socio quitar",
+        "                           socio renovar; para sacarla, socio quitar. Si la",
+        "                           carpeta compartida cambió de lugar (el pendrive tiene",
+        "                           otra letra), sin tocar la clave:",
+        "                           socio carpeta comprador.mate Proveedor --carpeta=F:\\Compartida",
         "",
         "Para sumar lo que Mate no trae (mirá 'ayuda python'):",
         '  usar python "ayudas.py"  va en el programa: trae las funciones de ese archivo de',
@@ -15658,6 +15717,14 @@ def sobres_en_viaje(ficha):
     return cuantos
 
 
+def misma_carpeta(una, otra):
+    """¿Las dos rutas llegan a la misma carpeta? (Si alguna no se ve, no se sabe: no.)"""
+    try:
+        return os.path.samefile(una, otra)
+    except (OSError, ValueError):
+        return False
+
+
 def preparar_compartida(carpeta):
     """Deja armada la carpeta compartida: de-a, de-b y el LEEME (sin pisar nada)."""
     for sub in ("de-a", "de-b"):
@@ -15671,8 +15738,8 @@ def preparar_compartida(carpeta):
 
 
 def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_terminal=None):
-    """La orden 'socio invitar|aceptar|renovar|quitar programa.mate Socio'. Devuelve el
-    código de salida. entrada, oculto y es_terminal son para las pruebas: de dónde salen
+    """La orden 'socio invitar|aceptar|renovar|quitar|carpeta programa.mate Socio'.
+    Devuelve el código de salida. entrada, oculto y es_terminal son para las pruebas: de dónde salen
     las respuestas, la clave tipeada, y si la pantalla es una ventana de verdad."""
     entrada = entrada or por_teclado
     orden = orden_para_esta_carpeta()
@@ -15691,13 +15758,15 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
         else:
             resto.append(a)
     que = sin_tildes(resto[0].lower()) if resto else ""
-    if que not in ("invitar", "aceptar", "renovar", "quitar") or len(resto) != 3:
+    if que not in ("invitar", "aceptar", "renovar", "quitar", "carpeta") or len(resto) != 3:
         avisar("'socio' lleva qué hacer, el programa y el nombre del socio (el de su 'usar "
                f"socio'). Por ejemplo:\n  {orden} socio invitar comprador.mate Proveedor   "
                "(genera la clave y dice cómo pasársela)\n"
                f"  {orden} socio aceptar proveedor.mate Cliente     (carga la clave que te "
                f"pasó tu socio)\n  {orden} socio renovar comprador.mate Proveedor   (cambia "
-               f"la clave)\n  {orden} socio quitar comprador.mate Proveedor    (la saca)")
+               f"la clave)\n  {orden} socio quitar comprador.mate Proveedor    (la saca)\n"
+               f"  {orden} socio carpeta comprador.mate Proveedor --carpeta=F:\\Compartida"
+               "   (cambia solo la carpeta compartida; la clave queda igual)")
         return 2
     ruta, problema = _ubicar(resto[1])
     if problema:
@@ -15880,6 +15949,64 @@ def orden_socio(args, avisar, mostrar=print, entrada=None, oculto=None, es_termi
             return 1
         mostrar(f"Listo: saqué la clave con {socio}. Avisale a tu socio: lo que mande ya no "
                 "se va a entregar.")
+        return 0
+
+    if que == "carpeta":
+        # (0.8.1) Solo cambia dónde está la carpeta compartida: la clave, el lado y la
+        # cuenta de los mensajes quedan como estaban, y el socio no tiene que hacer nada.
+        if existente is None:
+            avisar(f"no hay ninguna clave cargada con {socio}: la carpeta compartida se "
+                   f"elige al cargarla. Si la clave la generás vos:  {orden} socio invitar "
+                   f"{para_pegar(resto[1])} {socio}   Si te la pasó tu socio:  {orden} "
+                   f"socio aceptar {para_pegar(resto[1])} {socio}")
+            return 1
+        if "invitacion" in opciones or "dictar" in opciones:
+            avisar("'socio carpeta' cambia solo la carpeta compartida y no toca la clave: "
+                   "no lleva --invitacion ni --dictar. Por ejemplo:  "
+                   f"{orden} socio carpeta {para_pegar(resto[1])} {socio} "
+                   "--carpeta=F:\\Compartida")
+            return 2
+        if "carpeta" not in opciones:
+            mostrar(f"Ahora la carpeta compartida con {socio} es: {existente['carpeta']}")
+        carpeta = elegir_carpeta()
+        if carpeta is None:
+            return 2
+        if carpeta == existente["carpeta"]:
+            mostrar(f"La carpeta compartida con {socio} ya era esa ({carpeta}): no cambié "
+                    "nada.")
+            return 0
+        nuevas = dict(fichas)
+        nuevas[socio] = dict(existente, carpeta=carpeta)
+        # Los mensajes propios que el socio todavía no trajo de la carpeta de antes. Si la
+        # de antes ya no se ve (cambió la letra del pendrive), no hay nada que contar: es
+        # la misma carpeta y siguen ahí.
+        atras = 0 if misma_carpeta(existente["carpeta"], carpeta) \
+            else sobres_en_viaje(existente)
+        if not guardar(nuevas):
+            return 1
+        try:
+            preparar_compartida(carpeta)
+        except OSError:
+            avisar(f"aviso: no pude terminar de armar la carpeta compartida ({carpeta}); se "
+                   "arma sola la primera vez que corra el programa")
+        mostrar(f"Listo: la carpeta compartida con {socio} ahora es {carpeta}")
+        mostrar(f"  (antes era {existente['carpeta']}). La clave NO cambió: sigue siendo la "
+                f"de control {control_de_socio(existente['clave'])}, y tu socio no tiene "
+                "que cargar nada.")
+        mostrar("  Tiene que ser la MISMA carpeta que ve tu socio (el mismo pendrive, la "
+                "misma carpeta de OneDrive o de Drive), aunque en cada PC tenga otra letra "
+                "u otra ruta. Si en cambio pasaron a una carpeta nueva, tu socio tiene que "
+                "hacer lo mismo en su PC con su 'socio carpeta'.")
+        if atras:
+            mostrar(f"  OJO: en la carpeta de antes {'quedó' if atras == 1 else 'quedaron'} "
+                    f"{cuantos_mensajes(atras)} {'tuyo' if atras == 1 else 'tuyos'} que tu "
+                    "socio todavía no trajo, y no se "
+                    f"{'muda solo' if atras == 1 else 'mudan solos'}. Qué hacer: pedile a "
+                    "tu socio que corra su programa UNA vez más con la carpeta de antes "
+                    "(antes de hacer su 'socio carpeta'): así los recibe. Si ya no puede, "
+                    "esos mensajes se pierden: avisale, y lo que pedían hay que hacerlo de "
+                    "nuevo desde tu programa (un pedido, con otro número de pedido). "
+                    "(Con la orden 'buzon', tu socio ve qué números le faltan.)")
         return 0
 
     if que == "invitar" and existente is not None:
@@ -16207,10 +16334,32 @@ def nuevo_socio(args, avisar, mostrar=print):
         "Entre una orden y la otra conviene que ninguno corra su programa.",
         "OJO: las carpetas se acuerdan del ensayo (el pedido A-17 ya figura hecho y el stock",
         "ya está descontado), así que la primera corrida de verdad no mandaría nada. Antes,",
-        "cada uno cambia en su programa los datos de muestra por los suyos (el pedido A-17",
-        "está en el último renglón de comprador.mate) y corre UNA vez con --olvidar, que",
+        "cada uno cambia en su programa los datos de muestra por los suyos (en comprador.mate",
+        "el pedido está en el renglón que empieza con 'enviar Pedir' y dice \"A-17\": con el",
+        "Bloc de notas se encuentra buscando A-17 en el menú Edición, Buscar; NO es ninguno",
+        "de los 'enviar Pedir' de las pruebas del final) y corre UNA vez con --olvidar, que",
         "arranca con la memoria limpia:",
         f"       {lanzador} correr comprador.mate --olvidar",
+        "",
+        "QUÉ SE LE PASA AL OTRO NEGOCIO para que arranque en su PC (no llevan nada secreto:",
+        "pueden ir en un pendrive o por mail):",
+        "    - su programa y el trato: si vos sos el comprador, a tu proveedor le pasás",
+        "      proveedor.mate y trato.mate (los dos archivos .mate de la carpeta proveedor);",
+        "      si sos el proveedor, comprador.mate y trato.mate (de la carpeta comprador)",
+        "    - Mate, si todavía no lo tiene: la carpeta 'mate' entera",
+        "  Los pone en una carpeta suya, en su PC, y ahí carga la clave con 'socio aceptar'.",
+        "QUÉ NO SE LE PASA NUNCA, ni a tu socio ni a nadie:",
+        "    - comprador.socios.json y proveedor.socios.json: ahí está la clave. Quien los",
+        "      tenga puede firmar mensajes como ustedes. Cada PC arma el suyo con 'socio'.",
+        "    - la memoria de cada programa: los .memoria.json, los .bitacora.txt y las",
+        "      carpetas .buzon. Tienen tus pedidos y tu stock, y la cuenta de los mensajes:",
+        "      con una memoria copiada, los dos programas se desordenan.",
+        "    - la invitación (invitacion-mate.txt) va SOLO en un pendrive o en mano, nunca",
+        "      por mail ni en la carpeta compartida, y Mate la borra cuando se carga.",
+        "  En la carpeta compartida no se copia nada a mano: ahí escribe y borra Mate.",
+        "Si después la carpeta compartida cambia de lugar (otra letra del pendrive), no hace",
+        "falta cambiar la clave:",
+        f"       {lanzador} socio carpeta comprador.mate Proveedor --carpeta='F:\\Compartida'",
         "(el manual lo cuenta paso a paso, en \"Dos negocios que se hablan (los socios)\")")
     for renglon in renglones:
         mostrar(renglon)
